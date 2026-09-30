@@ -1,5 +1,7 @@
 # Godot Safe Change MCP
 
+[English](README.en.md) | 简体中文
+
 一个让 Agent 通过 MCP 参与 Godot 开发的 MCP Server。TypeScript MCP Server 负责工具契约、计划、确认和报告；GDScript Godot EditorPlugin 负责编辑器上下文、UndoRedo、运行控制和诊断采集。
 
 当前已经打通第一条安全垂直链路：
