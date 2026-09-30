@@ -867,6 +867,8 @@ test("the Godot plugin exposes only the bounded vertical-link routes", async () 
   assert.match(source, /EditorInterface\.get_edited_scene_root/);
   assert.match(source, /get_undo_redo/);
   assert.match(source, /play_current_scene/);
+  assert.match(source, /func _run_scene/);
+  assert.match(source, /--audio-driver/);
   assert.match(source, /\/v1\/context/);
   assert.match(source, /\/v1\/changes\/apply/);
   assert.match(source, /\/v1\/changes\/rollback/);

@@ -1054,6 +1054,15 @@ func _run_current_scene() -> Dictionary:
     EditorInterface.play_current_scene()
     return _success("diagnostics", _run_diagnostics_snapshot())
 
+func _run_scene(_scene: String, args: PackedStringArray) -> PackedStringArray:
+    var adjusted_args := args.duplicate()
+    if not adjusted_args.has("--headless"):
+        adjusted_args.append("--headless")
+    if not adjusted_args.has("--audio-driver"):
+        adjusted_args.append("--audio-driver")
+        adjusted_args.append("Dummy")
+    return adjusted_args
+
 func _run_specific_scene(body: Variant) -> Dictionary:
     var scene_path := String(body.get("scenePath", ""))
     if not _is_safe_scene_path(scene_path):
