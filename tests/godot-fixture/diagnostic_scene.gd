@@ -25,6 +25,7 @@ func _ready() -> void:
 
 func _finish_fixture() -> void:
     print("fixture scene stopping")
+    EngineDebugger.send_message("godot_safe_change:diagnostic", ["run_complete", "fixture scene stopped"])
     get_tree().quit()
 
 func _capture_debugger_message(_message: String, _data: Array) -> bool:

@@ -123,7 +123,10 @@ func record_debugger_message(data: Array) -> void:
         var repair_hint := _safe_repair_hint(data[5])
         if not repair_hint.is_empty():
             entry["repairHint"] = repair_hint
-    if severity == "error":
+    if severity == "run_complete":
+        run_status = "stopped"
+        diagnostics["output"].append(message)
+    elif severity == "error":
         diagnostics["errors"].append(entry)
     elif severity == "warning":
         diagnostics["warnings"].append(entry)
