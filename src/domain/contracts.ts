@@ -106,13 +106,41 @@ export type EditorRunState = z.infer<typeof editorRunStateSchema>;
 export type SceneNode = z.infer<typeof sceneNodeSchema>;
 export type EditorContext = z.infer<typeof editorContextSchema>;
 
-export const searchProjectKindSchema = z.enum(["scene", "node", "script", "resource"]);
+export const searchProjectKindSchema = z.enum([
+  "scene",
+  "node",
+  "script",
+  "resource",
+  "signal",
+  "input",
+]);
 
 export const searchProjectInputSchema = z.object({
-  projectRoot: z.string().min(1),
-  query: z.string().min(1).max(200),
-  kinds: z.array(searchProjectKindSchema).min(1).optional(),
-  maxResults: z.number().int().min(1).max(100).optional(),
+  projectRoot: z
+    .string()
+    .min(1)
+    .describe("Absolute or workspace-relative path to the Godot project."),
+  query: z
+    .string()
+    .min(1)
+    .max(200)
+    .describe(
+      "Case-insensitive substring to match against file paths, node names and types, signal names and input actions.",
+    ),
+  kinds: z
+    .array(searchProjectKindSchema)
+    .min(1)
+    .optional()
+    .describe(
+      "Result kinds to include; defaults to all kinds. The editor bridge serves scene, node, script and resource; signal and input always come from the local project index.",
+    ),
+  maxResults: z
+    .number()
+    .int()
+    .min(1)
+    .max(100)
+    .optional()
+    .describe("Maximum number of results to return; defaults to 50."),
 });
 
 export const searchResultSchema = z.object({
@@ -122,6 +150,7 @@ export const searchResultSchema = z.object({
   nodePath: z.string().nullable(),
   nodeType: z.string().nullable(),
   matches: z.array(z.enum(["path", "name", "type", "node_path"])).min(1),
+  source: z.enum(["editor", "local"]).optional(),
 });
 
 export const searchProjectReportSchema = z.object({
@@ -130,6 +159,7 @@ export const searchProjectReportSchema = z.object({
   query: z.string().min(1),
   revision: z.string().nullable(),
   results: z.array(searchResultSchema),
+  truncated: z.boolean().optional(),
 });
 
 export type SearchProjectKind = z.infer<typeof searchProjectKindSchema>;
@@ -188,61 +218,3 @@ export const runDiagnosticsSchema = z.object({
 });
 
 export type RunDiagnostics = z.infer<typeof runDiagnosticsSchema>;
-
-export const searchSectionSchema = z.enum([
-  "scenes",
-  "scripts",
-  "resources",
-  "signals",
-  "inputs",
-]);
-
-export const projectSearchInputSchema = z.object({
-  projectRoot: z
-    .string()
-    .min(1)
-    .describe("Absolute or workspace-relative path to the Godot project."),
-  query: z
-    .string()
-    .min(1)
-    .max(200)
-    .describe("Case-insensitive substring to match against file paths, node names and node types."),
-  sections: z
-    .array(searchSectionSchema)
-    .min(1)
-    .optional()
-    .describe(
-      "Project sections to search; defaults to scenes, scripts, resources, signals and inputs.",
-    ),
-  limit: z
-    .number()
-    .int()
-    .min(1)
-    .max(100)
-    .optional()
-    .describe("Maximum number of matches to return; defaults to 50."),
-});
-
-export type SearchSection = z.infer<typeof searchSectionSchema>;
-export type ProjectSearchInput = z.infer<typeof projectSearchInputSchema>;
-
-export const searchMatchSchema = z.object({
-  section: searchSectionSchema,
-  path: z.string().min(1).describe("res:// path of the containing file."),
-  name: z.string().min(1).describe("File name for file matches; node name for node matches."),
-  kind: z.string().min(1).describe("File extension for file matches; node type for node matches."),
-  detail: z.string().optional().describe("Human-readable context for node matches."),
-});
-
-export type SearchMatch = z.infer<typeof searchMatchSchema>;
-
-export const projectSearchResultSchema = z.object({
-  schemaVersion: z.literal("0.1"),
-  projectRoot: z.string().min(1),
-  query: z.string().min(1),
-  sections: z.array(searchSectionSchema),
-  matches: z.array(searchMatchSchema),
-  truncated: z.boolean(),
-});
-
-export type ProjectSearchResult = z.infer<typeof projectSearchResultSchema>;

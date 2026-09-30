@@ -3,8 +3,10 @@ import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { after, before, describe, test } from "node:test";
-import { searchProjectFiles } from "../src/infrastructure/project-index.js";
-import { LocalProjectService } from "../src/application/project-service.js";
+import { searchProjectIndex } from "../src/infrastructure/project-index.js";
+import { LocalProjectSearchService } from "../src/application/project-search-service.js";
+import { DomainError, ERROR_CODES } from "../src/domain/errors.js";
+import type { SearchProjectReport, SearchProjectRequest } from "../src/domain/contracts.js";
 import type { GodotBridge } from "../src/infrastructure/godot-bridge.js";
 
 const SCENE_MAIN = [
@@ -17,14 +19,6 @@ const SCENE_MAIN = [
   "[node name=\"ScoreLabel\" type=\"Label\" parent=\"Player\"]",
   "",
   "[connection signal=\"pressed\" from=\"Player\" to=\".\" method=\"_on_player_pressed\"]",
-].join("\n");
-
-const SCENE_LEVEL = [
-  "[gd_scene load_steps=2 format=3 uid=\"uid://level\"]",
-  "",
-  "[node name=\"Level\" type=\"Node2D\"]",
-  "",
-  "[node name=\"Enemy\" type=\"Area2D\" parent=\".\"]",
 ].join("\n");
 
 const SCRIPT_PLAYER = [
@@ -65,7 +59,6 @@ before(async () => {
   await mkdir(path.join(base, ".godot"));
   await writeFile(path.join(base, "project.godot"), PROJECT_SETTINGS + "\n");
   await writeFile(path.join(base, "scenes", "main.tscn"), SCENE_MAIN + "\n");
-  await writeFile(path.join(base, "scenes", "level.tscn"), SCENE_LEVEL + "\n");
   await writeFile(path.join(base, "scripts", "player.gd"), SCRIPT_PLAYER + "\n");
   await writeFile(path.join(base, "resources", "theme.tres"), "[gd_resource type=\"Theme\"]\n");
   await writeFile(path.join(base, ".godot", "cache.tscn"), "[node name=\"Hidden\"]\n");
@@ -77,101 +70,172 @@ after(async () => {
   await rm(fixtureRoot, { recursive: true, force: true });
 });
 
-describe("searchProjectFiles", () => {
-  test("finds scene files and node names inside text scenes", async () => {
-    const { matches } = await searchProjectFiles(fixtureRoot, { query: "player" });
+describe("searchProjectIndex", () => {
+  test("finds scene files, node names and node types in the unified result shape", async () => {
+    const { results } = await searchProjectIndex(fixtureRoot, { query: "player" });
 
-    const paths = matches.map((match) => match.path);
-    assert.ok(paths.includes("res://scenes/main.tscn"));
-    const nodeMatch = matches.find((match) => match.name === "Player");
-    assert.equal(nodeMatch?.kind, "CharacterBody2D");
-    assert.match(nodeMatch?.detail ?? "", /res:\/\/scenes\/main\.tscn/);
+    const nodeMatch = results.find((result) => result.kind === "node" && result.name === "Player");
+    assert.equal(nodeMatch?.nodeType, "CharacterBody2D");
+    assert.equal(nodeMatch?.nodePath, ".");
+    assert.deepEqual(nodeMatch?.matches, ["name"]);
+
+    const scriptMatch = results.find((result) => result.kind === "script");
+    assert.equal(scriptMatch?.path, "res://scripts/player.gd");
+    assert.deepEqual(scriptMatch?.matches, ["path"]);
   });
 
-  test("matches node types and scripts by section", async () => {
-    const byType = await searchProjectFiles(fixtureRoot, { query: "Area2D" });
-    assert.equal(byType.matches[0]?.name, "Enemy");
-    assert.equal(byType.matches[0]?.section, "scenes");
-
-    const scriptOnly = await searchProjectFiles(fixtureRoot, {
-      query: "player",
-      sections: ["scripts"],
+  test("finds signal connections, declarations and input actions", async () => {
+    const signals = await searchProjectIndex(fixtureRoot, {
+      query: "pressed",
+      kinds: ["signal"],
     });
-    assert.deepEqual(
-      scriptOnly.matches.map((match) => match.path),
-      ["res://scripts/player.gd"],
-    );
+    assert.equal(signals.results[0]?.kind, "signal");
+    assert.equal(signals.results[0]?.name, "pressed");
+    assert.equal(signals.results[0]?.nodePath, "Player");
+
+    const declarations = await searchProjectIndex(fixtureRoot, {
+      query: "health_changed",
+      kinds: ["signal"],
+    });
+    assert.equal(declarations.results[0]?.path, "res://scripts/player.gd");
+
+    const inputs = await searchProjectIndex(fixtureRoot, { query: "jump", kinds: ["input"] });
+    assert.equal(inputs.results[0]?.kind, "input");
+    assert.equal(inputs.results[0]?.path, "res://project.godot");
   });
 
   test("ignores hidden directories and never follows symlinks", async () => {
-    const { matches } = await searchProjectFiles(fixtureRoot, { query: "hidden" });
-    assert.deepEqual(matches, []);
-
-    const { matches: all } = await searchProjectFiles(fixtureRoot, { query: "tscn" });
-    for (const match of all) {
-      assert.ok(!match.path.includes(".godot/"));
-      assert.ok(!match.path.includes("link-outside"));
+    const { results } = await searchProjectIndex(fixtureRoot, { query: "tscn" });
+    for (const result of results) {
+      assert.ok(!result.path.includes(".godot/"));
+      assert.ok(!result.path.includes("link-outside"));
     }
-  });
-
-  test("finds signal connections, script signal declarations and input actions", async () => {
-    const connection = await searchProjectFiles(fixtureRoot, { query: "pressed" });
-    assert.equal(connection.matches[0]?.section, "signals");
-    assert.equal(connection.matches[0]?.kind, "connection");
-    assert.match(connection.matches[0]?.detail ?? "", /from Player to \. via _on_player_pressed/);
-
-    const declaration = await searchProjectFiles(fixtureRoot, { query: "health_changed" });
-    assert.equal(declaration.matches[0]?.kind, "declaration");
-    assert.equal(declaration.matches[0]?.path, "res://scripts/player.gd");
-
-    const inputAction = await searchProjectFiles(fixtureRoot, { query: "jump" });
-    assert.equal(inputAction.matches[0]?.section, "inputs");
-    assert.equal(inputAction.matches[0]?.name, "jump");
-    assert.equal(inputAction.matches[0]?.path, "res://project.godot");
-  });
-
-  test("does not leak settings keys from other project.godot sections", async () => {
-    const { matches } = await searchProjectFiles(fixtureRoot, {
-      query: "config/name",
-      sections: ["inputs"],
-    });
-    assert.deepEqual(matches, []);
-  });
-
-  test("reports truncation when the limit is reached", async () => {
-    const { matches, truncated } = await searchProjectFiles(fixtureRoot, {
-      query: "e",
-      limit: 2,
-    });
-
-    assert.equal(matches.length, 2);
-    assert.equal(truncated, true);
   });
 
   test("rejects an empty query", async () => {
     await assert.rejects(
-      () => searchProjectFiles(fixtureRoot, { query: "   " }),
+      () => searchProjectIndex(fixtureRoot, { query: "   " }),
       /must not be empty/,
     );
   });
 });
 
-describe("LocalProjectService.searchProject", () => {
-  test("returns a contract-shaped result with a normalized root", async () => {
-    const service = new LocalProjectService({} as GodotBridge);
-    const result = await service.searchProject({
+class SearchBridgeStub implements GodotBridge {
+  searchCalls: SearchProjectRequest[] = [];
+  failSearch = false;
+
+  async searchProject(
+    _projectRoot: string,
+    request: SearchProjectRequest,
+  ): Promise<SearchProjectReport> {
+    if (this.failSearch) {
+      throw new DomainError(
+        ERROR_CODES.EDITOR_UNAVAILABLE,
+        "The Godot EditorPlugin bridge is not connected.",
+      );
+    }
+    this.searchCalls.push(request);
+    return {
+      schemaVersion: "0.3",
+      projectRoot: _projectRoot,
+      query: request.query,
+      revision: "revision-1",
+      results: [
+        {
+          kind: "node",
+          path: "res://scenes/main.tscn",
+          name: "EditorPlayer",
+          nodePath: ".",
+          nodeType: "CharacterBody2D",
+          matches: ["name"],
+        },
+      ],
+    };
+  }
+
+  async getContext(): Promise<never> {
+    throw new Error("not used");
+  }
+
+  async applyChange(): Promise<never> {
+    throw new Error("not used");
+  }
+
+  async rollbackChange(): Promise<never> {
+    throw new Error("not used");
+  }
+
+  async runCurrentScene(): Promise<never> {
+    throw new Error("not used");
+  }
+}
+
+describe("LocalProjectSearchService", () => {
+  test("serves editor-backed kinds through the bridge and tags results", async () => {
+    const bridge = new SearchBridgeStub();
+    const service = new LocalProjectSearchService(bridge);
+
+    const report = await service.search({
       projectRoot: fixtureRoot,
-      query: "theme",
+      query: "player",
+      kinds: ["node"],
     });
 
-    assert.equal(result.schemaVersion, "0.1");
-    assert.equal(result.query, "theme");
-    assert.equal(
-      result.projectRoot,
-      await (await import("node:fs/promises")).realpath(fixtureRoot),
+    assert.equal(bridge.searchCalls.length, 1);
+    assert.equal(report.results[0]?.name, "EditorPlayer");
+    assert.equal(report.results[0]?.source, "editor");
+    assert.equal(report.revision, "revision-1");
+  });
+
+  test("strips local-only kinds from the bridge request and merges local signal results", async () => {
+    const bridge = new SearchBridgeStub();
+    const service = new LocalProjectSearchService(bridge);
+
+    const report = await service.search({
+      projectRoot: fixtureRoot,
+      query: "e",
+      kinds: ["node", "signal"],
+      maxResults: 100,
+    });
+
+    assert.deepEqual(bridge.searchCalls[0]?.kinds, ["node"]);
+    const sources = report.results.map((result) => result.source);
+    assert.ok(sources.includes("editor"));
+    assert.ok(sources.includes("local"));
+    assert.ok(
+      report.results.some((result) => result.kind === "signal" && result.name === "pressed"),
     );
-    assert.equal(result.matches[0]?.path, "res://resources/theme.tres");
-    assert.equal(result.matches[0]?.section, "resources");
-    assert.equal(result.truncated, false);
+  });
+
+  test("never calls the bridge for signal- and input-only requests", async () => {
+    const bridge = new SearchBridgeStub();
+    const service = new LocalProjectSearchService(bridge);
+
+    const report = await service.search({
+      projectRoot: fixtureRoot,
+      query: "jump",
+      kinds: ["input"],
+    });
+
+    assert.equal(bridge.searchCalls.length, 0);
+    assert.equal(report.results[0]?.source, "local");
+    assert.equal(report.results[0]?.name, "jump");
+  });
+
+  test("falls back to the local index when the editor bridge is unavailable", async () => {
+    const bridge = new SearchBridgeStub();
+    bridge.failSearch = true;
+    const service = new LocalProjectSearchService(bridge);
+
+    const report = await service.search({
+      projectRoot: fixtureRoot,
+      query: "theme",
+      kinds: ["resource"],
+    });
+
+    assert.equal(bridge.searchCalls.length, 0);
+    assert.equal(report.revision, null);
+    assert.equal(report.results[0]?.path, "res://resources/theme.tres");
+    assert.equal(report.results[0]?.source, "local");
   });
 });

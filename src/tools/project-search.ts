@@ -1,40 +1,32 @@
 import type { MCPServer } from "mcp-use";
 import {
-  projectSearchInputSchema,
-  projectSearchResultSchema,
-  type ProjectSearchInput,
+  searchProjectInputSchema,
+  searchProjectReportSchema,
+  type SearchProjectInput,
 } from "../domain/contracts.js";
-import type { ProjectService } from "../application/project-service.js";
+import type { ProjectSearchService } from "../application/project-search-service.js";
 import { toolError } from "./tool-errors.js";
 
-export function registerProjectSearchTool(
+export function registerSearchProjectTool(
   server: MCPServer,
-  service: ProjectService,
+  service: ProjectSearchService,
 ) {
   return server.tool(
     {
       name: "search_project",
-      title: "Search project",
+      title: "Search Godot project",
       description:
-        "Read-only search over a Godot project's scenes, scripts and resources, including node names and types inside text scenes.",
-      inputSchema: projectSearchInputSchema,
-      outputSchema: projectSearchResultSchema,
-      annotations: {
-        readOnlyHint: true,
-        destructiveHint: false,
-      },
+        "Find scenes, nodes, scripts, resources, signal connections and input actions without modifying the project. Editor-backed kinds are served by the connected Godot editor when available and fall back to a local read-only project index otherwise; signal and input results always come from the local index. Each result is tagged with its source.",
+      inputSchema: searchProjectInputSchema,
+      outputSchema: searchProjectReportSchema,
+      annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
     },
-    async (input: ProjectSearchInput) => {
+    async (input: SearchProjectInput) => {
       try {
-        const result = await service.searchProject(input);
+        const report = await service.search(input);
         return {
-          content: [
-            {
-              type: "text" as const,
-              text: JSON.stringify(result, null, 2),
-            },
-          ],
-          structuredContent: result,
+          content: [{ type: "text" as const, text: JSON.stringify(report, null, 2) }],
+          structuredContent: report,
         };
       } catch (error) {
         return toolError(error);

@@ -208,6 +208,107 @@ func _safe_node_properties(node: Node) -> Dictionary:
         }
     return properties
 
+func _search_project(body: Variant) -> Dictionary:
+    if typeof(body) != TYPE_DICTIONARY:
+        return _failure("VALIDATION_FAILED", "The search request body must be a JSON object.")
+    var request_body: Dictionary = body
+    var query := String(request_body.get("query", "")).strip_edges().to_lower()
+    if query == "":
+        return _failure("VALIDATION_FAILED", "query is required.")
+
+    var kinds: Array = request_body.get("kinds", ["scene", "node", "script", "resource"])
+    if typeof(kinds) != TYPE_ARRAY or kinds.is_empty():
+        return _failure("VALIDATION_FAILED", "kinds must be a non-empty array.")
+    for kind in kinds:
+        if not ["scene", "node", "script", "resource"].has(String(kind)):
+            return _failure("VALIDATION_FAILED", "kinds contains an unsupported value.")
+
+    var max_results := clamp(int(request_body.get("maxResults", 50)), 1, 100)
+    var results: Array = []
+    var scene_root := EditorInterface.get_edited_scene_root()
+    var scene_path := ""
+    var revision := ""
+    if scene_root != null:
+        scene_path = String(scene_root.scene_file_path)
+        revision = _current_revision(scene_root, scene_path)
+        if kinds.has("node"):
+            _search_scene_nodes(scene_root, scene_root, query, results, max_results)
+
+    var resource_filesystem = EditorInterface.get_resource_filesystem()
+    if resource_filesystem != null and results.size() < max_results:
+        var filesystem = resource_filesystem.get_filesystem()
+        if filesystem != null:
+            _search_filesystem_directory(filesystem, query, kinds, results, max_results, resource_filesystem)
+
+    return _success("report", {
+        "schemaVersion": "0.3",
+        "projectRoot": ProjectSettings.globalize_path("res://").simplify_path(),
+        "query": query,
+        "revision": revision,
+        "results": results,
+    })
+
+func _search_scene_nodes(scene_root: Node, node: Node, query: String, results: Array, max_results: int) -> void:
+    if results.size() >= max_results:
+        return
+    var context := _node_context(scene_root, node)
+    var matches := _field_matches(query, [context["name"], context["type"], context["path"]])
+    if not matches.is_empty():
+        results.append({
+            "kind": "node",
+            "path": String(scene_root.scene_file_path),
+            "name": context["name"],
+            "nodePath": context["path"],
+            "nodeType": context["type"],
+            "matches": matches,
+        })
+    for child in node.get_children():
+        _search_scene_nodes(scene_root, child, query, results, max_results)
+        if results.size() >= max_results:
+            return
+
+func _search_filesystem_directory(directory, query: String, kinds: Array, results: Array, max_results: int, resource_filesystem) -> void:
+    for file_index in range(directory.get_file_count()):
+        if results.size() >= max_results:
+            return
+        var file_path := String(directory.get_file_path(file_index))
+        var kind := _file_kind(file_path)
+        if not kinds.has(kind):
+            continue
+        var file_type := String(resource_filesystem.get_file_type(file_path))
+        var matches := _field_matches(query, [file_path, file_path.get_file(), file_type])
+        if matches.is_empty():
+            continue
+        results.append({
+            "kind": kind,
+            "path": file_path,
+            "name": file_path.get_file(),
+            "nodePath": null,
+            "nodeType": null,
+            "matches": matches,
+        })
+
+    for subdir_index in range(directory.get_subdir_count()):
+        if results.size() >= max_results:
+            return
+        _search_filesystem_directory(directory.get_subdir(subdir_index), query, kinds, results, max_results, resource_filesystem)
+
+func _file_kind(file_path: String) -> String:
+    var extension := file_path.get_extension().to_lower()
+    if extension == "tscn" or extension == "scn":
+        return "scene"
+    if extension == "gd":
+        return "script"
+    return "resource"
+
+func _field_matches(query: String, fields: Array) -> Array:
+    var matches: Array = []
+    var field_names := ["path", "name", "type"]
+    for index in range(min(fields.size(), field_names.size())):
+        if String(fields[index]).to_lower().contains(query):
+            matches.append(field_names[index])
+    return matches
+
 func _apply_change(body: Variant) -> Dictionary:
     var request_body: Dictionary = body
     var scene_root := EditorInterface.get_edited_scene_root()

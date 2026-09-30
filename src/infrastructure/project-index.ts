@@ -1,26 +1,18 @@
 import { readFile, readdir, stat } from "node:fs/promises";
 import path from "node:path";
 import type {
-  ProjectSearchInput,
-  SearchMatch,
-  SearchSection,
+  SearchProjectKind,
+  SearchResult,
 } from "../domain/contracts.js";
 import { DomainError, ERROR_CODES } from "../domain/errors.js";
 
-export const DEFAULT_SEARCH_SECTIONS: SearchSection[] = [
-  "scenes",
-  "scripts",
-  "resources",
-  "signals",
-  "inputs",
-];
 const DEFAULT_LIMIT = 50;
 const MAX_SCENE_BYTES = 5 * 1024 * 1024;
 
-const SECTION_EXTENSIONS: Partial<Record<SearchSection, ReadonlySet<string>>> = {
-  scenes: new Set([".tscn", ".scn"]),
-  scripts: new Set([".gd", ".cs"]),
-  resources: new Set([".tres", ".res", ".gdshader"]),
+const KIND_EXTENSIONS: Partial<Record<SearchProjectKind, ReadonlySet<string>>> = {
+  scene: new Set([".tscn", ".scn"]),
+  script: new Set([".gd", ".cs"]),
+  resource: new Set([".tres", ".res", ".gdshader"]),
 };
 
 const NODE_LINE_PATTERN = /\[node\s+name="([^"]+)"(?:\s+type="([^"]+)")?(?:\s+parent="([^"]*)")?\s*\]/;
@@ -42,129 +34,162 @@ interface SceneConnectionEntry {
   method: string;
 }
 
-export async function searchProjectFiles(
+export interface LocalSearchOutcome {
+  results: SearchResult[];
+  truncated: boolean;
+}
+
+/**
+ * Local, read-only index of the project on disk. Used as the offline fallback
+ * for editor-backed search and as the only source for signal and input kinds,
+ * which the editor bridge does not serve.
+ */
+export async function searchProjectIndex(
   projectRoot: string,
-  input: Pick<ProjectSearchInput, "query" | "sections" | "limit">,
-): Promise<{ matches: SearchMatch[]; truncated: boolean }> {
+  input: { query: string; kinds?: SearchProjectKind[]; maxResults?: number },
+): Promise<LocalSearchOutcome> {
   const query = input.query.trim().toLowerCase();
   if (query.length === 0) {
     throw new DomainError(ERROR_CODES.VALIDATION_FAILED, "The search query must not be empty.");
   }
+  const kinds = input.kinds ?? ["scene", "node", "script", "resource", "signal", "input"];
+  const maxResults = input.maxResults ?? DEFAULT_LIMIT;
 
-  const sections = input.sections ?? DEFAULT_SEARCH_SECTIONS;
-  const limit = input.limit ?? DEFAULT_LIMIT;
-  const files = await walkProjectRoot(projectRoot);
+  const results: SearchResult[] = [];
+  const isFull = () => results.length >= maxResults;
 
-  const matches: SearchMatch[] = [];
-  const isFull = () => matches.length >= limit;
-
-  for (const section of sections) {
-    if (section === "inputs") {
-      for (const action of await readInputActions(projectRoot)) {
-        if (isFull()) {
-          break;
-        }
-        if (action.toLowerCase().includes(query)) {
-          matches.push({
-            section,
-            path: "res://project.godot",
-            name: action,
-            kind: "input_action",
-            detail: "input action " + action,
-          });
-        }
-      }
+  if (kinds.includes("input")) {
+    for (const action of await readInputActions(projectRoot)) {
       if (isFull()) {
         break;
       }
-      continue;
+      if (action.toLowerCase().includes(query)) {
+        results.push({
+          kind: "input",
+          path: "res://project.godot",
+          name: action,
+          nodePath: null,
+          nodeType: null,
+          matches: ["name"],
+        });
+      }
     }
+  }
 
+  if (!isFull() && kinds.some((kind) => kind !== "input")) {
+    const files = await walkProjectRoot(projectRoot);
     for (const file of files) {
       if (isFull()) {
         break;
       }
       const resPath = "res://" + file.relativePath;
-      if (section === "signals") {
-        if (file.extension === ".tscn" && file.size <= MAX_SCENE_BYTES) {
-          for (const connection of await readSceneConnections(file.absolutePath)) {
-            if (isFull()) {
-              break;
-            }
-            if (connection.signal.toLowerCase().includes(query)) {
-              matches.push({
-                section,
-                path: resPath,
-                name: connection.signal,
-                kind: "connection",
-                detail:
-                  "signal " +
-                  connection.signal +
-                  " from " +
-                  connection.from +
-                  " to " +
-                  connection.to +
-                  " via " +
-                  connection.method +
-                  " in " +
-                  resPath,
-              });
-            }
-          }
-        }
-        if (file.extension === ".gd") {
-          for (const signalName of await readScriptSignals(file.absolutePath)) {
-            if (isFull()) {
-              break;
-            }
-            if (signalName.toLowerCase().includes(query)) {
-              matches.push({
-                section,
-                path: resPath,
-                name: signalName,
-                kind: "declaration",
-                detail: "signal " + signalName + " declared in " + resPath,
-              });
-            }
-          }
-        }
-        continue;
-      }
-
-      if (!SECTION_EXTENSIONS[section]?.has(file.extension)) {
-        continue;
-      }
-      if (file.relativePath.toLowerCase().includes(query)) {
-        matches.push({
-          section,
+      const fileKinds = fileKindsFor(file.extension).filter((kind) => kinds.includes(kind));
+      if (fileKinds.length > 0 && file.relativePath.toLowerCase().includes(query)) {
+        results.push({
+          kind: fileKinds[0] as SearchProjectKind,
           path: resPath,
           name: path.posix.basename(file.relativePath),
-          kind: file.extension.slice(1),
+          nodePath: null,
+          nodeType: null,
+          matches: ["path"],
         });
       }
-      if (section !== "scenes" || file.extension !== ".tscn" || file.size > MAX_SCENE_BYTES) {
+      if (file.extension !== ".tscn" || file.size > MAX_SCENE_BYTES) {
         continue;
       }
-      for (const node of await readSceneNodes(file.absolutePath)) {
+      if (kinds.includes("node")) {
+        for (const node of await readSceneNodes(file.absolutePath)) {
+          if (isFull()) {
+            break;
+          }
+          const matches = fieldMatches(query, [
+            ["name", node.name],
+            ["type", node.type],
+          ]);
+          if (matches.length > 0) {
+            results.push({
+              kind: "node",
+              path: resPath,
+              name: node.name,
+              nodePath: node.parent,
+              nodeType: node.type,
+              matches,
+            });
+          }
+        }
+      }
+      if (kinds.includes("signal")) {
+        for (const connection of await readSceneConnections(file.absolutePath)) {
+          if (isFull()) {
+            break;
+          }
+          if (connection.signal.toLowerCase().includes(query)) {
+            results.push({
+              kind: "signal",
+              path: resPath,
+              name: connection.signal,
+              nodePath: connection.from,
+              nodeType: null,
+              matches: ["name"],
+            });
+          }
+        }
+      }
+    }
+    if (!isFull() && kinds.includes("signal")) {
+      for (const file of files) {
         if (isFull()) {
           break;
         }
-        if (node.name.toLowerCase().includes(query) || node.type.toLowerCase().includes(query)) {
-          matches.push({
-            section,
-            path: resPath,
-            name: node.name,
-            kind: node.type,
-            detail: "node " + node.name + " under " + node.parent + " in " + resPath,
-          });
+        if (file.extension !== ".gd") {
+          continue;
+        }
+        for (const signalName of await readScriptSignals(file.absolutePath)) {
+          if (isFull()) {
+            break;
+          }
+          if (signalName.toLowerCase().includes(query)) {
+            results.push({
+              kind: "signal",
+              path: "res://" + file.relativePath,
+              name: signalName,
+              nodePath: null,
+              nodeType: null,
+              matches: ["name"],
+            });
+          }
         }
       }
     }
-    if (isFull()) {
-      break;
+  }
+
+  return { results, truncated: isFull() };
+}
+
+function fileKindsFor(extension: string): SearchProjectKind[] {
+  const kinds: SearchProjectKind[] = [];
+  for (const [kind, extensions] of Object.entries(KIND_EXTENSIONS) as [
+    SearchProjectKind,
+    ReadonlySet<string>,
+  ][]) {
+    if (extensions.has(extension)) {
+      kinds.push(kind);
     }
   }
-  return { matches, truncated: isFull() };
+  return kinds;
+}
+
+function fieldMatches(
+  query: string,
+  fields: Array<[name: "name" | "type", value: string]>,
+): Array<"name" | "type"> {
+  const matches: Array<"name" | "type"> = [];
+  for (const [name, value] of fields) {
+    if (value.toLowerCase().includes(query)) {
+      matches.push(name);
+    }
+  }
+  return matches;
 }
 
 async function walkProjectRoot(projectRoot: string): Promise<IndexedFile[]> {

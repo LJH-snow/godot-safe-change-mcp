@@ -1,6 +1,7 @@
 import { MCPServer } from "mcp-use";
 import { ChangeCoordinator } from "./src/application/change-coordinator.js";
 import { LocalProjectService } from "./src/application/project-service.js";
+import { LocalProjectSearchService } from "./src/application/project-search-service.js";
 import { HttpGodotBridge } from "./src/infrastructure/http-godot-bridge.js";
 import { registerCapabilitiesResource } from "./src/resources/capabilities.js";
 import {
@@ -12,7 +13,7 @@ import {
   registerRunCurrentSceneTool,
 } from "./src/tools/editor-workflow.js";
 import { registerProjectOverviewTool } from "./src/tools/project-overview.js";
-import { registerProjectSearchTool } from "./src/tools/project-search.js";
+import { registerSearchProjectTool } from "./src/tools/project-search.js";
 
 const server = new MCPServer({
   name: "godot-safe-change-mcp",
@@ -24,9 +25,10 @@ const server = new MCPServer({
 const bridge = new HttpGodotBridge();
 const changeCoordinator = new ChangeCoordinator(bridge);
 const projectService = new LocalProjectService(bridge);
+const projectSearchService = new LocalProjectSearchService(bridge);
 
 export const projectOverview = registerProjectOverviewTool(server, projectService);
-export const projectSearch = registerProjectSearchTool(server, projectService);
+export const searchProject = registerSearchProjectTool(server, projectSearchService);
 export const editorContext = registerEditorContextTool(server, changeCoordinator);
 export const previewSceneChange = registerPreviewSceneChangeTool(server, changeCoordinator);
 export const confirmSceneChange = registerConfirmChangeTool(server, changeCoordinator);
