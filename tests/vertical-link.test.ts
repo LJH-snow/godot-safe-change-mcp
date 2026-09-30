@@ -310,6 +310,52 @@ describe("ChangeCoordinator", () => {
     assert.equal(bridge.applied.length, 0);
   });
 
+  test("rejects another confirmed plan while an applied plan is still active", async () => {
+    const bridge = new FakeGodotBridge();
+    const coordinator = new ChangeCoordinator(bridge);
+    const firstPlan = await coordinator.previewSceneChange({
+      projectRoot,
+      reason: "Apply the first marker.",
+      operation: {
+        kind: "scene.create_node",
+        parentPath: ".",
+        nodeName: "FirstMarker",
+        nodeType: "Node2D",
+      },
+    });
+    await coordinator.confirmChange({
+      planId: firstPlan.planId,
+      projectRoot,
+      expectedRevision: firstPlan.expectedRevision,
+    });
+    await coordinator.applyChange({ planId: firstPlan.planId, projectRoot });
+
+    const secondPlan = await coordinator.previewSceneChange({
+      projectRoot,
+      reason: "Prepare a second marker while the first is active.",
+      operation: {
+        kind: "scene.create_node",
+        parentPath: ".",
+        nodeName: "SecondMarker",
+        nodeType: "Node2D",
+      },
+    });
+    await coordinator.confirmChange({
+      planId: secondPlan.planId,
+      projectRoot,
+      expectedRevision: secondPlan.expectedRevision,
+    });
+
+    await assert.rejects(
+      () => coordinator.applyChange({ planId: secondPlan.planId, projectRoot }),
+      (error: unknown) =>
+        error instanceof DomainError && error.code === ERROR_CODES.PLAN_ALREADY_APPLIED,
+    );
+    assert.equal(bridge.applied.length, 1);
+
+    await coordinator.rollbackChange({ planId: firstPlan.planId, projectRoot });
+  });
+
   test("runs the current scene through the bridge and returns diagnostics", async () => {
     const bridge = new FakeGodotBridge();
     const coordinator = new ChangeCoordinator(bridge);

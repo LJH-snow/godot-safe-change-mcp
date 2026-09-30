@@ -177,7 +177,7 @@ npm run build
 
 2026-09-30 已完成诊断关联：Godot warning/error 可携带 source、line、NodePath 和受限 repair hint；MCP 会关联最近 mutation operation，并生成下一份 preview plan。
 
-当前刻意未开放任意 GDScript、shell、Python、文件写入、批量操作、脚本修改和项目设置修改。
+当前刻意未开放任意 GDScript、shell、Python、任意文件写入、批量操作或任意 Godot RPC；脚本、资源和项目设置只提供各自受限且带 revision guard 的操作。
 
 2026-09-30 已完成受限 script.replace_range：读取 .gd 快照、校验行范围和文件 revision，返回 before/after diff，并通过临时文件原子替换与原始内容 rollback。
 
@@ -189,11 +189,9 @@ npm run build
 
 2026-09-30 已增加受限 scene.set_property：visible、position、size、text、color 通过白名单和 UndoRedo apply/rollback，真实 Godot smoke 已通过。
 
-2026-09-30 已增加受限 scene.attach_script：仅允许挂载现有 res:// .gd 脚本，通过 UndoRedo apply/rollback，不执行或修改脚本内容。
+2026-09-30 已增加受限 scene.attach_script：仅允许挂载现有 res:// .gd 脚本，通过 UndoRedo apply/rollback，不执行或修改脚本内容；真实 smoke 使用原本无脚本的 Scriptless 节点验证恢复为 null。
 
-2026-09-30 已增加 resource.replace_reference 只读 snapshot/preview：校验资源路径、引用匹配和文件 revision；资源原子 apply/rollback 仍待实现。
-
-2026-09-30 已完成 resource.replace_reference：只允许 tscn/tres/res 文件和 res:///uid:// 引用，通过 revision guard、临时文件原子替换和 rollback 保护。
+2026-09-30 已完成 resource.replace_reference：只允许 tscn/tres/res 文件和 res:// / uid:// 引用，通过 revision guard、临时文件原子替换、用户修改冲突保护和 rollback 验证。
 
 2026-09-30 已完成受限 `project.input_action.add_key`：只允许安全 action 名和 physical keycode，preview 读取 project.godot revision，apply 通过 ProjectSettings.save 持久化，rollback 校验 revision 后恢复原 action 设置；真实 Godot 4.7.2 smoke 已通过。
 
