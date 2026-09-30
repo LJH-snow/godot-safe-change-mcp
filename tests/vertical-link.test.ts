@@ -4,6 +4,7 @@ import { readFile, realpath } from "node:fs/promises";
 import { after, before, describe, test } from "node:test";
 import type { AddressInfo } from "node:net";
 import { ChangeCoordinator } from "../src/application/change-coordinator.js";
+import { LocalProjectSearchService } from "../src/application/project-search-service.js";
 import { DomainError, ERROR_CODES } from "../src/domain/errors.js";
 import type {
   ApplyChangeRequest,
@@ -12,6 +13,8 @@ import type {
   RollbackReport,
   RollbackRequest,
   RunDiagnostics,
+  SearchProjectReport,
+  SearchProjectRequest,
 } from "../src/domain/contracts.js";
 import type { GodotBridge } from "../src/infrastructure/godot-bridge.js";
 import { HttpGodotBridge } from "../src/infrastructure/http-godot-bridge.js";
@@ -26,7 +29,12 @@ function createContext(revision = "revision-1"): EditorContext {
     connection: "connected",
     revision,
     project: { name: "Example", path: projectRoot },
-    currentScene: { path: "res://main.tscn", rootName: "Main", rootType: "Node2D" },
+    currentScene: {
+      path: "res://main.tscn",
+      rootName: "Main",
+      rootType: "Node2D",
+      nodes: [],
+    },
     selection: [],
     openResources: ["res://main.tscn"],
     run: { status: "stopped", scenePath: "res://main.tscn", runId: null },
@@ -38,6 +46,7 @@ class FakeGodotBridge implements GodotBridge {
   context = createContext();
   applied: ApplyChangeRequest[] = [];
   rolledBack: RollbackRequest[] = [];
+  searchCalls: SearchProjectRequest[] = [];
   runCalls = 0;
 
   async getContext(): Promise<EditorContext> {
@@ -79,6 +88,26 @@ class FakeGodotBridge implements GodotBridge {
       status: "rolled_back",
       revision: "revision-3",
       undoLabel: "Godot Safe Change: Add node",
+    };
+  }
+
+  async searchProject(_projectRoot: string, request: SearchProjectRequest): Promise<SearchProjectReport> {
+    this.searchCalls.push(request);
+    return {
+      schemaVersion: "0.3",
+      projectRoot,
+      query: request.query,
+      revision: this.context.revision,
+      results: [
+        {
+          kind: "node",
+          path: "res://main.tscn",
+          name: "SafeMarker",
+          nodePath: ".",
+          nodeType: "Node2D",
+          matches: ["name"],
+        },
+      ],
     };
   }
 }
@@ -240,6 +269,21 @@ test("normalizes a symlinked project root before bridge requests", async () => {
   assert.equal(await normalizeProjectRoot("/tmp"), await realpath("/tmp"));
 });
 
+test("searches the project through the read-only search service", async () => {
+  const bridge = new FakeGodotBridge();
+  const service = new LocalProjectSearchService(bridge);
+
+  const report = await service.search({
+    projectRoot,
+    query: "SafeMarker",
+    kinds: ["node"],
+    maxResults: 10,
+  });
+
+  assert.equal(report.results[0]?.nodePath, ".");
+  assert.equal(bridge.searchCalls[0]?.query, "SafeMarker");
+});
+
 describe("HttpGodotBridge", () => {
   let server: ReturnType<typeof createServer>;
   let bridge: HttpGodotBridge;
@@ -284,6 +328,31 @@ describe("HttpGodotBridge", () => {
               status: "rolled_back",
               revision: "revision-3",
               undoLabel: "Godot Safe Change: Add node",
+            },
+          }),
+        );
+        return;
+      }
+
+      if (request.url === "/v1/search" && request.method === "POST") {
+        response.end(
+          JSON.stringify({
+            ok: true,
+            report: {
+              schemaVersion: "0.3",
+              projectRoot,
+              query: body.query,
+              revision: "revision-1",
+              results: [
+                {
+                  kind: "script",
+                  path: "res://diagnostic_scene.gd",
+                  name: "diagnostic_scene.gd",
+                  nodePath: null,
+                  nodeType: null,
+                  matches: ["path"],
+                },
+              ],
             },
           }),
         );
@@ -365,6 +434,13 @@ describe("HttpGodotBridge", () => {
       expectedRevision: "revision-2",
     });
     assert.equal(rollback.status, "rolled_back");
+
+    const search = await bridge.searchProject(projectRoot, {
+      query: "diagnostic",
+      kinds: ["script"],
+      maxResults: 10,
+    });
+    assert.equal(search.results[0]?.kind, "script");
   });
 
   test("waits for the run status endpoint before returning diagnostics", async () => {
@@ -388,7 +464,9 @@ test("the Godot plugin exposes only the bounded vertical-link routes", async () 
   assert.match(source, /\/v1\/context/);
   assert.match(source, /\/v1\/changes\/apply/);
   assert.match(source, /\/v1\/changes\/rollback/);
+  assert.match(source, /\/v1\/search/);
   assert.match(source, /\/v1\/run\/current/);
   assert.match(source, /\.undo\(\)/);
+  assert.match(source, /properties/);
   assert.doesNotMatch(source, /execute_gdscript|OS\.execute|FileAccess/);
 });

@@ -6,7 +6,7 @@ import type {
   ProjectSection,
 } from "../domain/contracts.js";
 import { overviewFromContext, type GodotBridge } from "../infrastructure/godot-bridge.js";
-import { searchProjectFiles } from "../infrastructure/project-index.js";
+import { DEFAULT_SEARCH_SECTIONS, searchProjectFiles } from "../infrastructure/project-index.js";
 import { normalizeProjectRoot } from "../infrastructure/project-root.js";
 
 const DEFAULT_SECTIONS: ProjectSection[] = [
@@ -38,7 +38,7 @@ export class LocalProjectService implements ProjectService {
       schemaVersion: "0.1",
       projectRoot,
       query: input.query,
-      sections: input.sections ?? ["scenes", "scripts", "resources"],
+      sections: input.sections ?? DEFAULT_SEARCH_SECTIONS,
       matches,
       truncated,
     };

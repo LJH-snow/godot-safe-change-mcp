@@ -72,6 +72,13 @@ export const editorRunStateSchema = z.object({
   runId: z.string().nullable(),
 });
 
+export const sceneNodeSchema = z.object({
+  path: z.string(),
+  name: z.string(),
+  type: z.string(),
+  properties: z.record(z.string(), z.unknown()),
+});
+
 export const editorContextSchema = z.object({
   schemaVersion: z.literal("0.2"),
   projectRoot: z.string().min(1),
@@ -85,14 +92,9 @@ export const editorContextSchema = z.object({
     path: z.string().nullable(),
     rootName: z.string().nullable(),
     rootType: z.string().nullable(),
+    nodes: z.array(sceneNodeSchema),
   }),
-  selection: z.array(
-    z.object({
-      path: z.string(),
-      name: z.string(),
-      type: z.string(),
-    }),
-  ),
+  selection: z.array(sceneNodeSchema),
   openResources: z.array(z.string()),
   run: editorRunStateSchema,
   diagnostics: diagnosticsSchema,
@@ -101,7 +103,40 @@ export const editorContextSchema = z.object({
 export type DiagnosticEntry = z.infer<typeof diagnosticEntrySchema>;
 export type Diagnostics = z.infer<typeof diagnosticsSchema>;
 export type EditorRunState = z.infer<typeof editorRunStateSchema>;
+export type SceneNode = z.infer<typeof sceneNodeSchema>;
 export type EditorContext = z.infer<typeof editorContextSchema>;
+
+export const searchProjectKindSchema = z.enum(["scene", "node", "script", "resource"]);
+
+export const searchProjectInputSchema = z.object({
+  projectRoot: z.string().min(1),
+  query: z.string().min(1).max(200),
+  kinds: z.array(searchProjectKindSchema).min(1).optional(),
+  maxResults: z.number().int().min(1).max(100).optional(),
+});
+
+export const searchResultSchema = z.object({
+  kind: searchProjectKindSchema,
+  path: z.string().min(1),
+  name: z.string().min(1),
+  nodePath: z.string().nullable(),
+  nodeType: z.string().nullable(),
+  matches: z.array(z.enum(["path", "name", "type", "node_path"])).min(1),
+});
+
+export const searchProjectReportSchema = z.object({
+  schemaVersion: z.literal("0.3"),
+  projectRoot: z.string().min(1),
+  query: z.string().min(1),
+  revision: z.string().nullable(),
+  results: z.array(searchResultSchema),
+});
+
+export type SearchProjectKind = z.infer<typeof searchProjectKindSchema>;
+export type SearchProjectInput = z.infer<typeof searchProjectInputSchema>;
+export type SearchProjectRequest = Omit<SearchProjectInput, "projectRoot">;
+export type SearchResult = z.infer<typeof searchResultSchema>;
+export type SearchProjectReport = z.infer<typeof searchProjectReportSchema>;
 
 export interface ApplyChangeRequest {
   planId: string;
@@ -154,7 +189,13 @@ export const runDiagnosticsSchema = z.object({
 
 export type RunDiagnostics = z.infer<typeof runDiagnosticsSchema>;
 
-export const searchSectionSchema = z.enum(["scenes", "scripts", "resources"]);
+export const searchSectionSchema = z.enum([
+  "scenes",
+  "scripts",
+  "resources",
+  "signals",
+  "inputs",
+]);
 
 export const projectSearchInputSchema = z.object({
   projectRoot: z
@@ -170,7 +211,9 @@ export const projectSearchInputSchema = z.object({
     .array(searchSectionSchema)
     .min(1)
     .optional()
-    .describe("Project sections to search; defaults to scenes, scripts and resources."),
+    .describe(
+      "Project sections to search; defaults to scenes, scripts, resources, signals and inputs.",
+    ),
   limit: z
     .number()
     .int()

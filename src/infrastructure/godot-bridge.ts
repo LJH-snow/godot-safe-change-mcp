@@ -7,6 +7,8 @@ import type {
   RollbackReport,
   RollbackRequest,
   RunDiagnostics,
+  SearchProjectReport,
+  SearchProjectRequest,
 } from "../domain/contracts.js";
 import { ERROR_CODES, DomainError } from "../domain/errors.js";
 
@@ -14,6 +16,7 @@ export interface GodotBridge {
   getContext(projectRoot: string): Promise<EditorContext>;
   applyChange(projectRoot: string, request: ApplyChangeRequest): Promise<ChangeReport>;
   rollbackChange(projectRoot: string, request: RollbackRequest): Promise<RollbackReport>;
+  searchProject(projectRoot: string, request: SearchProjectRequest): Promise<SearchProjectReport>;
   runCurrentScene(projectRoot: string, timeoutMs: number): Promise<RunDiagnostics>;
 }
 
@@ -25,7 +28,7 @@ export class PendingGodotBridge implements GodotBridge {
       connection: "disconnected",
       revision: null,
       project: { name: "", path: projectRoot },
-      currentScene: { path: null, rootName: null, rootType: null },
+      currentScene: { path: null, rootName: null, rootType: null, nodes: [] },
       selection: [],
       openResources: [],
       run: { status: "idle", scenePath: null, runId: null },
@@ -48,6 +51,13 @@ export class PendingGodotBridge implements GodotBridge {
   }
 
   async rollbackChange(): Promise<RollbackReport> {
+    throw new DomainError(
+      ERROR_CODES.EDITOR_UNAVAILABLE,
+      "The Godot EditorPlugin bridge is not connected.",
+    );
+  }
+
+  async searchProject(): Promise<SearchProjectReport> {
     throw new DomainError(
       ERROR_CODES.EDITOR_UNAVAILABLE,
       "The Godot EditorPlugin bridge is not connected.",

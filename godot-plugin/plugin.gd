@@ -75,6 +75,8 @@ func handle_bridge_request(method: String, path: String, body: Variant) -> Dicti
             return _apply_change(body)
         "/v1/changes/rollback":
             return _rollback_change(body)
+        "/v1/search":
+            return _search_project(body)
         "/v1/run/current":
             return _run_current_scene()
         "/v1/run/status":
@@ -133,19 +135,17 @@ func _editor_context() -> Dictionary:
     var scene_path := ""
     var root_name := ""
     var root_type := ""
+    var scene_nodes: Array = []
     var selection: Array = []
 
     if scene_root != null:
         scene_path = String(scene_root.scene_file_path)
         root_name = String(scene_root.name)
         root_type = String(scene_root.get_class())
+        _append_scene_node(scene_root, scene_root, scene_nodes)
         var selected_nodes = EditorInterface.get_selection().get_selected_nodes()
         for selected_node in selected_nodes:
-            selection.append({
-                "path": String(scene_root.get_path_to(selected_node)),
-                "name": String(selected_node.name),
-                "type": String(selected_node.get_class()),
-            })
+            selection.append(_node_context(scene_root, selected_node))
 
     var open_resources: Array = []
     for open_scene in EditorInterface.get_open_scenes():
@@ -164,6 +164,7 @@ func _editor_context() -> Dictionary:
             "path": scene_path if scene_path != "" else null,
             "rootName": root_name if root_name != "" else null,
             "rootType": root_type if root_type != "" else null,
+            "nodes": scene_nodes,
         },
         "selection": selection,
         "openResources": open_resources,
@@ -174,6 +175,38 @@ func _editor_context() -> Dictionary:
         },
         "diagnostics": diagnostics.duplicate(true),
     }
+
+func _append_scene_node(scene_root: Node, node: Node, nodes: Array) -> void:
+    nodes.append(_node_context(scene_root, node))
+    for child in node.get_children():
+        _append_scene_node(scene_root, child, nodes)
+
+func _node_context(scene_root: Node, node: Node) -> Dictionary:
+    return {
+        "path": String(scene_root.get_path_to(node)),
+        "name": String(node.name),
+        "type": String(node.get_class()),
+        "properties": _safe_node_properties(node),
+    }
+
+func _safe_node_properties(node: Node) -> Dictionary:
+    var properties := {}
+    if node is CanvasItem:
+        properties["visible"] = node.visible
+    if node is Node2D:
+        properties["position"] = {"x": node.position.x, "y": node.position.y}
+    if node is Control:
+        properties["size"] = {"x": node.size.x, "y": node.size.y}
+    if node is Label:
+        properties["text"] = node.text
+    if node is ColorRect:
+        properties["color"] = {
+            "r": node.color.r,
+            "g": node.color.g,
+            "b": node.color.b,
+            "a": node.color.a,
+        }
+    return properties
 
 func _apply_change(body: Variant) -> Dictionary:
     var request_body: Dictionary = body

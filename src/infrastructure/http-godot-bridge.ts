@@ -10,6 +10,9 @@ import {
   type RollbackReport,
   type RollbackRequest,
   type RunDiagnostics,
+  searchProjectReportSchema,
+  type SearchProjectReport,
+  type SearchProjectRequest,
 } from "../domain/contracts.js";
 import { ERROR_CODES, DomainError, type ErrorCode } from "../domain/errors.js";
 import type { GodotBridge } from "./godot-bridge.js";
@@ -70,6 +73,20 @@ export class HttpGodotBridge implements GodotBridge {
       .safeParse(payload);
     if (!parsed.success) {
       throw this.protocolError("The bridge returned an invalid rollback report.", parsed.error);
+    }
+    return parsed.data.report;
+  }
+
+  async searchProject(projectRoot: string, request: SearchProjectRequest): Promise<SearchProjectReport> {
+    const payload = await this.post("/v1/search", {
+      projectRoot,
+      ...request,
+    });
+    const parsed = z
+      .object({ ok: z.literal(true), report: searchProjectReportSchema })
+      .safeParse(payload);
+    if (!parsed.success) {
+      throw this.protocolError("The bridge returned an invalid search report.", parsed.error);
     }
     return parsed.data.report;
   }

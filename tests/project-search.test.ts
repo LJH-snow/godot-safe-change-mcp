@@ -15,6 +15,8 @@ const SCENE_MAIN = [
   "[node name=\"Player\" type=\"CharacterBody2D\" parent=\".\"]",
   "",
   "[node name=\"ScoreLabel\" type=\"Label\" parent=\"Player\"]",
+  "",
+  "[connection signal=\"pressed\" from=\"Player\" to=\".\" method=\"_on_player_pressed\"]",
 ].join("\n");
 
 const SCENE_LEVEL = [
@@ -23,6 +25,33 @@ const SCENE_LEVEL = [
   "[node name=\"Level\" type=\"Node2D\"]",
   "",
   "[node name=\"Enemy\" type=\"Area2D\" parent=\".\"]",
+].join("\n");
+
+const SCRIPT_PLAYER = [
+  "extends CharacterBody2D",
+  "",
+  "signal health_changed(new_value: int)",
+  "",
+  "func take_damage(amount: int) -> void:",
+  "\tpass",
+].join("\n");
+
+const PROJECT_SETTINGS = [
+  "config_version=5",
+  "",
+  "[application]",
+  "config/name=\"SearchFixture\"",
+  "",
+  "[input]",
+  "",
+  "move_left={",
+  "\"deadzone\": 0.5,",
+  "\"events\": []",
+  "}",
+  "jump={",
+  "\"deadzone\": 0.5,",
+  "\"events\": []",
+  "}",
 ].join("\n");
 
 let fixtureRoot = "";
@@ -34,10 +63,10 @@ before(async () => {
   await mkdir(path.join(base, "scripts"));
   await mkdir(path.join(base, "resources"));
   await mkdir(path.join(base, ".godot"));
-  await writeFile(path.join(base, "project.godot"), "config_version=5\n");
+  await writeFile(path.join(base, "project.godot"), PROJECT_SETTINGS + "\n");
   await writeFile(path.join(base, "scenes", "main.tscn"), SCENE_MAIN + "\n");
   await writeFile(path.join(base, "scenes", "level.tscn"), SCENE_LEVEL + "\n");
-  await writeFile(path.join(base, "scripts", "player.gd"), "extends CharacterBody2D\n");
+  await writeFile(path.join(base, "scripts", "player.gd"), SCRIPT_PLAYER + "\n");
   await writeFile(path.join(base, "resources", "theme.tres"), "[gd_resource type=\"Theme\"]\n");
   await writeFile(path.join(base, ".godot", "cache.tscn"), "[node name=\"Hidden\"]\n");
   // A symlink pointing outside the project root must never be followed.
@@ -83,6 +112,30 @@ describe("searchProjectFiles", () => {
       assert.ok(!match.path.includes(".godot/"));
       assert.ok(!match.path.includes("link-outside"));
     }
+  });
+
+  test("finds signal connections, script signal declarations and input actions", async () => {
+    const connection = await searchProjectFiles(fixtureRoot, { query: "pressed" });
+    assert.equal(connection.matches[0]?.section, "signals");
+    assert.equal(connection.matches[0]?.kind, "connection");
+    assert.match(connection.matches[0]?.detail ?? "", /from Player to \. via _on_player_pressed/);
+
+    const declaration = await searchProjectFiles(fixtureRoot, { query: "health_changed" });
+    assert.equal(declaration.matches[0]?.kind, "declaration");
+    assert.equal(declaration.matches[0]?.path, "res://scripts/player.gd");
+
+    const inputAction = await searchProjectFiles(fixtureRoot, { query: "jump" });
+    assert.equal(inputAction.matches[0]?.section, "inputs");
+    assert.equal(inputAction.matches[0]?.name, "jump");
+    assert.equal(inputAction.matches[0]?.path, "res://project.godot");
+  });
+
+  test("does not leak settings keys from other project.godot sections", async () => {
+    const { matches } = await searchProjectFiles(fixtureRoot, {
+      query: "config/name",
+      sections: ["inputs"],
+    });
+    assert.deepEqual(matches, []);
   });
 
   test("reports truncation when the limit is reached", async () => {

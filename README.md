@@ -12,7 +12,7 @@
 
 - project_overview：读取项目 overview 和编辑器连接状态。
 - editor_context：读取当前项目、场景、选中节点、打开资源、运行状态和诊断。
-- search_project：在场景、脚本和资源中搜索文件路径、节点名和节点类型（纯本地只读，无需编辑器在线）。
+- search_project：在场景、脚本和资源中搜索文件路径、节点名和节点类型，并支持搜索信号连接、GDScript signal 声明和输入映射动作（纯本地只读，无需编辑器在线）。
 - preview_scene_change：生成一个受限 scene.create_node 变更的稳定计划和 diff。
 - confirm_scene_change：检查 expected revision 并确认计划。
 - apply_scene_change：只把已确认且 revision 未过期的计划交给 Godot UndoRedo。
