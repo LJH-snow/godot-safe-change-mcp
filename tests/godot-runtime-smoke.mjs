@@ -122,10 +122,6 @@ try {
     [
       "--editor",
       "--headless",
-      "--display-driver",
-      "headless",
-      "--audio-driver",
-      "Dummy",
       "--path",
       fixtureRoot,
       "--scene",
