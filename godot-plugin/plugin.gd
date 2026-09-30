@@ -85,6 +85,8 @@ func handle_bridge_request(method: String, path: String, body: Variant) -> Dicti
             return _read_script(body)
         "/v1/run/current":
             return _run_current_scene()
+        "/v1/run/scene":
+            return _run_specific_scene(body)
         "/v1/run/status":
             return _run_status_response(body)
         _:
@@ -642,6 +644,31 @@ func _run_current_scene() -> Dictionary:
     run_status = "starting"
     EditorInterface.play_current_scene()
     return _success("diagnostics", _run_diagnostics_snapshot())
+
+func _run_specific_scene(body: Variant) -> Dictionary:
+    var scene_path := String(body.get("scenePath", ""))
+    if not _is_safe_scene_path(scene_path):
+        return _failure("VALIDATION_FAILED", "Only a res:// .tscn scene path without traversal is allowed.")
+    if EditorInterface.is_playing_scene():
+        return _failure("RUN_FAILED", "A scene is already playing; stop it before starting another run.")
+    if not ResourceLoader.exists(scene_path):
+        return _failure("VALIDATION_FAILED", "The scene path does not exist in the project.", 404)
+    diagnostics = {
+        "output": ["custom scene requested: " + scene_path],
+        "warnings": [],
+        "errors": [],
+    }
+    run_id = "run-" + str(Time.get_ticks_msec())
+    run_scene_path = scene_path
+    run_started_at = Time.get_ticks_msec()
+    run_status = "starting"
+    EditorInterface.play_custom_scene(scene_path)
+    return _success("diagnostics", _run_diagnostics_snapshot())
+
+func _is_safe_scene_path(scene_path: String) -> bool:
+    return scene_path.begins_with("res://") \
+        and scene_path.ends_with(".tscn") \
+        and not scene_path.contains("..")
 
 func _run_status_response(body: Variant) -> Dictionary:
     var requested_run_id := String(body.get("runId", ""))

@@ -86,6 +86,17 @@ class FakeGodotBridge implements GodotBridge {
     return this.runDiagnosticsResult;
   }
 
+  sceneRunPaths: string[] = [];
+
+  async runScene(_projectRoot: string, scenePath: string): Promise<RunDiagnostics> {
+    this.sceneRunPaths.push(scenePath);
+    return {
+      ...this.runDiagnosticsResult,
+      scenePath,
+      output: ["custom scene requested: " + scenePath, ...this.runDiagnosticsResult.output],
+    };
+  }
+
   async rollbackChange(_projectRoot: string, request: RollbackRequest): Promise<RollbackReport> {
     this.rolledBack.push(request);
     this.context = createContext("revision-3");
@@ -216,6 +227,37 @@ describe("ChangeCoordinator", () => {
     assert.equal(result.status, "stopped");
     assert.deepEqual(result.errors, []);
     assert.equal(bridge.runCalls, 1);
+  });
+
+  test("runs a specific scene through the bridge and records the run operation", async () => {
+    const bridge = new FakeGodotBridge();
+    const coordinator = new ChangeCoordinator(bridge);
+
+    const result = await coordinator.runScene({
+      projectRoot,
+      scenePath: "res://levels/main.tscn",
+    });
+
+    assert.equal(result.status, "stopped");
+    assert.equal(result.scenePath, "res://levels/main.tscn");
+    assert.deepEqual(bridge.sceneRunPaths, ["res://levels/main.tscn"]);
+
+    const history = await coordinator.getOperationHistory({ projectRoot, limit: 5 });
+    assert.equal(history.operations[0]?.kind, "run");
+    assert.equal(history.operations[0]?.status, "succeeded");
+  });
+
+  test("rejects unsafe or non-scene run_scene inputs before the bridge", async () => {
+    const bridge = new FakeGodotBridge();
+    const coordinator = new ChangeCoordinator(bridge);
+
+    await assert.rejects(() =>
+      coordinator.runScene({ projectRoot, scenePath: "res://scripts/player.gd" }),
+    );
+    await assert.rejects(() =>
+      coordinator.runScene({ projectRoot, scenePath: "res://../outside.tscn" }),
+    );
+    assert.deepEqual(bridge.sceneRunPaths, []);
   });
 
   test("rolls back only an applied plan at the applied revision", async () => {
@@ -417,6 +459,8 @@ describe("HttpGodotBridge", () => {
   let server: ReturnType<typeof createServer>;
   let bridge: HttpGodotBridge;
   let runStatusCalls = 0;
+  let activeRunScenePath = "res://main.tscn";
+  let activeRunOutput: string[] = [];
 
   before(async () => {
     server = createServer(async (request, response) => {
@@ -503,6 +547,8 @@ describe("HttpGodotBridge", () => {
       }
 
       if (request.url === "/v1/run/current" && request.method === "POST") {
+        activeRunScenePath = "res://main.tscn";
+        activeRunOutput = ["scene requested"];
         response.end(
           JSON.stringify({
             ok: true,
@@ -510,8 +556,28 @@ describe("HttpGodotBridge", () => {
               schemaVersion: "0.2",
               runId: "run-http",
               status: "running",
-              scenePath: "res://main.tscn",
-              output: ["scene requested"],
+              scenePath: activeRunScenePath,
+              output: [...activeRunOutput],
+              warnings: [],
+              errors: [],
+            },
+          }),
+        );
+        return;
+      }
+
+      if (request.url === "/v1/run/scene" && request.method === "POST") {
+        activeRunScenePath = body.scenePath;
+        activeRunOutput = ["custom scene requested: " + body.scenePath];
+        response.end(
+          JSON.stringify({
+            ok: true,
+            diagnostics: {
+              schemaVersion: "0.2",
+              runId: "run-scene-http",
+              status: "running",
+              scenePath: activeRunScenePath,
+              output: [...activeRunOutput],
               warnings: [],
               errors: [],
             },
@@ -527,10 +593,10 @@ describe("HttpGodotBridge", () => {
             ok: true,
             diagnostics: {
               schemaVersion: "0.2",
-              runId: "run-http",
+              runId: body.runId ?? "run-http",
               status: "stopped",
-              scenePath: "res://main.tscn",
-              output: ["scene requested", "scene stopped"],
+              scenePath: activeRunScenePath,
+              output: [...activeRunOutput, "scene stopped"],
               warnings: [],
               errors: [],
             },
@@ -596,6 +662,18 @@ describe("HttpGodotBridge", () => {
     assert.deepEqual(diagnostics.output, ["scene requested", "scene stopped"]);
     assert.equal(runStatusCalls, 1);
   });
+
+  test("runs a specific scene through the run/scene route and polls status", async () => {
+    const diagnostics = await bridge.runScene(projectRoot, "res://levels/main.tscn", 1000);
+
+    assert.equal(diagnostics.status, "stopped");
+    assert.equal(diagnostics.scenePath, "res://levels/main.tscn");
+    assert.deepEqual(diagnostics.output, [
+      "custom scene requested: res://levels/main.tscn",
+      "scene stopped",
+    ]);
+    assert.equal(runStatusCalls, 2);
+  });
 });
 
 test("the Godot plugin exposes only the bounded vertical-link routes", async () => {
@@ -614,8 +692,11 @@ test("the Godot plugin exposes only the bounded vertical-link routes", async () 
   assert.match(source, /\/v1\/scripts\/read/);
   assert.match(source, /FileAccess\.READ/);
   assert.match(source, /\/v1\/run\/current/);
+  assert.match(source, /\/v1\/run\/scene/);
+  assert.match(source, /play_custom_scene/);
   assert.match(source, /\.undo\(\)/);
   assert.match(source, /properties/);
   assert.doesNotMatch(source, /execute_gdscript|OS\.execute/);
   assert.match(source, /_is_safe_script_path/);
+  assert.match(source, /_is_safe_scene_path/);
 });

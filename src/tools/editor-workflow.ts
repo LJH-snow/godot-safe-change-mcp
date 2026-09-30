@@ -16,7 +16,9 @@ import {
   rollbackReportSchema,
   runCurrentSceneInputSchema,
   runDiagnosticsSchema,
+  runSceneInputSchema,
   type RunCurrentSceneInput,
+  type RunSceneInput,
 } from "../domain/contracts.js";
 import { ChangeCoordinator } from "../application/change-coordinator.js";
 import { toolError } from "./tool-errors.js";
@@ -172,6 +174,34 @@ export function registerRunCurrentSceneTool(
     async (input: RunCurrentSceneInput) => {
       try {
         const diagnostics = await coordinator.runCurrentScene(input);
+        return {
+          content: [{ type: "text" as const, text: JSON.stringify(diagnostics, null, 2) }],
+          structuredContent: diagnostics,
+        };
+      } catch (error) {
+        return toolError(error);
+      }
+    },
+  );
+}
+
+export function registerRunSceneTool(
+  server: MCPServer,
+  coordinator: ChangeCoordinator,
+) {
+  return server.tool(
+    {
+      name: "run_scene",
+      title: "Run a specific Godot scene",
+      description:
+        "Run one res:// .tscn scene through the editor and return collected diagnostics.",
+      inputSchema: runSceneInputSchema,
+      outputSchema: runDiagnosticsSchema,
+      annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
+    },
+    async (input: RunSceneInput) => {
+      try {
+        const diagnostics = await coordinator.runScene(input);
         return {
           content: [{ type: "text" as const, text: JSON.stringify(diagnostics, null, 2) }],
           structuredContent: diagnostics,

@@ -63,6 +63,7 @@ export const confirmChangeInputSchema = z.object({
 export const applyChangeInputSchema = z.object({
   projectRoot: z.string().min(1),
   planId: z.string().min(1),
+  leaseId: z.string().min(1).optional(),
 });
 
 export const sceneChangeDiffSchema = z.object({

@@ -20,12 +20,22 @@ import type {
   PreviewRepairFromDiagnosticInput,
   RollbackReport,
   RunDiagnostics,
+  RunSceneInput,
 } from "../domain/contracts.js";
 import { previewRepairFromDiagnosticInputSchema } from "../domain/contracts.js";
 import { operationHistoryInputSchema } from "../domain/contracts.js";
+import { runSceneInputSchema } from "../domain/contracts.js";
 import { DomainError, ERROR_CODES } from "../domain/errors.js";
 import type { GodotBridge } from "../infrastructure/godot-bridge.js";
 import { normalizeProjectRoot } from "../infrastructure/project-root.js";
+import {
+  InMemoryOperationAuditStore,
+  type OperationAuditStore,
+} from "../infrastructure/operation-audit-store.js";
+import {
+  InMemoryProjectLeaseStore,
+  type ProjectLeaseStore,
+} from "../infrastructure/project-lease-store.js";
 
 type PlanState = "preview" | "confirmed" | "applied" | "rolled_back";
 
@@ -51,7 +61,15 @@ export class ChangeCoordinator {
   private readonly plans = new Map<string, StoredPlan>();
   private readonly auditLog: OperationAuditEntry[] = [];
 
-  constructor(private readonly bridge: GodotBridge) {}
+  constructor(
+    private readonly bridge: GodotBridge,
+    private readonly auditStore: OperationAuditStore = new InMemoryOperationAuditStore(),
+    private readonly leaseStore: ProjectLeaseStore = new InMemoryProjectLeaseStore(),
+  ) {}
+
+  getProjectLeaseStore(): ProjectLeaseStore {
+    return this.leaseStore;
+  }
 
   async getContext(projectRootInput: string): Promise<EditorContext> {
     return this.bridge.getContext(await normalizeProjectRoot(projectRootInput));
@@ -195,6 +213,12 @@ export class ChangeCoordinator {
 
   private async applyChangeInternal(input: ApplyChangeInput): Promise<ChangeReport> {
     const parsedInput = applyChangeInputSchema.parse(input);
+    return this.withProjectLease(parsedInput.projectRoot, parsedInput.leaseId, () =>
+      this.applyChangeCore(parsedInput),
+    );
+  }
+
+  private async applyChangeCore(parsedInput: ApplyChangeInput): Promise<ChangeReport> {
     const storedPlan = await this.requirePlan(parsedInput.planId, parsedInput.projectRoot);
 
     if (storedPlan.state === "applied") {
@@ -234,6 +258,12 @@ export class ChangeCoordinator {
 
   private async rollbackChangeInternal(input: ApplyChangeInput): Promise<RollbackReport> {
     const parsedInput = applyChangeInputSchema.parse(input);
+    return this.withProjectLease(parsedInput.projectRoot, parsedInput.leaseId, () =>
+      this.rollbackChangeCore(parsedInput),
+    );
+  }
+
+  private async rollbackChangeCore(parsedInput: ApplyChangeInput): Promise<RollbackReport> {
     const storedPlan = await this.requirePlan(parsedInput.planId, parsedInput.projectRoot);
 
     if (storedPlan.state === "rolled_back") {
@@ -308,6 +338,25 @@ export class ChangeCoordinator {
     return this.associateDiagnostics(projectRoot, diagnostics);
   }
 
+  async runScene(input: RunSceneInput): Promise<RunDiagnostics> {
+    return this.withAudit("run", input.projectRoot, null, input, () =>
+      this.runSceneInternal(input),
+    );
+  }
+
+  private async runSceneInternal(input: RunSceneInput): Promise<RunDiagnostics> {
+    const parsedInput = runSceneInputSchema.parse(input);
+    const projectRoot = await normalizeProjectRoot(parsedInput.projectRoot);
+    const timeoutMs = Math.min(Math.max(parsedInput.timeoutMs ?? 10000, 100), 30000);
+    await this.requireConnectedContext(projectRoot);
+    const diagnostics = await this.bridge.runScene(
+      projectRoot,
+      parsedInput.scenePath,
+      timeoutMs,
+    );
+    return this.associateDiagnostics(projectRoot, diagnostics);
+  }
+
   async previewRepairFromDiagnostic(
     input: PreviewRepairFromDiagnosticInput,
   ): Promise<ChangePlan> {
@@ -340,9 +389,7 @@ export class ChangeCoordinator {
     return {
       schemaVersion: "0.1",
       projectRoot,
-      operations: this.auditLog
-        .filter((operation) => operation.projectRoot === projectRoot)
-        .slice(0, parsedInput.limit ?? 20),
+      operations: await this.auditStore.list(projectRoot, parsedInput.limit ?? 20),
     };
   }
 
@@ -452,12 +499,14 @@ export class ChangeCoordinator {
       input,
     };
     this.auditLog.unshift(entry);
+    await this.auditStore.append(entry);
 
     try {
       const output = await action();
       entry.status = "succeeded";
       entry.finishedAt = new Date().toISOString();
       entry.output = output;
+      await this.auditStore.append(entry);
       return output;
     } catch (error) {
       entry.status = "failed";
@@ -466,7 +515,34 @@ export class ChangeCoordinator {
         error instanceof DomainError
           ? { code: error.code, message: error.message, details: error.details }
           : { code: "INTERNAL_ERROR", message: error instanceof Error ? error.message : String(error) };
+      try {
+        await this.auditStore.append(entry);
+      } catch {
+      }
       throw error;
+    }
+  }
+
+  private async withProjectLease<T>(
+    projectRootInput: string,
+    leaseId: string | undefined,
+    action: () => Promise<T>,
+  ): Promise<T> {
+    const projectRoot = await normalizeProjectRoot(projectRootInput);
+    if (leaseId !== undefined) {
+      await this.leaseStore.assert(projectRoot, leaseId);
+      return action();
+    }
+
+    const lease = await this.leaseStore.acquire(
+      projectRoot,
+      "coordinator-" + process.pid + "-" + randomUUID(),
+      30000,
+    );
+    try {
+      return await action();
+    } finally {
+      await this.leaseStore.release(lease).catch(() => undefined);
     }
   }
 }

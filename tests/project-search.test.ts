@@ -174,6 +174,10 @@ class SearchBridgeStub implements GodotBridge {
     throw new Error("not used");
   }
 
+  async runScene(): Promise<never> {
+    throw new Error("not used");
+  }
+
   async readScript(_projectRoot: string, scriptPath: string): Promise<ScriptSnapshot> {
     return { path: scriptPath, revision: "test", content: "" };
   }
@@ -253,6 +257,10 @@ class OverviewBridgeStub implements GodotBridge {
   }
 
   async runCurrentScene(): Promise<never> {
+    throw new Error("not used");
+  }
+
+  async runScene(): Promise<never> {
     throw new Error("not used");
   }
 
