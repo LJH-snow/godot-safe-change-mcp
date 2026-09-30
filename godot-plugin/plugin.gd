@@ -1049,8 +1049,24 @@ func _atomic_replace_script(script_path: String, content: String, operation_id: 
         return _failure("OPERATION_REJECTED", "Godot could not atomically replace the script.", 409, {"error": rename_error})
     return {}
 
+func _validate_rollback_request(request_body: Dictionary) -> Dictionary:
+    if not _has_exact_keys(request_body, ["planId", "expectedRevision"], ["expectedFileRevision", "projectRoot"]):
+        return _failure("VALIDATION_FAILED", "The rollback request contains unsupported or missing fields.")
+    if not _is_safe_plan_id(String(request_body.get("planId", ""))):
+        return _failure("VALIDATION_FAILED", "planId contains unsupported characters.")
+    if typeof(request_body.get("expectedRevision")) != TYPE_STRING or String(request_body["expectedRevision"]) == "":
+        return _failure("VALIDATION_FAILED", "expectedRevision is required.")
+    if request_body.has("expectedFileRevision") and (typeof(request_body["expectedFileRevision"]) != TYPE_STRING or String(request_body["expectedFileRevision"]) == ""):
+        return _failure("VALIDATION_FAILED", "expectedFileRevision must be a non-empty string when provided.")
+    return {}
+
 func _rollback_change(body: Variant) -> Dictionary:
+    if typeof(body) != TYPE_DICTIONARY:
+        return _failure("VALIDATION_FAILED", "The rollback request body must be a JSON object.")
     var request_body: Dictionary = body
+    var request_error := _validate_rollback_request(request_body)
+    if not request_error.is_empty():
+        return request_error
     var scene_root := EditorInterface.get_edited_scene_root()
     if scene_root == null:
         return _failure("VALIDATION_FAILED", "A current scene is required before rollback.")
@@ -1076,22 +1092,45 @@ func _rollback_change(body: Variant) -> Dictionary:
     if last_applied_kind == "input":
         return _rollback_input_action_change(request_body, scene_root, scene_path, plan_id)
 
+    if last_applied_scene_path != scene_path or last_applied_undo_history_id < 0 or last_applied_undo_version < 0:
+        return _failure("REVISION_CONFLICT", "The applied scene history is no longer available for a safe rollback.", 409)
+
     var undo_manager := get_undo_redo()
     var history_id := undo_manager.get_object_history_id(scene_root)
     var scene_undo_redo: UndoRedo = undo_manager.get_history_undo_redo(history_id)
+    var current_action := scene_undo_redo.get_current_action()
+    var current_label := scene_undo_redo.get_current_action_name()
+    if history_id != last_applied_undo_history_id \
+        or scene_undo_redo.get_version() != last_applied_undo_version \
+        or current_action != last_applied_undo_action \
+        or current_label != last_applied_undo_label:
+        return _failure(
+            "REVISION_CONFLICT",
+            "The editor UndoRedo history changed after the plan was applied; refusing to undo another action.",
+            409,
+            {
+                "expectedHistoryId": last_applied_undo_history_id,
+                "actualHistoryId": history_id,
+                "expectedVersion": last_applied_undo_version,
+                "actualVersion": scene_undo_redo.get_version(),
+                "expectedAction": last_applied_undo_action,
+                "actualAction": current_action,
+                "expectedLabel": last_applied_undo_label,
+                "actualLabel": current_label,
+            },
+        )
     if not scene_undo_redo.undo():
         return _failure("ROLLBACK_FAILED", "Godot could not undo the applied scene change.", 409)
 
     var rollback_revision := _current_revision(scene_root, scene_path)
-    last_applied_plan_id = ""
-    last_applied_revision = ""
-    last_applied_kind = ""
+    var undo_label := last_applied_undo_label
+    _clear_applied_state()
     return _success("report", {
         "schemaVersion": "0.2",
         "planId": plan_id,
         "status": "rolled_back",
         "revision": rollback_revision,
-        "undoLabel": "Godot Safe Change: Add node",
+        "undoLabel": undo_label,
     })
 
 func _rollback_script_change(request_body: Dictionary, scene_root: Node, scene_path: String, plan_id: String) -> Dictionary:

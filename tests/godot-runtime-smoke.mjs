@@ -314,10 +314,11 @@ try {
   assert.equal(await readFile(scriptPath, "utf8"), originalScript);
 
   const diagnostics = structured(await request("tools/call", {
-    name: "run_current_scene",
-    arguments: { projectRoot: fixtureRoot, timeoutMs: 15000 },
+    name: "run_scene",
+    arguments: { projectRoot: fixtureRoot, scenePath: "res://main.tscn", timeoutMs: 15000 },
   }));
   assert.equal(diagnostics.status, "stopped");
+  assert.equal(diagnostics.scenePath, "res://main.tscn");
   assert.ok(diagnostics.warnings.some((warning) => warning.source === "res://diagnostic_scene.gd"));
 
   const history = structured(await request("tools/call", {
