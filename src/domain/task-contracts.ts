@@ -80,22 +80,29 @@ export const taskStepStatusSchema = z.enum([
   "cancelled",
 ]);
 
+export const taskTimelineEventStatusSchema = z.enum([
+  "running",
+  "succeeded",
+  "failed",
+  "paused",
+  "resumed",
+  "cancelled",
+  "lease_acquired",
+  "lease_renewed",
+  "lease_released",
+  "lease_reclaimed",
+]);
+
+const timelineTimestampSchema = z
+  .string()
+  .min(1)
+  .refine((value) => Number.isFinite(Date.parse(value)), "timestamp must be a valid ISO date.");
+
 export const taskTimelineEventSchema = z.object({
   eventId: z.string().min(1),
   stepId: taskStepIdSchema.nullable(),
   operationId: z.string().nullable().default(null),
-  status: z.enum([
-    "running",
-    "succeeded",
-    "failed",
-    "paused",
-    "resumed",
-    "cancelled",
-    "lease_acquired",
-    "lease_renewed",
-    "lease_released",
-    "lease_reclaimed",
-  ]),
+  status: taskTimelineEventStatusSchema,
   at: z.string().min(1),
   result: z.unknown().optional(),
   error: z
@@ -105,6 +112,26 @@ export const taskTimelineEventSchema = z.object({
     })
     .optional(),
 });
+
+export const taskTimelineInputSchema = z
+  .object({
+    projectRoot: z.string().min(1),
+    taskId: taskIdSchema,
+    stepId: taskStepIdSchema.optional(),
+    eventTypes: z.array(taskTimelineEventStatusSchema).min(1).max(10).optional(),
+    from: timelineTimestampSchema.optional(),
+    to: timelineTimestampSchema.optional(),
+    limit: z.number().int().min(1).max(500).optional(),
+  })
+  .superRefine((value, context) => {
+    if (value.from !== undefined && value.to !== undefined && Date.parse(value.from) > Date.parse(value.to)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["to"],
+        message: "to must be greater than or equal to from.",
+      });
+    }
+  });
 
 export const taskLeaseSchema = z.object({
   leaseId: z.string().min(1),
@@ -173,6 +200,17 @@ export const taskStateSchema = z.object({
   timeline: z.array(taskTimelineEventSchema).default([]),
 });
 
+export const taskTimelineReportSchema = z.object({
+  schemaVersion: z.literal("0.1"),
+  projectRoot: z.string().min(1),
+  taskId: taskIdSchema,
+  status: taskStatusSchema,
+  events: z.array(taskTimelineEventSchema),
+  total: z.number().int().nonnegative(),
+  returned: z.number().int().nonnegative(),
+  truncated: z.boolean(),
+});
+
 export type TaskStepDecl = z.infer<typeof taskStepDeclSchema>;
 export type TaskStatus = z.infer<typeof taskStatusSchema>;
 export type TaskStepStatus = z.infer<typeof taskStepStatusSchema>;
@@ -184,3 +222,5 @@ export type TaskLeaseInput = z.infer<typeof taskLeaseInputSchema>;
 export type AcquireTaskLeaseInput = z.infer<typeof acquireTaskLeaseInputSchema>;
 export type TaskLease = z.infer<typeof taskLeaseSchema>;
 export type TaskTimelineEvent = z.infer<typeof taskTimelineEventSchema>;
+export type TaskTimelineInput = z.infer<typeof taskTimelineInputSchema>;
+export type TaskTimelineReport = z.infer<typeof taskTimelineReportSchema>;

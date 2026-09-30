@@ -5,6 +5,7 @@ import {
   acquireTaskLeaseInputSchema,
   taskIdInputSchema,
   taskLeaseInputSchema,
+  taskTimelineInputSchema,
   type AcquireTaskLeaseInput,
   type CreateTaskInput,
   type TaskIdInput,
@@ -12,6 +13,8 @@ import {
   type TaskLease,
   type TaskLeaseInput,
   type TaskStepState,
+  type TaskTimelineInput,
+  type TaskTimelineReport,
   type TaskTimelineEvent,
 } from "../domain/task-contracts.js";
 import { DomainError, ERROR_CODES } from "../domain/errors.js";
@@ -83,6 +86,46 @@ export class TaskCoordinator {
     const task = await this.requireTask(parsedInput.taskId, projectRoot);
     this.refreshTaskRecoverability(task);
     return structuredClone(task);
+  }
+
+  async getTaskTimeline(input: TaskTimelineInput): Promise<TaskTimelineReport> {
+    const parsedInput = taskTimelineInputSchema.parse(input);
+    const projectRoot = await normalizeProjectRoot(parsedInput.projectRoot);
+    const task = await this.requireTask(parsedInput.taskId, projectRoot);
+    this.refreshTaskRecoverability(task);
+
+    const fromMs = parsedInput.from === undefined ? undefined : Date.parse(parsedInput.from);
+    const toMs = parsedInput.to === undefined ? undefined : Date.parse(parsedInput.to);
+    const eventTypes = parsedInput.eventTypes === undefined ? undefined : new Set(parsedInput.eventTypes);
+    const filteredEvents = task.timeline.filter((event) => {
+      if (parsedInput.stepId !== undefined && event.stepId !== parsedInput.stepId) {
+        return false;
+      }
+      if (eventTypes !== undefined && !eventTypes.has(event.status)) {
+        return false;
+      }
+      const timestamp = Date.parse(event.at);
+      if (fromMs !== undefined && timestamp < fromMs) {
+        return false;
+      }
+      if (toMs !== undefined && timestamp > toMs) {
+        return false;
+      }
+      return true;
+    });
+    const limit = parsedInput.limit ?? 200;
+    const events = filteredEvents.slice(0, limit);
+
+    return {
+      schemaVersion: "0.1",
+      projectRoot,
+      taskId: task.taskId,
+      status: task.status,
+      events: structuredClone(events),
+      total: filteredEvents.length,
+      returned: events.length,
+      truncated: events.length < filteredEvents.length,
+    };
   }
 
   async advanceTask(input: TaskIdInput): Promise<TaskState> {

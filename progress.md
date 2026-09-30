@@ -46,6 +46,11 @@
 - heartbeat 停止、续租失败和任务释放不会留下活动定时器；timeline 增加 lease_acquired、lease_renewed、lease_released、lease_reclaimed 事件。
 - 自动化回归通过：58/58 tests、typecheck、build。
 
+## 2026-09-30 task timeline query
+
+- 新增只读 `task_timeline` MCP 工具，支持 `stepId`、`eventTypes`、ISO `from/to` 和 `limit` 过滤。
+- 返回任务状态、过滤后事件、总数、返回数和截断标记；回归测试覆盖 lease 事件和时间范围。
+
 ## 2026-09-30 input action persistence
 
 - 新增只读 `/v1/input-actions/read`，返回 action 是否存在、deadzone、受限 key event 摘要和 `project.godot` revision。

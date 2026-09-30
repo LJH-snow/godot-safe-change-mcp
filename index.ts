@@ -34,6 +34,7 @@ import {
   registerRenewTaskLeaseTool,
   registerResumeTaskTool,
   registerTaskStatusTool,
+  registerTaskTimelineTool,
 } from "./src/tools/task-workflow.js";
 
 const server = new MCPServer({
@@ -73,6 +74,7 @@ export const runScene = registerRunSceneTool(server, changeCoordinator);
 export const createTask = registerCreateTaskTool(server, taskCoordinator);
 export const getTask = registerGetTaskTool(server, taskCoordinator);
 export const taskStatus = registerTaskStatusTool(server, taskCoordinator);
+export const taskTimeline = registerTaskTimelineTool(server, taskCoordinator);
 export const advanceTask = registerAdvanceTaskTool(server, taskCoordinator);
 export const acquireTaskLease = registerAcquireTaskLeaseTool(server, taskCoordinator);
 export const renewTaskLease = registerRenewTaskLeaseTool(server, taskCoordinator);

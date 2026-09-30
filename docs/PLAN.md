@@ -199,6 +199,8 @@ npm run build
 
 2026-09-30 已增强 task timeline：每个 task step 持有独立 operationId，running/succeeded/failed 事件随 TaskState 持久化，task_status 可恢复查询。
 
+2026-09-30 已增加只读 `task_timeline` 工具：支持按 `stepId`、事件类型、ISO `from/to` 时间范围和 `limit` 过滤，并返回 `total`、`returned`、`truncated`。
+
 2026-09-30 已完成第五阶段的多步骤开发任务：create_task 把受限 apply、rollback、run 步骤组成一个任务，状态持久化在项目内 `.godot-safe-change/tasks/`；advance 逐步执行并复用既有确认、revision 守卫和审计；支持暂停、继续、取消、每步最多 3 次的失败重试，以及服务器重启后的任务恢复。真实 Godot 4.7.2 端到端验收通过。
 
 2026-09-30 已增加 `run_scene`：通过 `/v1/run/scene` 和 `EditorInterface.play_custom_scene` 运行经过路径校验的指定 `.tscn`，复用 run/status 长时轮询；任务步骤可保存并执行 run_scene。真实 MCP + Godot 4.7.2 验收通过。

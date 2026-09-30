@@ -498,4 +498,41 @@ describe("TaskCoordinator", () => {
     assert.equal(released.recoverable, true);
     assert.ok(released.timeline.some((event) => String(event.status) === "lease_released"));
   });
+
+  test("filters task timeline by step, event type and time range", async () => {
+    const { projectRoot, taskCoordinator } = harness;
+    const task = await taskCoordinator.createTask({
+      projectRoot,
+      title: "Filtered timeline",
+      steps: [{ kind: "run_current_scene", stepId: "timeline-step" }],
+    });
+    const from = new Date(Date.now() - 1000).toISOString();
+    const acquired = await taskCoordinator.acquireTaskLease({
+      projectRoot,
+      taskId: task.taskId,
+      ttlMs: 10000,
+    });
+    const released = await taskCoordinator.releaseTaskLease({
+      projectRoot,
+      taskId: task.taskId,
+      leaseId: acquired.lease!.leaseId,
+    });
+    const to = new Date(Date.now() + 1000).toISOString();
+
+    const report = await taskCoordinator.getTaskTimeline({
+      projectRoot,
+      taskId: task.taskId,
+      eventTypes: ["lease_acquired", "lease_released"],
+      from,
+      to,
+      limit: 1,
+    });
+
+    assert.equal(report.taskId, task.taskId);
+    assert.equal(report.total, 2);
+    assert.equal(report.events.length, 1);
+    assert.equal(report.truncated, true);
+    assert.ok(["lease_acquired", "lease_released"].includes(String(report.events[0]?.status)));
+    assert.equal(released.lease, null);
+  });
 });

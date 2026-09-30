@@ -29,6 +29,7 @@
 - create_task / get_task / advance_task / pause_task / resume_task / cancel_task：把受限的 apply、rollback 和 run 步骤组成一个可审查的多步骤任务；任务状态持久化在项目内 `.godot-safe-change/tasks/`，支持暂停、继续、取消、失败重试和重启后恢复。步骤只复用既有的确认、revision 守卫和 UndoRedo 语义，不引入新的写入能力。
 
 - acquire_task_lease / renew_task_lease / release_task_lease：管理跨多个 task 步骤的项目 lease，返回 owner、过期时间和 recoverable 状态。
+- task_timeline：只读查询完整任务时间线，可按 stepId、事件类型和 ISO 时间范围过滤。
 
 当前只支持在当前场景内创建一个 allowlist 中的节点类型：Node、Node2D、Control、Label、ColorRect；场景属性修改和脚本挂载也只针对当前场景内的相对 NodePath 和 allowlisted 属性。
 
