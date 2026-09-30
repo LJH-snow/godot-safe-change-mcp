@@ -19,6 +19,9 @@ const NODE_LINE_PATTERN = /\[node\s+name="([^"]+)"(?:\s+type="([^"]+)")?(?:\s+pa
 const CONNECTION_LINE_PATTERN = /\[connection\s+([^\]]+)\]/;
 const ATTRIBUTE_PATTERN = /([A-Za-z_][A-Za-z0-9_]*)="([^"]*)"/g;
 const SCRIPT_SIGNAL_PATTERN = /^\s*signal\s+([A-Za-z_][A-Za-z0-9_]*)/;
+const EXT_RESOURCE_LINE_PATTERN = /\[ext_resource\s+([^\]]+)\]/;
+const FILE_UID_PATTERN = /uid="(uid:\/\/[^"]+)"/;
+const SCRIPT_UID_COMMENT_PATTERN = /^\s*#\s*uid\s+(uid:\/\/\S+)/;
 
 interface IndexedFile {
   relativePath: string;
@@ -34,8 +37,31 @@ interface SceneConnectionEntry {
   method: string;
 }
 
+interface ExtResourceEntry {
+  type: string;
+  path: string | null;
+  uid: string | null;
+}
+
+interface ParsedReferenceFile {
+  size: number;
+  fileUid: string | null;
+  extResources: ExtResourceEntry[];
+}
+
 export interface LocalSearchOutcome {
   results: SearchResult[];
+  truncated: boolean;
+}
+
+export interface ReferenceOutcome {
+  references: Array<{
+    path: string;
+    kind: "scene" | "resource";
+    targetPath: string | null;
+    targetType: string | null;
+    matchedBy: "path" | "uid";
+  }>;
   truncated: boolean;
 }
 
@@ -121,6 +147,140 @@ export async function countProjectFiles(
     }
   }
   return counts;
+}
+
+/**
+ * Parsed ext_resource entries cached per file, invalidated when the file size
+ * changes. Bounded like the walk cache so long-lived servers cannot grow it
+ * without limit.
+ */
+class ReferenceParseCache {
+  private readonly entries = new Map<string, ParsedReferenceFile>();
+
+  constructor(private readonly maxEntries = 512) {}
+
+  get(absolutePath: string, size: number): ParsedReferenceFile | undefined {
+    const hit = this.entries.get(absolutePath);
+    return hit !== undefined && hit.size === size ? hit : undefined;
+  }
+
+  set(absolutePath: string, parsed: ParsedReferenceFile): void {
+    if (this.entries.size >= this.maxEntries && !this.entries.has(absolutePath)) {
+      const oldestKey = this.entries.keys().next().value;
+      if (oldestKey !== undefined) {
+        this.entries.delete(oldestKey);
+      }
+    }
+    this.entries.set(absolutePath, parsed);
+  }
+}
+
+const sharedReferenceParseCache = new ReferenceParseCache();
+
+async function parseReferenceFile(file: IndexedFile): Promise<ParsedReferenceFile> {
+  const cached = sharedReferenceParseCache.get(file.absolutePath, file.size);
+  if (cached !== undefined) {
+    return cached;
+  }
+  const text = await readFile(file.absolutePath, "utf8");
+  const uidMatch = text.match(FILE_UID_PATTERN);
+  const extResources: ExtResourceEntry[] = [];
+  for (const line of text.split("\n")) {
+    const match = line.trim().match(EXT_RESOURCE_LINE_PATTERN);
+    if (match === null) {
+      continue;
+    }
+    const attributes = parseAttributes(match[1] ?? "");
+    if (attributes.path === undefined && attributes.uid === undefined) {
+      continue;
+    }
+    extResources.push({
+      type: attributes.type ?? "",
+      path: attributes.path ?? null,
+      uid: attributes.uid ?? null,
+    });
+  }
+  const parsed = { size: file.size, fileUid: uidMatch?.[1] ?? null, extResources };
+  sharedReferenceParseCache.set(file.absolutePath, parsed);
+  return parsed;
+}
+
+/**
+ * Reverse lookup: which scene and resource files reference the given target.
+ * The target is matched case-insensitively as a substring against each
+ * ext_resource path, or exactly as a uid:// identifier.
+ */
+export async function findProjectReferences(
+  projectRoot: string,
+  target: string,
+  options: { limit?: number; cache?: ProjectIndexCache } = {},
+): Promise<ReferenceOutcome> {
+  const normalizedTarget = target.trim().toLowerCase();
+  const limit = options.limit ?? 50;
+  const cache = options.cache ?? sharedProjectIndexCache;
+  const files = await cache.getOrScan(projectRoot);
+
+  // Resolve the uids of files whose path matches the target, so references
+  // written uid-only (Godot 4.4+ scenes may omit the path) still match.
+  const targetIsUid = normalizedTarget.startsWith("uid://");
+  const targetUids = new Set<string>();
+  const candidates: IndexedFile[] = [];
+  for (const file of files) {
+    if (file.extension === ".tscn" || file.extension === ".scn" || file.extension === ".tres") {
+      candidates.push(file);
+    }
+    if (targetIsUid) {
+      continue;
+    }
+    if (!("res://" + file.relativePath).toLowerCase().includes(normalizedTarget)) {
+      continue;
+    }
+    if (file.extension === ".gd" || file.extension === ".cs") {
+      // Scripts carry their uid in a leading comment, e.g. "# uid uid://b1e...".
+      const text = await readFile(file.absolutePath, "utf8");
+      const uidMatch = text.match(SCRIPT_UID_COMMENT_PATTERN);
+      if (uidMatch !== null) {
+        targetUids.add(uidMatch[1] as string);
+      }
+      continue;
+    }
+    const parsed = await parseReferenceFile(file);
+    if (parsed.fileUid !== null) {
+      targetUids.add(parsed.fileUid);
+    }
+  }
+
+  const references: ReferenceOutcome["references"] = [];
+  let truncated = false;
+  for (const file of candidates) {
+    if (references.length >= limit) {
+      truncated = true;
+      break;
+    }
+    const parsed = await parseReferenceFile(file);
+    for (const extResource of parsed.extResources) {
+      if (references.length >= limit) {
+        truncated = true;
+        break;
+      }
+      const matchesPath =
+        extResource.path !== null && extResource.path.toLowerCase().includes(normalizedTarget);
+      const matchesUid =
+        (targetIsUid && extResource.uid !== null && extResource.uid === target.trim()) ||
+        (extResource.uid !== null && targetUids.has(extResource.uid));
+      if (!matchesPath && !matchesUid) {
+        continue;
+      }
+      references.push({
+        path: "res://" + file.relativePath,
+        kind: file.extension === ".tscn" || file.extension === ".scn" ? "scene" : "resource",
+        targetPath: extResource.path,
+        targetType: extResource.type === "" ? null : extResource.type,
+        matchedBy: matchesPath ? "path" : "uid",
+      });
+    }
+  }
+  return { references, truncated };
 }
 
 /**
