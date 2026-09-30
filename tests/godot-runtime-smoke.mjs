@@ -35,6 +35,10 @@ function waitForExit(processHandle) {
   return new Promise((resolve) => processHandle.once("exit", resolve));
 }
 
+function waitFor(milliseconds) {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
 async function stopProcess(processHandle) {
   if (processHandle === undefined || processHandle.exitCode !== null) {
     return;
@@ -43,15 +47,14 @@ async function stopProcess(processHandle) {
   processHandle.kill("SIGTERM");
   const exited = await Promise.race([
     termination.then(() => true),
-    new Promise((resolve) => setTimeout(() => resolve(false), 3000)),
+    waitFor(3000).then(() => false),
   ]);
   if (exited) {
     return;
   }
   if (processHandle.exitCode === null) {
-    const forcedTermination = waitForExit(processHandle);
     processHandle.kill("SIGKILL");
-    await forcedTermination;
+    await Promise.race([waitForExit(processHandle), waitFor(3000)]);
   }
 }
 
