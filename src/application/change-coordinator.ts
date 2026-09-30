@@ -4,6 +4,7 @@ import {
   changePlanSchema,
   confirmChangeInputSchema,
   previewSceneChangeInputSchema,
+  sceneSetPropertySchema,
   type ApplyChangeInput,
   type ChangePlan,
   type ConfirmChangeInput,
@@ -94,14 +95,20 @@ export class ChangeCoordinator {
       );
     }
 
+    const operation = parsedInput.operation;
     const fingerprint = JSON.stringify({
       projectRoot,
       expectedRevision: context.revision,
       reason: parsedInput.reason,
-      operation: parsedInput.operation,
+      operation,
     });
-    const planId = createHash("sha256").update(fingerprint).digest("hex").slice(0, 20);
-    const operation = parsedInput.operation;
+    const basePlanId = createHash("sha256").update(fingerprint).digest("hex").slice(0, 20);
+    let planId = basePlanId;
+    let collision = 1;
+    while (this.plans.has(planId)) {
+      planId = basePlanId + "-" + collision;
+      collision += 1;
+    }
     let expectedFileRevision: string | null = null;
     let diff;
     if (operation.kind === "scene.create_node") {
@@ -123,13 +130,19 @@ export class ChangeCoordinator {
           scenePath,
       };
     } else if (operation.kind === "scene.set_property") {
-      const node = context.currentScene.nodes.find((candidate) => candidate.path === operation.nodePath);
-      const before = node?.properties[operation.property];
-      if (node === undefined || before === undefined) {
+      const parsedOperation = sceneSetPropertySchema.parse(operation);
+      const node = context.currentScene.nodes.find((candidate) => candidate.path === parsedOperation.nodePath);
+      const before = node?.properties[parsedOperation.property];
+      if (
+        node === undefined ||
+        before === undefined ||
+        !this.nodeSupportsProperty(node.type, parsedOperation.property) ||
+        !this.propertyValueMatches(parsedOperation.property, before)
+      ) {
         throw new DomainError(
           ERROR_CODES.VALIDATION_FAILED,
-          "The requested node property is not available in the current scene context.",
-          { nodePath: operation.nodePath, property: operation.property },
+          "The requested node property is not available with a supported value in the current scene context.",
+          { nodePath: parsedOperation.nodePath, property: parsedOperation.property, nodeType: node?.type },
         );
       }
       diff = {
@@ -549,6 +562,72 @@ export class ChangeCoordinator {
         );
       }
     }
+  }
+
+  private nodeSupportsProperty(nodeType: string, property: string): boolean {
+    if (property === "visible") {
+      return ["Node2D", "Control", "Label", "ColorRect"].includes(nodeType);
+    }
+    if (property === "position") {
+      return nodeType === "Node2D";
+    }
+    if (property === "size") {
+      return ["Control", "Label", "ColorRect"].includes(nodeType);
+    }
+    if (property === "text") {
+      return nodeType === "Label";
+    }
+    if (property === "color") {
+      return nodeType === "ColorRect";
+    }
+    return false;
+  }
+
+  private propertyValueMatches(property: string, value: unknown): boolean {
+    if (property === "visible") {
+      return typeof value === "boolean";
+    }
+    if (property === "text") {
+      return typeof value === "string" && value.length <= 10000;
+    }
+    if (property === "position" || property === "size") {
+      if (!this.hasExactKeys(value, ["x", "y"])) {
+        return false;
+      }
+      const point = value as { x: unknown; y: unknown };
+      if (
+        typeof point.x !== "number" ||
+        !Number.isFinite(point.x) ||
+        typeof point.y !== "number" ||
+        !Number.isFinite(point.y)
+      ) {
+        return false;
+      }
+      const x = point.x;
+      const y = point.y;
+      if (property === "size") {
+        return x >= 0 && x <= 1_000_000 && y >= 0 && y <= 1_000_000;
+      }
+      return x >= -1_000_000 && x <= 1_000_000 && y >= -1_000_000 && y <= 1_000_000;
+    }
+    if (property === "color") {
+      if (!this.hasExactKeys(value, ["r", "g", "b", "a"])) {
+        return false;
+      }
+      const color = value as { r: unknown; g: unknown; b: unknown; a: unknown };
+      return [color.r, color.g, color.b, color.a].every(
+        (component) => typeof component === "number" && Number.isFinite(component) && component >= 0 && component <= 1,
+      );
+    }
+    return false;
+  }
+
+  private hasExactKeys(value: unknown, keys: string[]): boolean {
+    if (value === null || typeof value !== "object" || Array.isArray(value)) {
+      return false;
+    }
+    const actualKeys = Object.keys(value).sort();
+    return actualKeys.length === keys.length && actualKeys.every((key, index) => key === [...keys].sort()[index]);
   }
 
   private associateDiagnostics(projectRoot: string, diagnostics: RunDiagnostics): RunDiagnostics {

@@ -24,6 +24,11 @@ var run_started_at := 0
 var last_applied_plan_id := ""
 var last_applied_revision := ""
 var last_applied_kind := ""
+var last_applied_undo_history_id := -1
+var last_applied_undo_version := -1
+var last_applied_undo_action := -1
+var last_applied_undo_label := ""
+var last_applied_scene_path := ""
 var last_script_path := ""
 var last_script_original_content := ""
 var last_script_applied_revision := ""
@@ -167,7 +172,37 @@ func _read_script(body: Variant) -> Dictionary:
     })
 
 func _is_safe_script_path(script_path: String) -> bool:
-    return script_path.begins_with("res://") and script_path.ends_with(".gd") and not script_path.contains("..")
+    return _is_safe_project_path(script_path) and script_path.ends_with(".gd")
+
+func _is_safe_project_path(project_path: String) -> bool:
+    if project_path.length() < 7 or project_path.length() > 256 or not project_path.begins_with("res://"):
+        return false
+    var relative_path := project_path.substr(6)
+    if relative_path == "" or relative_path.contains("//") or relative_path.contains("\\") or project_path.contains(".."):
+        return false
+    for segment in relative_path.split("/"):
+        if segment == "" or segment == "." or segment == "..":
+            return false
+    return true
+
+func _is_safe_node_path(node_path: String) -> bool:
+    if node_path == ".":
+        return true
+    if node_path.length() < 1 or node_path.length() > 256 or node_path.begins_with("/") or node_path.contains("..") or node_path.contains("\\") or node_path.contains(":"):
+        return false
+    var segment_regex := RegEx.new()
+    segment_regex.compile("^[A-Za-z_][A-Za-z0-9_]*$")
+    for segment in node_path.split("/"):
+        if segment == "" or segment_regex.search(segment) == null:
+            return false
+    return true
+
+func _is_safe_resource_identifier(identifier: String) -> bool:
+    if identifier.begins_with("uid://"):
+        var uid_regex := RegEx.new()
+        uid_regex.compile("^uid://[A-Za-z0-9_-]+$")
+        return uid_regex.search(identifier) != null
+    return _is_safe_project_path(identifier)
 
 func _read_resource(body: Variant) -> Dictionary:
     if typeof(body) != TYPE_DICTIONARY:
@@ -191,7 +226,7 @@ func _read_resource(body: Variant) -> Dictionary:
 
 func _is_safe_resource_path(resource_path: String) -> bool:
     var extension := resource_path.get_extension().to_lower()
-    return resource_path.begins_with("res://") and not resource_path.contains("..") and extension in ["tscn", "tres", "res"]
+    return _is_safe_project_path(resource_path) and extension in ["tscn", "tres", "res"]
 
 func _read_input_action(body: Variant) -> Dictionary:
     if typeof(body) != TYPE_DICTIONARY:
@@ -224,6 +259,8 @@ func _read_input_action(body: Variant) -> Dictionary:
     })
 
 func _is_safe_input_action_name(action_name: String) -> bool:
+    if action_name.length() < 1 or action_name.length() > 128:
+        return false
     var name_regex := RegEx.new()
     name_regex.compile("^[A-Za-z_][A-Za-z0-9_]*$")
     return name_regex.search(action_name) != null
@@ -346,6 +383,16 @@ func _node_context(scene_root: Node, node: Node) -> Dictionary:
         "properties": _safe_node_properties(node),
     }
 
+func _scene_node(scene_root: Node, node_path: String) -> Node:
+    if scene_root == null or not _is_safe_node_path(node_path):
+        return null
+    if node_path == ".":
+        return scene_root
+    var node := scene_root.get_node_or_null(NodePath(node_path))
+    if node == null or not scene_root.is_ancestor_of(node):
+        return null
+    return node
+
 func _safe_node_properties(node: Node) -> Dictionary:
     var properties := {}
     if node is CanvasItem:
@@ -466,8 +513,129 @@ func _field_matches(query: String, fields: Array) -> Array:
             matches.append(field_names[index])
     return matches
 
+func _has_exact_keys(value: Dictionary, required: Array, optional: Array = []) -> bool:
+    for key in required:
+        if not value.has(key):
+            return false
+    for key in value.keys():
+        if not required.has(key) and not optional.has(key):
+            return false
+    return true
+
+func _is_finite_number(value: Variant) -> bool:
+    if typeof(value) != TYPE_INT and typeof(value) != TYPE_FLOAT:
+        return false
+    return is_finite(float(value))
+
+func _is_valid_number(value: Variant, minimum: float, maximum: float) -> bool:
+    return _is_finite_number(value) and float(value) >= minimum and float(value) <= maximum
+
+func _is_valid_integer(value: Variant, minimum: float, maximum: float) -> bool:
+    return _is_valid_number(value, minimum, maximum) and int(value) == float(value)
+
+func _is_valid_point(value: Variant, minimum: float, maximum: float) -> bool:
+    if typeof(value) != TYPE_DICTIONARY:
+        return false
+    var point: Dictionary = value
+    if not _has_exact_keys(point, ["x", "y"]):
+        return false
+    return _is_valid_number(point["x"], minimum, maximum) and _is_valid_number(point["y"], minimum, maximum)
+
+func _is_valid_color(value: Variant) -> bool:
+    if typeof(value) != TYPE_DICTIONARY:
+        return false
+    var color: Dictionary = value
+    if not _has_exact_keys(color, ["r", "g", "b", "a"]):
+        return false
+    return _is_valid_number(color["r"], 0.0, 1.0) \
+        and _is_valid_number(color["g"], 0.0, 1.0) \
+        and _is_valid_number(color["b"], 0.0, 1.0) \
+        and _is_valid_number(color["a"], 0.0, 1.0)
+
+func _is_safe_plan_id(plan_id: String) -> bool:
+    var plan_regex := RegEx.new()
+    plan_regex.compile("^[A-Za-z0-9_-]{1,128}$")
+    return plan_regex.search(plan_id) != null
+
+func _validate_change_request(request_body: Dictionary) -> Dictionary:
+    if not _has_exact_keys(request_body, ["projectRoot", "planId", "expectedRevision", "operations"], ["expectedFileRevision"]):
+        return _failure("VALIDATION_FAILED", "The change request contains unsupported or missing fields.")
+    if typeof(request_body.get("projectRoot")) != TYPE_STRING or String(request_body["projectRoot"]) == "":
+        return _failure("VALIDATION_FAILED", "projectRoot is required.")
+    if not _is_safe_plan_id(String(request_body.get("planId", ""))):
+        return _failure("VALIDATION_FAILED", "planId contains unsupported characters.")
+    if typeof(request_body.get("expectedRevision")) != TYPE_STRING or String(request_body["expectedRevision"]) == "":
+        return _failure("VALIDATION_FAILED", "expectedRevision is required.")
+    if request_body.has("expectedFileRevision") and (typeof(request_body["expectedFileRevision"]) != TYPE_STRING or String(request_body["expectedFileRevision"]) == ""):
+        return _failure("VALIDATION_FAILED", "expectedFileRevision must be a non-empty string when provided.")
+    var operations: Variant = request_body["operations"]
+    if typeof(operations) != TYPE_ARRAY or operations.size() != 1 or typeof(operations[0]) != TYPE_DICTIONARY:
+        return _failure("UNSAFE_OPERATION", "Exactly one bounded operation is supported.")
+    var operation: Dictionary = operations[0]
+    var kind := String(operation.get("kind", ""))
+    if kind == "scene.create_node":
+        if not _has_exact_keys(operation, ["kind", "parentPath", "nodeName", "nodeType"]):
+            return _failure("VALIDATION_FAILED", "scene.create_node contains unsupported or missing fields.")
+        if not _is_safe_node_path(String(operation["parentPath"])):
+            return _failure("VALIDATION_FAILED", "parentPath must be a safe relative NodePath.")
+        if typeof(operation["nodeName"]) != TYPE_STRING or String(operation["nodeName"]) == "":
+            return _failure("VALIDATION_FAILED", "nodeName is required.")
+    elif kind == "scene.set_property":
+        if not _has_exact_keys(operation, ["kind", "nodePath", "property", "value"]):
+            return _failure("VALIDATION_FAILED", "scene.set_property contains unsupported or missing fields.")
+        if not _is_safe_node_path(String(operation["nodePath"])):
+            return _failure("VALIDATION_FAILED", "nodePath must be a safe relative NodePath.")
+        var property := String(operation["property"])
+        var value: Variant = operation["value"]
+        if property == "visible":
+            if typeof(value) != TYPE_BOOL:
+                return _failure("VALIDATION_FAILED", "visible must be a boolean.")
+        elif property == "position":
+            if not _is_valid_point(value, -1000000.0, 1000000.0):
+                return _failure("VALIDATION_FAILED", "position must contain finite x and y values in range.")
+        elif property == "size":
+            if not _is_valid_point(value, 0.0, 1000000.0):
+                return _failure("VALIDATION_FAILED", "size must contain finite non-negative x and y values.")
+        elif property == "text":
+            if typeof(value) != TYPE_STRING or String(value).length() > 10000:
+                return _failure("VALIDATION_FAILED", "text must be a bounded string.")
+        elif property == "color":
+            if not _is_valid_color(value):
+                return _failure("VALIDATION_FAILED", "color must contain finite channel values from 0 to 1.")
+        else:
+            return _failure("UNSAFE_OPERATION", "The requested node property is not allowlisted.")
+    elif kind == "scene.attach_script":
+        if not _has_exact_keys(operation, ["kind", "nodePath", "scriptPath"]):
+            return _failure("VALIDATION_FAILED", "scene.attach_script contains unsupported or missing fields.")
+        if not _is_safe_node_path(String(operation["nodePath"])) or not _is_safe_script_path(String(operation["scriptPath"])):
+            return _failure("UNSAFE_OPERATION", "Only safe scene node paths and project-relative scripts can be attached.")
+    elif kind == "resource.replace_reference":
+        if not _has_exact_keys(operation, ["kind", "resourcePath", "from", "to"]):
+            return _failure("VALIDATION_FAILED", "resource.replace_reference contains unsupported or missing fields.")
+        if not _is_safe_resource_path(String(operation["resourcePath"])) or not _is_safe_resource_identifier(String(operation["from"])) or not _is_safe_resource_identifier(String(operation["to"])):
+            return _failure("UNSAFE_OPERATION", "Only safe resource paths and identifiers can be changed.")
+    elif kind == "project.input_action.add_key":
+        if not _has_exact_keys(operation, ["kind", "actionName", "physicalKeycode"], ["deadzone"]):
+            return _failure("VALIDATION_FAILED", "project.input_action.add_key contains unsupported or missing fields.")
+        var physical_keycode_value: Variant = operation["physicalKeycode"]
+        if not _is_safe_input_action_name(String(operation["actionName"])) or not _is_valid_number(physical_keycode_value, 1.0, 10000.0) or int(physical_keycode_value) != float(physical_keycode_value):
+            return _failure("VALIDATION_FAILED", "The input action name or physical keycode is invalid.")
+        if operation.has("deadzone") and not _is_valid_number(operation["deadzone"], 0.0, 1.0):
+            return _failure("VALIDATION_FAILED", "deadzone must be a finite number from 0 to 1.")
+    elif kind == "script.replace_range":
+        if not _has_exact_keys(operation, ["kind", "scriptPath", "startLine", "endLine", "replacement"]):
+            return _failure("VALIDATION_FAILED", "script.replace_range contains unsupported or missing fields.")
+        if not _is_safe_script_path(String(operation["scriptPath"])) or not _is_valid_integer(operation["startLine"], 1.0, 1000000.0) or not _is_valid_integer(operation["endLine"], 1.0, 1000000.0) or int(operation["endLine"]) < int(operation["startLine"]) or typeof(operation["replacement"]) != TYPE_STRING or String(operation["replacement"]).length() > 100000:
+            return _failure("VALIDATION_FAILED", "The script replacement range or content is invalid.")
+    else:
+        return _failure("UNSAFE_OPERATION", "Only the bounded safe change operations are enabled.")
+    return {}
+
 func _apply_change(body: Variant) -> Dictionary:
     var request_body: Dictionary = body
+    var request_error := _validate_change_request(request_body)
+    if not request_error.is_empty():
+        return request_error
     var scene_root := EditorInterface.get_edited_scene_root()
     if scene_root == null:
         return _failure("VALIDATION_FAILED", "A current scene is required before applying a change.")
@@ -527,7 +695,9 @@ func _apply_scene_property_change(request_body: Dictionary, scene_root: Node, sc
     var operation: Dictionary = request_body["operations"][0]
     var node_path := String(operation.get("nodePath", ""))
     var property := String(operation.get("property", ""))
-    var node: Node = scene_root if node_path == "." else scene_root.get_node_or_null(NodePath(node_path))
+    if not _is_safe_node_path(node_path):
+        return _failure("VALIDATION_FAILED", "nodePath must be a safe relative NodePath.")
+    var node: Node = _scene_node(scene_root, node_path)
     if node == null:
         return _failure("VALIDATION_FAILED", "The requested scene node does not exist.")
 
@@ -563,9 +733,9 @@ func _apply_attach_script(request_body: Dictionary, scene_root: Node, scene_path
     var operation: Dictionary = request_body["operations"][0]
     var node_path := String(operation.get("nodePath", ""))
     var script_path := String(operation.get("scriptPath", ""))
-    if not _is_safe_script_path(script_path):
-        return _failure("UNSAFE_OPERATION", "Only project-relative .gd scripts can be attached.")
-    var node: Node = scene_root if node_path == "." else scene_root.get_node_or_null(NodePath(node_path))
+    if not _is_safe_node_path(node_path) or not _is_safe_script_path(script_path):
+        return _failure("UNSAFE_OPERATION", "Only safe scene node paths and project-relative .gd scripts can be attached.")
+    var node: Node = _scene_node(scene_root, node_path)
     if node == null:
         return _failure("VALIDATION_FAILED", "The requested scene node does not exist.")
     var script_resource: Variant = ResourceLoader.load(script_path)
@@ -726,18 +896,21 @@ func _read_resource_snapshot(resource_path: String) -> Dictionary:
 func _property_value(node: Node, property: String, value: Variant):
     if property == "visible" and node is CanvasItem and typeof(value) == TYPE_BOOL:
         return value
-    if property == "text" and node is Label and typeof(value) == TYPE_STRING:
+    if property == "text" and node is Label and typeof(value) == TYPE_STRING and String(value).length() <= 10000:
         return value
-    if property == "position" and node is Node2D and typeof(value) == TYPE_DICTIONARY:
-        return Vector2(float(value.get("x", 0.0)), float(value.get("y", 0.0)))
-    if property == "size" and node is Control and typeof(value) == TYPE_DICTIONARY:
-        return Vector2(float(value.get("x", 0.0)), float(value.get("y", 0.0)))
-    if property == "color" and node is ColorRect and typeof(value) == TYPE_DICTIONARY:
+    if property == "position" and node is Node2D and _is_valid_point(value, -1000000.0, 1000000.0):
+        var position: Dictionary = value
+        return Vector2(float(position["x"]), float(position["y"]))
+    if property == "size" and node is Control and _is_valid_point(value, 0.0, 1000000.0):
+        var size: Dictionary = value
+        return Vector2(float(size["x"]), float(size["y"]))
+    if property == "color" and node is ColorRect and _is_valid_color(value):
+        var color: Dictionary = value
         return Color(
-            float(value.get("r", 0.0)),
-            float(value.get("g", 0.0)),
-            float(value.get("b", 0.0)),
-            float(value.get("a", 1.0)),
+            float(color["r"]),
+            float(color["g"]),
+            float(color["b"]),
+            float(color["a"]),
         )
     return null
 
@@ -753,6 +926,44 @@ func _property_snapshot(node: Node, property: String):
     if property == "color" and node is ColorRect:
         return {"r": node.color.r, "g": node.color.g, "b": node.color.b, "a": node.color.a}
     return null
+
+func _record_scene_action(scene_root: Node, scene_path: String, kind: String, label: String) -> void:
+    var undo_manager := get_undo_redo()
+    var history_id := undo_manager.get_object_history_id(scene_root)
+    var scene_undo_redo: UndoRedo = undo_manager.get_history_undo_redo(history_id)
+    last_applied_undo_history_id = history_id
+    last_applied_undo_version = scene_undo_redo.get_version()
+    last_applied_undo_action = scene_undo_redo.get_current_action()
+    last_applied_undo_label = scene_undo_redo.get_current_action_name()
+    if last_applied_undo_label == "":
+        last_applied_undo_label = label
+    last_applied_kind = kind
+    last_applied_scene_path = scene_path
+
+func _clear_scene_action_state() -> void:
+    last_applied_undo_history_id = -1
+    last_applied_undo_version = -1
+    last_applied_undo_action = -1
+    last_applied_undo_label = ""
+    last_applied_scene_path = ""
+
+func _clear_file_action_state() -> void:
+    last_script_path = ""
+    last_script_original_content = ""
+    last_script_applied_revision = ""
+    last_resource_path = ""
+    last_resource_original_content = ""
+    last_resource_applied_revision = ""
+    last_input_action_name = ""
+    last_input_action_original_setting = null
+    last_input_action_applied_revision = ""
+
+func _clear_applied_state() -> void:
+    last_applied_plan_id = ""
+    last_applied_revision = ""
+    last_applied_kind = ""
+    _clear_scene_action_state()
+    _clear_file_action_state()
 
 func _apply_script_change(request_body: Dictionary, scene_root: Node, scene_path: String) -> Dictionary:
     var operation: Dictionary = request_body["operations"][0]

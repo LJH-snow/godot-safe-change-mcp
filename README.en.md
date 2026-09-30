@@ -13,7 +13,7 @@ The first safe vertical workflow is now fully connected:
 - project_overview: read the project overview and editor connection status, with real scene, script, resource and settings file counts from the local read-only index (also available while the editor is offline).
 - editor_context: read the current project, scene, selected nodes, open resources, run state and diagnostics.
 - search_project: unified read-only project search covering scenes, nodes, scripts, resources, signal connections and input actions. Scene, node, script and resource results come from the connected Godot editor when available (live state of the edited scene) and fall back to a local read-only index otherwise; signal and input results always come from the local index. Every result is tagged with its `source`.
-- find_references: reverse reference lookup answering "which scenes or resources reference this script, texture or resource". Matches by res:// path or uid:// identifier and resolves uid-only references where Godot 4.4+ omits the path (purely local and read-only).
+- find_references: reverse reference lookup answering "which scenes, resources or scripts reference this script, texture or resource". It scans scene/resource ext_resource entries and GDScript `preload()` / `load()` calls, matches by res:// path or uid:// identifier, and resolves uid-only references where Godot 4.4+ omits the path (purely local and read-only).
 - preview_scene_change: produce a stable plan and diff for a restricted scene.create_node change.
 - confirm_scene_change: check the expected revision and confirm the plan.
 - apply_scene_change: hand only a confirmed, non-expired plan to Godot UndoRedo.

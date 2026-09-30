@@ -83,7 +83,7 @@ export const taskStepStatusSchema = z.enum([
 export const taskTimelineEventSchema = z.object({
   eventId: z.string().min(1),
   stepId: taskStepIdSchema.nullable(),
-  operationId: z.string().nullable(),
+  operationId: z.string().nullable().default(null),
   status: z.enum(["running", "succeeded", "failed", "paused", "resumed", "cancelled"]),
   at: z.string().min(1),
   result: z.unknown().optional(),
@@ -137,7 +137,7 @@ export const taskStepStateSchema = z.object({
   attempts: z.number().int().nonnegative(),
   startedAt: z.string().nullable(),
   finishedAt: z.string().nullable(),
-  operationId: z.string().nullable(),
+  operationId: z.string().nullable().default(null),
   result: z.unknown().optional(),
   error: z
     .object({

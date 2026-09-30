@@ -12,6 +12,13 @@ const SCRIPT_PLAYER = [
   "extends CharacterBody2D",
 ].join("\n");
 
+const SCRIPT_CONSUMER = [
+  "extends Node",
+  "const Player = preload(\"res://scripts/player.gd\")",
+  "const Theme = load('res://resources/theme.tres')",
+  "const Level = load(\"uid://clevel01234567\")",
+].join("\n");
+
 const SCENE_MAIN = [
   '[gd_scene load_steps=3 format=3 uid="uid://cmain01234567"]',
   "",
@@ -43,6 +50,7 @@ before(async () => {
   await mkdir(path.join(base, "scripts"));
   await mkdir(path.join(base, "resources"));
   await writeFile(path.join(base, "scripts", "player.gd"), SCRIPT_PLAYER + "\n");
+  await writeFile(path.join(base, "scripts", "consumer.gd"), SCRIPT_CONSUMER + "\n");
   await writeFile(path.join(base, "scenes", "main.tscn"), SCENE_MAIN + "\n");
   await writeFile(path.join(base, "scenes", "level.tscn"), SCENE_LEVEL + "\n");
   await writeFile(path.join(base, "resources", "theme.tres"), RESOURCE_THEME + "\n");
@@ -56,7 +64,9 @@ describe("findProjectReferences", () => {
   test("finds references written with an explicit res:// path", async () => {
     const { references, truncated } = await findProjectReferences(fixtureRoot, "player.gd");
 
-    const pathRef = references.find((ref) => ref.matchedBy === "path");
+    const pathRef = references.find(
+      (ref) => ref.path === "res://scenes/main.tscn" && ref.matchedBy === "path",
+    );
     assert.equal(pathRef?.path, "res://scenes/main.tscn");
     assert.equal(pathRef?.kind, "scene");
     assert.equal(pathRef?.targetPath, "res://scripts/player.gd");
@@ -76,16 +86,37 @@ describe("findProjectReferences", () => {
   test("supports a uid:// target directly", async () => {
     const { references } = await findProjectReferences(fixtureRoot, "uid://bplayer0123456");
     assert.deepEqual(
-      references.map((ref) => ref.path),
-      ["res://scenes/level.tscn"],
+      references.map((ref) => ref.path).sort(),
+      [
+        "res://scenes/level.tscn",
+        "res://scenes/main.tscn",
+        "res://scripts/consumer.gd",
+      ].sort(),
     );
   });
 
   test("finds references from resource files as well", async () => {
     const { references } = await findProjectReferences(fixtureRoot, "theme.tres");
-    assert.equal(references[0]?.path, "res://scenes/main.tscn");
-    assert.equal(references[0]?.kind, "scene");
-    assert.equal(references[0]?.targetType, "Resource");
+    const sceneReference = references.find((reference) => reference.path === "res://scenes/main.tscn");
+    assert.equal(sceneReference?.kind, "scene");
+    assert.equal(sceneReference?.targetType, "Resource");
+  });
+
+  test("finds GDScript preload and load references", async () => {
+    const { references } = await findProjectReferences(fixtureRoot, "player.gd");
+    const scriptReference = references.find(
+      (reference) => reference.path === "res://scripts/consumer.gd" && reference.matchedBy === "path",
+    );
+    assert.equal(scriptReference?.kind, "script");
+    assert.equal(scriptReference?.targetPath, "res://scripts/player.gd");
+
+    const uidReference = await findProjectReferences(fixtureRoot, "uid://clevel01234567");
+    assert.deepEqual(
+      uidReference.references.map((reference) => reference.path),
+      ["res://scripts/consumer.gd"],
+    );
+    assert.equal(uidReference.references[0]?.kind, "script");
+    assert.equal(uidReference.references[0]?.targetPath, null);
   });
 
   test("reports truncation when the limit cuts results", async () => {

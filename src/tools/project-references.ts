@@ -16,7 +16,7 @@ export function registerFindReferencesTool(
       name: "find_references",
       title: "Find resource references",
       description:
-        "Read-only reverse lookup of which scene and resource files reference a given script, texture or other resource, by res:// path or uid:// identifier. Sourced from the local project index.",
+        "Read-only reverse lookup of which scenes, resources or scripts reference a given script, texture or other resource, by res:// path or uid:// identifier. Includes GDScript preload/load calls and is sourced from the local project index.",
       inputSchema: findReferencesInputSchema,
       outputSchema: findReferencesReportSchema,
       annotations: {
