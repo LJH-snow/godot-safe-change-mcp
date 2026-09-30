@@ -44,12 +44,23 @@ function waitFor(milliseconds) {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
+function signalProcess(processHandle, signal) {
+  if (process.platform !== "win32" && processHandle.pid !== undefined) {
+    try {
+      process.kill(-processHandle.pid, signal);
+      return;
+    } catch {
+    }
+  }
+  processHandle.kill(signal);
+}
+
 async function stopProcess(processHandle) {
   if (processHandle === undefined || processHandle.exitCode !== null) {
     return;
   }
   const termination = waitForExit(processHandle);
-  processHandle.kill("SIGTERM");
+  signalProcess(processHandle, "SIGTERM");
   const exited = await Promise.race([
     termination.then(() => true),
     waitFor(3000).then(() => false),
@@ -58,7 +69,7 @@ async function stopProcess(processHandle) {
     return;
   }
   if (processHandle.exitCode === null) {
-    processHandle.kill("SIGKILL");
+    signalProcess(processHandle, "SIGKILL");
     await Promise.race([waitForExit(processHandle), waitFor(3000)]);
   }
 }
@@ -224,8 +235,9 @@ try {
       "res://main.tscn",
     ],
     {
-    cwd: fixtureRoot,
-    stdio: ["ignore", "pipe", "pipe"],
+      cwd: fixtureRoot,
+      stdio: ["ignore", "pipe", "pipe"],
+      detached: process.platform !== "win32",
     },
   );
   capture(godotProcess, godotOutputRef);
@@ -233,6 +245,7 @@ try {
   mcpProcess = spawn(process.platform === "win32" ? "npm.cmd" : "npm", ["run", "dev", "--", "--no-open", "--host", "127.0.0.1", "--port", "3100"], {
     cwd: repositoryRoot,
     stdio: ["ignore", "pipe", "pipe"],
+    detached: process.platform !== "win32",
   });
   capture(mcpProcess, mcpOutputRef);
   const context = await waitForEditor(fixtureRoot, godotOutputRef);
