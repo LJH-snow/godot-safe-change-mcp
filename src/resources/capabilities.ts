@@ -17,6 +17,7 @@ const capabilities = {
   },
   tools: [
     "project_overview",
+    "search_project",
     "editor_context",
     "preview_scene_change",
     "confirm_scene_change",

@@ -104,11 +104,11 @@
 
 ## Phase 6 — 受限回滚
 
-状态：in_progress
+状态：complete
 
-- [ ] 为已应用计划生成可验证的 rollback 输入和报告。
-- [ ] 只有 planId 已应用且当前 revision 未变化时，才允许插件调用 Godot UndoRedo.undo。
-- [ ] 增加 MCP rollback 工具、fake bridge/HTTP/fixture 测试和文档。
+- [x] 为已应用计划生成可验证的 rollback 输入和报告。
+- [x] 只有 planId 已应用且当前 revision 未变化时，才允许插件调用 Godot UndoRedo.undo。
+- [x] 增加 MCP rollback 工具、fake bridge/HTTP/fixture 测试和文档。
 
 ## 完成定义
 

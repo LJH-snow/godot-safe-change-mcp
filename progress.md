@@ -1,5 +1,12 @@
 # 进度记录
 
+## 2026-09-30 rollback verification
+
+- 新增 rollback_scene_change、回滚契约、revision 守卫和结构化 rollback report。
+- Godot 4.7.2 runtime 首次暴露 EditorUndoRedoManager 没有 undo 方法；随后改为 get_object_history_id + get_history_undo_redo 后通过真实回滚。
+- 真实 MCP 验收通过：apply revision 3568054998，rollback revision 恢复到 1865036137，返回 rolled_back。
+- rollback 仍保持 planId 和 applied revision 守卫，不允许撤销用户后续修改。
+
 ## 2026-09-29 runtime verification
 
 - 找到本机 Steam 安装的 Godot 4.7.2.stable.steam.ed1daf0bf，并用 headless Editor 加载插件。

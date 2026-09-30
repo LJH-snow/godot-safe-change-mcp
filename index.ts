@@ -12,6 +12,7 @@ import {
   registerRunCurrentSceneTool,
 } from "./src/tools/editor-workflow.js";
 import { registerProjectOverviewTool } from "./src/tools/project-overview.js";
+import { registerProjectSearchTool } from "./src/tools/project-search.js";
 
 const server = new MCPServer({
   name: "godot-safe-change-mcp",
@@ -25,6 +26,7 @@ const changeCoordinator = new ChangeCoordinator(bridge);
 const projectService = new LocalProjectService(bridge);
 
 export const projectOverview = registerProjectOverviewTool(server, projectService);
+export const projectSearch = registerProjectSearchTool(server, projectService);
 export const editorContext = registerEditorContextTool(server, changeCoordinator);
 export const previewSceneChange = registerPreviewSceneChangeTool(server, changeCoordinator);
 export const confirmSceneChange = registerConfirmChangeTool(server, changeCoordinator);

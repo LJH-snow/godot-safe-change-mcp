@@ -169,6 +169,8 @@ npm run build
 
 2026-09-29 runtime 验收已覆盖：editor_context、preview_scene_change、confirm_scene_change、apply_scene_change 和 run_current_scene；fixture 返回 stopped，并采集到 fixture scene started。
 
+2026-09-30 已增加并验证 rollback_scene_change：只允许回滚最新已应用计划，使用当前场景 history 的底层 UndoRedo，并拒绝 revision 已变化的回滚请求。
+
 当前刻意未开放任意 GDScript、shell、Python、文件写入、批量操作、脚本修改和项目设置修改。
 
 ## 7. 待决定问题

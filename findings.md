@@ -31,6 +31,7 @@
 - 通过 MCP preview、confirm、apply 后，Godot 返回 UndoRedo report，revision 从 1865036137 变为 4061296536，随后 run_current_scene 返回 stopped，并包含 fixture scene started。
 - macOS 的 /tmp 是 /private/tmp 的符号链接；新增 project-root realpath 规范化后，MCP 使用 /tmp 输入也能连接 Godot。
 - headless dummy renderer 在调用 play_current_scene 时输出 texture_2d_get 的环境警告，但不阻断桥接、UndoRedo、运行或诊断结果。
+- EditorUndoRedoManager 只负责按 history ID 管理场景历史；实际 undo 必须从 get_history_undo_redo 返回的底层 UndoRedo 执行。
 
 ## 待核实问题
 
