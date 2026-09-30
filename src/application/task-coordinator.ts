@@ -565,6 +565,16 @@ export class TaskCoordinator {
       if (task !== undefined) {
         task.recoverable = true;
         task.updatedAt = new Date().toISOString();
+        this.appendTimeline(task, {
+          stepId: null,
+          operationId: null,
+          status: "lease_renew_failed",
+          at: task.updatedAt,
+          error:
+            error instanceof DomainError
+              ? { code: error.code, message: error.message }
+              : { code: "INTERNAL_ERROR", message: error instanceof Error ? error.message : String(error) },
+        });
         await this.store.save(task.projectRoot, task).catch(() => undefined);
       }
       throw error;
@@ -585,7 +595,8 @@ export class TaskCoordinator {
   }
 
   private refreshTaskRecoverability(task: TaskState): void {
-    task.recoverable = task.lease === null || Date.parse(task.lease.expiresAt) <= Date.now();
+    task.recoverable =
+      task.recoverable || task.lease === null || Date.parse(task.lease.expiresAt) <= Date.now();
   }
 
   private findNextStep(task: TaskState): TaskStepState | undefined {

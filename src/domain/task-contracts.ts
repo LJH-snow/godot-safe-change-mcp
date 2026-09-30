@@ -87,9 +87,10 @@ export const taskTimelineEventStatusSchema = z.enum([
   "paused",
   "resumed",
   "cancelled",
-  "lease_acquired",
-  "lease_renewed",
-  "lease_released",
+    "lease_acquired",
+    "lease_renewed",
+    "lease_renew_failed",
+    "lease_released",
   "lease_reclaimed",
 ]);
 

@@ -21,8 +21,14 @@ import type {
 } from "../src/domain/contracts.js";
 import type { GodotBridge } from "../src/infrastructure/godot-bridge.js";
 import { FileTaskStore } from "../src/infrastructure/task-store.js";
-import { InMemoryProjectLeaseStore } from "../src/infrastructure/project-lease-store.js";
+import { InMemoryProjectLeaseStore, type ProjectLease } from "../src/infrastructure/project-lease-store.js";
 import { normalizeProjectRoot } from "../src/infrastructure/project-root.js";
+
+class RenewalFailureLeaseStore extends InMemoryProjectLeaseStore {
+  async renew(_lease: ProjectLease, _ttlMs: number): Promise<ProjectLease> {
+    throw new DomainError(ERROR_CODES.LEASE_EXPIRED, "The test lease renewal failed.");
+  }
+}
 
 function createContext(projectRoot: string, revision = "revision-1"): EditorContext {
   return {
@@ -534,5 +540,34 @@ describe("TaskCoordinator", () => {
     assert.equal(report.truncated, true);
     assert.ok(["lease_acquired", "lease_released"].includes(String(report.events[0]?.status)));
     assert.equal(released.lease, null);
+  });
+
+  test("records heartbeat renewal failure and marks the task recoverable", async () => {
+    const projectRoot = await mkdtemp(join(tmpdir(), "godot-task-heartbeat-failure-"));
+    const bridge = new FakeGodotBridge(projectRoot);
+    const leaseStore = new RenewalFailureLeaseStore();
+    const changeCoordinator = new ChangeCoordinator(bridge, undefined, leaseStore);
+    const taskCoordinator = new TaskCoordinator(changeCoordinator, new FileTaskStore(), leaseStore);
+    try {
+      const task = await taskCoordinator.createTask({
+        projectRoot,
+        title: "Renewal failure",
+        steps: [{ kind: "run_current_scene", stepId: "run-renewal-failure" }],
+      });
+      const acquired = await taskCoordinator.acquireTaskLease({
+        projectRoot,
+        taskId: task.taskId,
+        ttlMs: 1000,
+      });
+
+      await new Promise((resolve) => setTimeout(resolve, 500));
+
+      const recovered = await taskCoordinator.getTask({ projectRoot, taskId: task.taskId });
+      assert.equal(recovered.recoverable, true);
+      assert.ok(recovered.timeline.some((event) => String(event.status) === "lease_renew_failed"));
+      assert.equal(recovered.lease?.leaseId, acquired.lease?.leaseId);
+    } finally {
+      await rm(projectRoot, { recursive: true, force: true });
+    }
   });
 });

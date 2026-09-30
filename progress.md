@@ -43,8 +43,8 @@
 ## 2026-09-30 task lease heartbeat
 
 - TaskCoordinator 为显式和多步骤任务 lease 启动 TTL/3 heartbeat，自动调用 lease store renew 并持久化新的 expiresAt。
-- heartbeat 停止、续租失败和任务释放不会留下活动定时器；timeline 增加 lease_acquired、lease_renewed、lease_released、lease_reclaimed 事件。
-- 自动化回归通过：58/58 tests、typecheck、build。
+- heartbeat 停止、续租失败和任务释放不会留下活动定时器；timeline 增加 lease_acquired、lease_renewed、lease_renew_failed、lease_released、lease_reclaimed 事件。
+- 自动化回归通过：60/60 tests、typecheck、build。
 
 ## 2026-09-30 task timeline query
 
