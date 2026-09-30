@@ -10,9 +10,11 @@ import type {
   ApplyChangeRequest,
   ChangeReport,
   EditorContext,
+  InputActionSnapshot,
   RollbackReport,
   RollbackRequest,
   RunDiagnostics,
+  ResourceSnapshot,
   ScriptSnapshot,
   SearchProjectReport,
   SearchProjectRequest,
@@ -119,6 +121,14 @@ class FakeGodotBridge implements GodotBridge {
     return { ...this.scriptSnapshot, path: scriptPath };
   }
 
+  async readResource(_projectRoot: string, resourcePath: string): Promise<ResourceSnapshot> {
+    return { path: resourcePath, revision: "resource-test", content: "" };
+  }
+
+  async readInputAction(_projectRoot: string, actionName: string): Promise<InputActionSnapshot> {
+    return { actionName, revision: "input-test", exists: false, deadzone: null, events: [] };
+  }
+
   async searchProject(projectRoot: string, request: SearchProjectRequest): Promise<SearchProjectReport> {
     return {
       schemaVersion: "0.3",
@@ -191,6 +201,8 @@ describe("TaskCoordinator", () => {
     assert.equal(afterApply.status, "active");
     assert.equal(afterApply.nextStepId, "run-verify");
     assert.equal(afterApply.steps[0]?.status, "succeeded");
+    assert.ok(afterApply.steps[0]?.operationId);
+    assert.ok(afterApply.timeline.some((event) => event.operationId === afterApply.steps[0]?.operationId));
     assert.equal(
       (afterApply.steps[0]?.result as { status?: string } | undefined)?.status,
       "applied",
@@ -200,6 +212,8 @@ describe("TaskCoordinator", () => {
     assert.equal(finished.status, "completed");
     assert.equal(finished.nextStepId, null);
     assert.equal(finished.steps[1]?.status, "succeeded");
+    assert.ok(finished.steps[1]?.operationId);
+    assert.ok(finished.timeline.some((event) => event.operationId === finished.steps[1]?.operationId));
     assert.equal(
       (finished.steps[1]?.result as { status?: string } | undefined)?.status,
       "stopped",

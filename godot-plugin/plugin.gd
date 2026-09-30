@@ -27,6 +27,12 @@ var last_applied_kind := ""
 var last_script_path := ""
 var last_script_original_content := ""
 var last_script_applied_revision := ""
+var last_resource_path := ""
+var last_resource_original_content := ""
+var last_resource_applied_revision := ""
+var last_input_action_name := ""
+var last_input_action_original_setting: Variant = null
+var last_input_action_applied_revision := ""
 var diagnostics := {
     "output": [],
     "warnings": [],
@@ -83,6 +89,10 @@ func handle_bridge_request(method: String, path: String, body: Variant) -> Dicti
             return _search_project(body)
         "/v1/scripts/read":
             return _read_script(body)
+        "/v1/resources/read":
+            return _read_resource(body)
+        "/v1/input-actions/read":
+            return _read_input_action(body)
         "/v1/run/current":
             return _run_current_scene()
         "/v1/run/scene":
@@ -158,6 +168,91 @@ func _read_script(body: Variant) -> Dictionary:
 
 func _is_safe_script_path(script_path: String) -> bool:
     return script_path.begins_with("res://") and script_path.ends_with(".gd") and not script_path.contains("..")
+
+func _read_resource(body: Variant) -> Dictionary:
+    if typeof(body) != TYPE_DICTIONARY:
+        return _failure("VALIDATION_FAILED", "The resource read request body must be a JSON object.")
+    var request_body: Dictionary = body
+    var resource_path := String(request_body.get("resourcePath", ""))
+    if not _is_safe_resource_path(resource_path):
+        return _failure("UNSAFE_OPERATION", "Only project-relative scene/resource files can be read.")
+    if not FileAccess.file_exists(resource_path):
+        return _failure("PROJECT_NOT_FOUND", "The requested resource does not exist.", 404, {"resourcePath": resource_path})
+
+    var file := FileAccess.open(resource_path, FileAccess.READ)
+    if file == null:
+        return _failure("OPERATION_REJECTED", "Godot could not read the requested resource.", 409)
+    var content := file.get_as_text()
+    return _success("snapshot", {
+        "path": resource_path,
+        "revision": str(content.hash()),
+        "content": content,
+    })
+
+func _is_safe_resource_path(resource_path: String) -> bool:
+    var extension := resource_path.get_extension().to_lower()
+    return resource_path.begins_with("res://") and not resource_path.contains("..") and extension in ["tscn", "tres", "res"]
+
+func _read_input_action(body: Variant) -> Dictionary:
+    if typeof(body) != TYPE_DICTIONARY:
+        return _failure("VALIDATION_FAILED", "The input action read request body must be a JSON object.")
+    var request_body: Dictionary = body
+    var action_name := String(request_body.get("actionName", ""))
+    if not _is_safe_input_action_name(action_name):
+        return _failure("UNSAFE_OPERATION", "Only bounded input action names can be read.")
+
+    var setting_value: Variant = ProjectSettings.get_setting("input/" + action_name, null)
+    var exists := typeof(setting_value) == TYPE_DICTIONARY
+    var deadzone: Variant = null
+    var events: Array = []
+    if exists:
+        var setting: Dictionary = setting_value
+        deadzone = float(setting.get("deadzone", 0.5))
+        var configured_events: Variant = setting.get("events", [])
+        if typeof(configured_events) == TYPE_ARRAY:
+            for event in configured_events:
+                var event_snapshot := _input_event_snapshot(event)
+                if not event_snapshot.is_empty():
+                    events.append(event_snapshot)
+
+    return _success("snapshot", {
+        "actionName": action_name,
+        "revision": _project_settings_revision(),
+        "exists": exists,
+        "deadzone": deadzone,
+        "events": events,
+    })
+
+func _is_safe_input_action_name(action_name: String) -> bool:
+    var name_regex := RegEx.new()
+    name_regex.compile("^[A-Za-z_][A-Za-z0-9_]*$")
+    return name_regex.search(action_name) != null
+
+func _input_event_snapshot(event: Variant) -> Dictionary:
+    if not event is InputEvent:
+        return {}
+    if event is InputEventKey:
+        return {
+            "type": "InputEventKey",
+            "physicalKeycode": int(event.physical_keycode),
+            "keycode": int(event.keycode),
+        }
+    return {
+        "type": event.get_class(),
+        "physicalKeycode": null,
+        "keycode": null,
+    }
+
+func _project_settings_revision() -> String:
+    var project_path := ProjectSettings.globalize_path("res://project.godot")
+    if not FileAccess.file_exists(project_path):
+        return ""
+    var file := FileAccess.open(project_path, FileAccess.READ)
+    if file == null:
+        return ""
+    var content := file.get_as_text()
+    file.close()
+    return str(content.hash())
 
 func _create_dock() -> void:
     dock = PanelContainer.new()
@@ -396,8 +491,16 @@ func _apply_change(body: Variant) -> Dictionary:
         return _failure("UNSAFE_OPERATION", "The operation must be a bounded object.")
     if String(operation.get("kind", "")) == "script.replace_range":
         return _apply_script_change(request_body, scene_root, scene_path)
+    if String(operation.get("kind", "")) == "scene.set_property":
+        return _apply_scene_property_change(request_body, scene_root, scene_path)
+    if String(operation.get("kind", "")) == "scene.attach_script":
+        return _apply_attach_script(request_body, scene_root, scene_path)
+    if String(operation.get("kind", "")) == "resource.replace_reference":
+        return _apply_resource_change(request_body, scene_root, scene_path)
+    if String(operation.get("kind", "")) == "project.input_action.add_key":
+        return _apply_input_action_change(request_body, scene_root, scene_path)
     if String(operation.get("kind", "")) != "scene.create_node":
-        return _failure("UNSAFE_OPERATION", "Only bounded scene.create_node and script.replace_range are enabled.")
+        return _failure("UNSAFE_OPERATION", "Only the bounded safe change operations are enabled.")
 
     var create_result := _apply_create_node(scene_root, operation)
     if not create_result.is_empty():
@@ -419,6 +522,237 @@ func _apply_change(body: Variant) -> Dictionary:
         "undoLabel": "Godot Safe Change: Add node",
     }
     return _success("report", report)
+
+func _apply_scene_property_change(request_body: Dictionary, scene_root: Node, scene_path: String) -> Dictionary:
+    var operation: Dictionary = request_body["operations"][0]
+    var node_path := String(operation.get("nodePath", ""))
+    var property := String(operation.get("property", ""))
+    var node: Node = scene_root if node_path == "." else scene_root.get_node_or_null(NodePath(node_path))
+    if node == null:
+        return _failure("VALIDATION_FAILED", "The requested scene node does not exist.")
+
+    var converted = _property_value(node, property, operation.get("value"))
+    if converted == null:
+        return _failure("UNSAFE_OPERATION", "The requested node property is not allowlisted for this node type.")
+    var old_value = _property_snapshot(node, property)
+    if old_value == null:
+        return _failure("VALIDATION_FAILED", "The requested node property is not readable.")
+
+    var undo_redo := get_undo_redo()
+    undo_redo.create_action("Godot Safe Change: Set property")
+    undo_redo.add_do_property(node, property, converted)
+    undo_redo.add_undo_property(node, property, _property_value(node, property, old_value))
+    undo_redo.commit_action()
+    EditorInterface.mark_scene_as_unsaved()
+    last_applied_plan_id = String(request_body.get("planId", ""))
+    last_applied_revision = _current_revision(scene_root, scene_path)
+    last_applied_kind = "scene"
+    last_script_path = ""
+    last_script_original_content = ""
+    last_script_applied_revision = ""
+    return _success("report", {
+        "schemaVersion": "0.2",
+        "planId": String(request_body.get("planId", "")),
+        "status": "applied",
+        "revision": last_applied_revision,
+        "operationCount": 1,
+        "undoLabel": "Godot Safe Change: Set property",
+    })
+
+func _apply_attach_script(request_body: Dictionary, scene_root: Node, scene_path: String) -> Dictionary:
+    var operation: Dictionary = request_body["operations"][0]
+    var node_path := String(operation.get("nodePath", ""))
+    var script_path := String(operation.get("scriptPath", ""))
+    if not _is_safe_script_path(script_path):
+        return _failure("UNSAFE_OPERATION", "Only project-relative .gd scripts can be attached.")
+    var node: Node = scene_root if node_path == "." else scene_root.get_node_or_null(NodePath(node_path))
+    if node == null:
+        return _failure("VALIDATION_FAILED", "The requested scene node does not exist.")
+    var script_resource: Variant = ResourceLoader.load(script_path)
+    if script_resource == null or not script_resource is Script:
+        return _failure("OPERATION_REJECTED", "The requested resource is not an attachable script.")
+
+    var undo_redo := get_undo_redo()
+    undo_redo.create_action("Godot Safe Change: Attach script")
+    undo_redo.add_do_property(node, "script", script_resource)
+    undo_redo.add_undo_property(node, "script", node.get_script())
+    undo_redo.commit_action()
+    EditorInterface.mark_scene_as_unsaved()
+    last_applied_plan_id = String(request_body.get("planId", ""))
+    last_applied_revision = _current_revision(scene_root, scene_path)
+    last_applied_kind = "scene"
+    last_script_path = ""
+    last_script_original_content = ""
+    last_script_applied_revision = ""
+    return _success("report", {
+        "schemaVersion": "0.2",
+        "planId": last_applied_plan_id,
+        "status": "applied",
+        "revision": last_applied_revision,
+        "operationCount": 1,
+        "undoLabel": "Godot Safe Change: Attach script",
+    })
+
+func _apply_resource_change(request_body: Dictionary, scene_root: Node, scene_path: String) -> Dictionary:
+    var operation: Dictionary = request_body["operations"][0]
+    var resource_path := String(operation.get("resourcePath", ""))
+    var from_path := String(operation.get("from", ""))
+    var to_path := String(operation.get("to", ""))
+    if not _is_safe_resource_path(resource_path):
+        return _failure("UNSAFE_OPERATION", "Only project-relative scene/resource files can be modified.")
+    if not (from_path.begins_with("res://") or from_path.begins_with("uid://")) or not (to_path.begins_with("res://") or to_path.begins_with("uid://")):
+        return _failure("VALIDATION_FAILED", "Resource references must use res:// or uid:// identifiers.")
+
+    var snapshot_result := _read_resource_snapshot(resource_path)
+    if snapshot_result.is_empty() or not snapshot_result.get("ok", false):
+        return snapshot_result
+    var snapshot: Dictionary = snapshot_result["snapshot"]
+    var expected_file_revision := String(request_body.get("expectedFileRevision", ""))
+    if expected_file_revision == "" or expected_file_revision != String(snapshot["revision"]):
+        return _failure("REVISION_CONFLICT", "The resource changed after preview.", 409)
+    var content := String(snapshot["content"])
+    if not content.contains(from_path):
+        return _failure("VALIDATION_FAILED", "The resource reference was not found in the target file.")
+    var next_content := content.replace(from_path, to_path)
+    var plan_id := String(request_body.get("planId", ""))
+    var write_error := _atomic_replace_script(resource_path, next_content, plan_id)
+    if not write_error.is_empty():
+        return write_error
+
+    var file_revision := str(next_content.hash())
+    last_applied_plan_id = plan_id
+    last_applied_revision = _current_revision(scene_root, scene_path)
+    last_applied_kind = "resource"
+    last_resource_path = resource_path
+    last_resource_original_content = content
+    last_resource_applied_revision = file_revision
+    last_script_path = ""
+    last_script_original_content = ""
+    last_script_applied_revision = ""
+    return _success("report", {
+        "schemaVersion": "0.2",
+        "planId": plan_id,
+        "status": "applied",
+        "revision": last_applied_revision,
+        "fileRevision": file_revision,
+        "operationCount": 1,
+        "undoLabel": "Godot Safe Change: Replace resource reference",
+    })
+
+func _apply_input_action_change(request_body: Dictionary, scene_root: Node, scene_path: String) -> Dictionary:
+    var operation: Dictionary = request_body["operations"][0]
+    var action_name := String(operation.get("actionName", ""))
+    var physical_keycode := int(operation.get("physicalKeycode", 0))
+    if not _is_safe_input_action_name(action_name) or physical_keycode < 1:
+        return _failure("VALIDATION_FAILED", "The input action name or physical keycode is invalid.")
+
+    var expected_file_revision := String(request_body.get("expectedFileRevision", ""))
+    var actual_file_revision := _project_settings_revision()
+    if expected_file_revision == "" or expected_file_revision != actual_file_revision:
+        return _failure(
+            "REVISION_CONFLICT",
+            "The project settings changed after preview.",
+            409,
+            {"expectedFileRevision": expected_file_revision, "actualFileRevision": actual_file_revision},
+        )
+
+    var setting_key := "input/" + action_name
+    var raw_setting: Variant = ProjectSettings.get_setting(setting_key, null)
+    var original_setting: Variant = null
+    var next_setting: Dictionary = {}
+    var existing_events: Array = []
+    if typeof(raw_setting) == TYPE_DICTIONARY:
+        original_setting = raw_setting.duplicate(true)
+        next_setting = raw_setting.duplicate(true)
+        var configured_events: Variant = next_setting.get("events", [])
+        if typeof(configured_events) == TYPE_ARRAY:
+            existing_events = configured_events.duplicate(true)
+    for event in existing_events:
+        var event_snapshot := _input_event_snapshot(event)
+        if not event_snapshot.is_empty() and int(event_snapshot.get("physicalKeycode", -1)) == physical_keycode:
+            return _failure("VALIDATION_FAILED", "The physical key is already mapped to this input action.")
+
+    var key_event := InputEventKey.new()
+    key_event.physical_keycode = physical_keycode
+    key_event.pressed = true
+    var deadzone := float(operation.get("deadzone", next_setting.get("deadzone", 0.2)))
+    next_setting["deadzone"] = deadzone
+    existing_events.append(key_event)
+    next_setting["events"] = existing_events
+    ProjectSettings.set_setting(setting_key, next_setting)
+    var save_error := ProjectSettings.save()
+    if save_error != OK:
+        if original_setting == null:
+            ProjectSettings.set_setting(setting_key, null)
+        else:
+            ProjectSettings.set_setting(setting_key, original_setting)
+        return _failure("OPERATION_REJECTED", "Godot could not save the input action change.", 409, {"error": save_error})
+    InputMap.load_from_project_settings()
+
+    var plan_id := String(request_body.get("planId", ""))
+    var applied_revision := _current_revision(scene_root, scene_path)
+    var applied_file_revision := _project_settings_revision()
+    last_applied_plan_id = plan_id
+    last_applied_revision = applied_revision
+    last_applied_kind = "input"
+    last_input_action_name = action_name
+    last_input_action_original_setting = original_setting
+    last_input_action_applied_revision = applied_file_revision
+    last_script_path = ""
+    last_script_original_content = ""
+    last_script_applied_revision = ""
+    last_resource_path = ""
+    last_resource_original_content = ""
+    last_resource_applied_revision = ""
+    return _success("report", {
+        "schemaVersion": "0.2",
+        "planId": plan_id,
+        "status": "applied",
+        "revision": applied_revision,
+        "fileRevision": applied_file_revision,
+        "operationCount": 1,
+        "undoLabel": "Godot Safe Change: Add input action key",
+    })
+
+func _read_resource_snapshot(resource_path: String) -> Dictionary:
+    if not FileAccess.file_exists(resource_path):
+        return _failure("PROJECT_NOT_FOUND", "The requested resource does not exist.", 404)
+    var file := FileAccess.open(resource_path, FileAccess.READ)
+    if file == null:
+        return _failure("OPERATION_REJECTED", "Godot could not read the requested resource.", 409)
+    var content := file.get_as_text()
+    return {"ok": true, "snapshot": {"path": resource_path, "revision": str(content.hash()), "content": content}}
+
+func _property_value(node: Node, property: String, value: Variant):
+    if property == "visible" and node is CanvasItem and typeof(value) == TYPE_BOOL:
+        return value
+    if property == "text" and node is Label and typeof(value) == TYPE_STRING:
+        return value
+    if property == "position" and node is Node2D and typeof(value) == TYPE_DICTIONARY:
+        return Vector2(float(value.get("x", 0.0)), float(value.get("y", 0.0)))
+    if property == "size" and node is Control and typeof(value) == TYPE_DICTIONARY:
+        return Vector2(float(value.get("x", 0.0)), float(value.get("y", 0.0)))
+    if property == "color" and node is ColorRect and typeof(value) == TYPE_DICTIONARY:
+        return Color(
+            float(value.get("r", 0.0)),
+            float(value.get("g", 0.0)),
+            float(value.get("b", 0.0)),
+            float(value.get("a", 1.0)),
+        )
+    return null
+
+func _property_snapshot(node: Node, property: String):
+    if property == "visible" and node is CanvasItem:
+        return node.visible
+    if property == "text" and node is Label:
+        return node.text
+    if property == "position" and node is Node2D:
+        return {"x": node.position.x, "y": node.position.y}
+    if property == "size" and node is Control:
+        return {"x": node.size.x, "y": node.size.y}
+    if property == "color" and node is ColorRect:
+        return {"r": node.color.r, "g": node.color.g, "b": node.color.b, "a": node.color.a}
+    return null
 
 func _apply_script_change(request_body: Dictionary, scene_root: Node, scene_path: String) -> Dictionary:
     var operation: Dictionary = request_body["operations"][0]
@@ -523,6 +857,10 @@ func _rollback_change(body: Variant) -> Dictionary:
 
     if last_applied_kind == "script":
         return _rollback_script_change(request_body, scene_root, scene_path, plan_id)
+    if last_applied_kind == "resource":
+        return _rollback_resource_change(request_body, scene_root, scene_path, plan_id)
+    if last_applied_kind == "input":
+        return _rollback_input_action_change(request_body, scene_root, scene_path, plan_id)
 
     var undo_manager := get_undo_redo()
     var history_id := undo_manager.get_object_history_id(scene_root)
@@ -573,6 +911,77 @@ func _rollback_script_change(request_body: Dictionary, scene_root: Node, scene_p
         "revision": rollback_revision,
         "fileRevision": restored_file_revision,
         "undoLabel": "Godot Safe Change: Restore script content",
+    })
+
+func _rollback_resource_change(request_body: Dictionary, scene_root: Node, scene_path: String, plan_id: String) -> Dictionary:
+    var expected_file_revision := String(request_body.get("expectedFileRevision", ""))
+    if expected_file_revision == "" or expected_file_revision != last_resource_applied_revision:
+        return _failure("REVISION_CONFLICT", "The resource revision does not match the applied plan.", 409)
+
+    var snapshot_result := _read_resource_snapshot(last_resource_path)
+    if snapshot_result.is_empty() or not snapshot_result.get("ok", false):
+        return snapshot_result
+    var current_snapshot: Dictionary = snapshot_result["snapshot"]
+    if String(current_snapshot["revision"]) != last_resource_applied_revision:
+        return _failure("REVISION_CONFLICT", "The resource changed after apply; refusing to overwrite it.", 409)
+
+    var write_error := _atomic_replace_script(last_resource_path, last_resource_original_content, plan_id + "-rollback")
+    if not write_error.is_empty():
+        return write_error
+
+    var rollback_revision := _current_revision(scene_root, scene_path)
+    var restored_file_revision := str(last_resource_original_content.hash())
+    last_applied_plan_id = ""
+    last_applied_revision = ""
+    last_applied_kind = ""
+    last_resource_path = ""
+    last_resource_original_content = ""
+    last_resource_applied_revision = ""
+    return _success("report", {
+        "schemaVersion": "0.2",
+        "planId": plan_id,
+        "status": "rolled_back",
+        "revision": rollback_revision,
+        "fileRevision": restored_file_revision,
+        "undoLabel": "Godot Safe Change: Restore resource content",
+    })
+
+func _rollback_input_action_change(request_body: Dictionary, scene_root: Node, scene_path: String, plan_id: String) -> Dictionary:
+    var expected_file_revision := String(request_body.get("expectedFileRevision", ""))
+    var actual_file_revision := _project_settings_revision()
+    if expected_file_revision == "" or expected_file_revision != last_input_action_applied_revision or actual_file_revision != last_input_action_applied_revision:
+        return _failure(
+            "REVISION_CONFLICT",
+            "The project settings changed after input action apply; refusing to overwrite it.",
+            409,
+            {"expectedFileRevision": last_input_action_applied_revision, "actualFileRevision": actual_file_revision},
+        )
+
+    var setting_key := "input/" + last_input_action_name
+    if last_input_action_original_setting == null:
+        ProjectSettings.set_setting(setting_key, null)
+    else:
+        ProjectSettings.set_setting(setting_key, last_input_action_original_setting)
+    var save_error := ProjectSettings.save()
+    if save_error != OK:
+        return _failure("OPERATION_REJECTED", "Godot could not roll back the input action change.", 409, {"error": save_error})
+    InputMap.load_from_project_settings()
+
+    var rollback_revision := _current_revision(scene_root, scene_path)
+    var restored_file_revision := _project_settings_revision()
+    last_applied_plan_id = ""
+    last_applied_revision = ""
+    last_applied_kind = ""
+    last_input_action_name = ""
+    last_input_action_original_setting = null
+    last_input_action_applied_revision = ""
+    return _success("report", {
+        "schemaVersion": "0.2",
+        "planId": plan_id,
+        "status": "rolled_back",
+        "revision": rollback_revision,
+        "fileRevision": restored_file_revision,
+        "undoLabel": "Godot Safe Change: Restore input action",
     })
 
 func _apply_create_node(scene_root: Node, operation: Dictionary) -> Dictionary:

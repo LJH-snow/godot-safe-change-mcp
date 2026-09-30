@@ -122,6 +122,80 @@ export class ChangeCoordinator {
           " in " +
           scenePath,
       };
+    } else if (operation.kind === "scene.set_property") {
+      const node = context.currentScene.nodes.find((candidate) => candidate.path === operation.nodePath);
+      const before = node?.properties[operation.property];
+      if (node === undefined || before === undefined) {
+        throw new DomainError(
+          ERROR_CODES.VALIDATION_FAILED,
+          "The requested node property is not available in the current scene context.",
+          { nodePath: operation.nodePath, property: operation.property },
+        );
+      }
+      diff = {
+        kind: "scene.set_property" as const,
+        target: scenePath + ":" + operation.nodePath + ":" + operation.property,
+        summary: "Set " + operation.property + " on " + operation.nodePath + " in " + scenePath,
+        property: operation.property,
+        before,
+        after: operation.value,
+      };
+    } else if (operation.kind === "scene.attach_script") {
+      const node = context.currentScene.nodes.find((candidate) => candidate.path === operation.nodePath);
+      if (node === undefined) {
+        throw new DomainError(
+          ERROR_CODES.VALIDATION_FAILED,
+          "The requested node is not available in the current scene context.",
+          { nodePath: operation.nodePath },
+        );
+      }
+      await this.bridge.readScript(projectRoot, operation.scriptPath);
+      diff = {
+        kind: "scene.attach_script" as const,
+        target: scenePath + ":" + operation.nodePath + ":script",
+        summary: "Attach " + operation.scriptPath + " to " + operation.nodePath + " in " + scenePath,
+        scriptPath: operation.scriptPath,
+      };
+    } else if (operation.kind === "resource.replace_reference") {
+      const snapshot = await this.bridge.readResource(projectRoot, operation.resourcePath);
+      const matchCount = snapshot.content.split(operation.from).length - 1;
+      if (matchCount < 1) {
+        throw new DomainError(
+          ERROR_CODES.VALIDATION_FAILED,
+          "The resource reference was not found in the target file.",
+          { resourcePath: operation.resourcePath, from: operation.from },
+        );
+      }
+      expectedFileRevision = snapshot.revision;
+      diff = {
+        kind: "resource.replace_reference" as const,
+        target: operation.resourcePath,
+        summary: "Replace " + operation.from + " with " + operation.to + " in " + operation.resourcePath,
+        matchCount,
+      };
+    } else if (operation.kind === "project.input_action.add_key") {
+      const snapshot = await this.bridge.readInputAction(projectRoot, operation.actionName);
+      if (snapshot.events.some((event) => event.physicalKeycode === operation.physicalKeycode)) {
+        throw new DomainError(
+          ERROR_CODES.VALIDATION_FAILED,
+          "The requested physical key is already mapped to this input action.",
+          { actionName: operation.actionName, physicalKeycode: operation.physicalKeycode },
+        );
+      }
+      expectedFileRevision = snapshot.revision;
+      const deadzone = operation.deadzone ?? snapshot.deadzone ?? 0.2;
+      diff = {
+        kind: "project.input_action.add_key" as const,
+        target: "project.godot:input/" + operation.actionName,
+        summary:
+          "Add physical key " +
+          operation.physicalKeycode +
+          " to input action " +
+          operation.actionName +
+          " (deadzone " +
+          deadzone +
+          ")",
+      };
     } else {
       const snapshot = await this.bridge.readScript(projectRoot, operation.scriptPath);
       const lines = snapshot.content.split("\n");
@@ -296,17 +370,26 @@ export class ChangeCoordinator {
 
     if (storedPlan.appliedFileRevision !== undefined) {
       const operation = storedPlan.plan.operations[0];
-      if (operation.kind !== "script.replace_range") {
+      if (
+        operation.kind !== "script.replace_range" &&
+        operation.kind !== "resource.replace_reference" &&
+        operation.kind !== "project.input_action.add_key"
+      ) {
         throw new DomainError(
           ERROR_CODES.VALIDATION_FAILED,
-          "The applied file revision is only valid for script operations.",
+          "The applied file revision is only valid for file and project setting operations.",
         );
       }
-      const snapshot = await this.bridge.readScript(storedPlan.plan.projectRoot, operation.scriptPath);
+      const snapshot =
+        operation.kind === "script.replace_range"
+          ? await this.bridge.readScript(storedPlan.plan.projectRoot, operation.scriptPath)
+          : operation.kind === "resource.replace_reference"
+            ? await this.bridge.readResource(storedPlan.plan.projectRoot, operation.resourcePath)
+            : await this.bridge.readInputAction(storedPlan.plan.projectRoot, operation.actionName);
       if (snapshot.revision !== storedPlan.appliedFileRevision) {
         throw new DomainError(
           ERROR_CODES.REVISION_CONFLICT,
-          "The script changed after the plan was applied; refusing to overwrite it.",
+          "The file changed after the plan was applied; refusing to overwrite it.",
           {
             expectedFileRevision: storedPlan.appliedFileRevision,
             actualFileRevision: snapshot.revision,
@@ -439,17 +522,26 @@ export class ChangeCoordinator {
 
     if (plan.expectedFileRevision !== null) {
       const operation = plan.operations[0];
-      if (operation.kind !== "script.replace_range") {
+      if (
+        operation.kind !== "script.replace_range" &&
+        operation.kind !== "resource.replace_reference" &&
+        operation.kind !== "project.input_action.add_key"
+      ) {
         throw new DomainError(
           ERROR_CODES.VALIDATION_FAILED,
-          "The plan file revision is only valid for script operations.",
+          "The plan file revision is only valid for file and project setting operations.",
         );
       }
-      const snapshot = await this.bridge.readScript(plan.projectRoot, operation.scriptPath);
+      const snapshot =
+        operation.kind === "script.replace_range"
+          ? await this.bridge.readScript(plan.projectRoot, operation.scriptPath)
+          : operation.kind === "resource.replace_reference"
+            ? await this.bridge.readResource(plan.projectRoot, operation.resourcePath)
+            : await this.bridge.readInputAction(plan.projectRoot, operation.actionName);
       if (snapshot.revision !== plan.expectedFileRevision) {
         throw new DomainError(
           ERROR_CODES.REVISION_CONFLICT,
-          "The script changed after the plan was created.",
+          "The file changed after the plan was created.",
           {
             expectedFileRevision: plan.expectedFileRevision,
             actualFileRevision: snapshot.revision,

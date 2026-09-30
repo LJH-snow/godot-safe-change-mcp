@@ -12,6 +12,7 @@ import {
   type TaskLease,
   type TaskLeaseInput,
   type TaskStepState,
+  type TaskTimelineEvent,
 } from "../domain/task-contracts.js";
 import { DomainError, ERROR_CODES } from "../domain/errors.js";
 import type { FileTaskStore } from "../infrastructure/task-store.js";
@@ -60,6 +61,7 @@ export class TaskCoordinator {
       updatedAt: now,
       lease: null,
       recoverable: true,
+      timeline: [],
     };
     this.tasks.set(task.taskId, task);
     await this.store.save(projectRoot, task);
@@ -128,16 +130,30 @@ export class TaskCoordinator {
 
     step.status = "running";
     step.attempts += 1;
+    step.operationId = "taskop_" + randomUUID().replaceAll("-", "").slice(0, 20);
     step.startedAt = new Date().toISOString();
     step.result = undefined;
     step.error = undefined;
     task.updatedAt = step.startedAt;
+    this.appendTimeline(task, {
+      stepId: step.stepId,
+      operationId: step.operationId,
+      status: "running",
+      at: step.startedAt,
+    });
     await this.store.save(task.projectRoot, task);
 
     try {
       step.result = await this.executeStep(task, step);
       step.status = "succeeded";
       step.finishedAt = new Date().toISOString();
+      this.appendTimeline(task, {
+        stepId: step.stepId,
+        operationId: step.operationId,
+        status: "succeeded",
+        at: step.finishedAt,
+        result: step.result,
+      });
     } catch (error) {
       step.status = "failed";
       step.finishedAt = new Date().toISOString();
@@ -151,6 +167,13 @@ export class TaskCoordinator {
       task.status = "failed";
       task.nextStepId = step.stepId;
       task.updatedAt = step.finishedAt;
+      this.appendTimeline(task, {
+        stepId: step.stepId,
+        operationId: step.operationId,
+        status: "failed",
+        at: step.finishedAt,
+        error: step.error,
+      });
       await this.store.save(task.projectRoot, task);
       return structuredClone(task);
     }
@@ -283,6 +306,12 @@ export class TaskCoordinator {
     }
     task.status = to;
     task.updatedAt = new Date().toISOString();
+    this.appendTimeline(task, {
+      stepId: null,
+      operationId: null,
+      status: to === "paused" ? "paused" : to === "active" ? "resumed" : "cancelled",
+      at: task.updatedAt,
+    });
     // Callers keep mutating the live task (for example cancelling pending
     // steps) and persist it themselves; returning the clone here would fork
     // the in-memory state from the saved file.
@@ -441,7 +470,15 @@ export class TaskCoordinator {
       attempts: 0,
       startedAt: null,
       finishedAt: null,
+      operationId: null,
     };
+  }
+
+  private appendTimeline(task: TaskState, event: Omit<TaskTimelineEvent, "eventId">): void {
+    task.timeline.push({
+      eventId: "event_" + randomUUID().replaceAll("-", "").slice(0, 20),
+      ...event,
+    });
   }
 
   private async requireTask(taskId: string, projectRoot: string): Promise<TaskState> {

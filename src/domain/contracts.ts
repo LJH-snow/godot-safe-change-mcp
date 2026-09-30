@@ -193,6 +193,30 @@ export const scriptSnapshotSchema = z.object({
 
 export type ScriptSnapshot = z.infer<typeof scriptSnapshotSchema>;
 
+export const resourceSnapshotSchema = z.object({
+  path: z.string().min(1),
+  revision: z.string().min(1),
+  content: z.string(),
+});
+
+export type ResourceSnapshot = z.infer<typeof resourceSnapshotSchema>;
+
+export const inputActionEventSnapshotSchema = z.object({
+  type: z.string().min(1),
+  physicalKeycode: z.number().int().nullable(),
+  keycode: z.number().int().nullable(),
+});
+
+export const inputActionSnapshotSchema = z.object({
+  actionName: z.string().min(1),
+  revision: z.string().min(1),
+  exists: z.boolean(),
+  deadzone: z.number().nullable(),
+  events: z.array(inputActionEventSnapshotSchema),
+});
+
+export type InputActionSnapshot = z.infer<typeof inputActionSnapshotSchema>;
+
 export interface ApplyChangeRequest {
   planId: string;
   expectedRevision: string;

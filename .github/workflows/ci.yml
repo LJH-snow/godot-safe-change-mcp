@@ -2,8 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, "feature/**"]
   pull_request:
+  workflow_dispatch:
 
 jobs:
   check:
@@ -43,5 +44,7 @@ jobs:
           unzip -q "$archive" -d "$GODOT_DIR"
           chmod +x "$binary"
           echo "GODOT_BIN=$binary" >> "$GITHUB_ENV"
+      - name: Install virtual display
+        run: sudo apt-get update && sudo apt-get install --yes xvfb
       - name: Run Godot runtime smoke
-        run: node tests/godot-runtime-smoke.mjs
+        run: xvfb-run --auto-servernum --server-args="-screen 0 1280x720x24" node tests/godot-runtime-smoke.mjs

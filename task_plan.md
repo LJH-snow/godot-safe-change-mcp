@@ -161,6 +161,7 @@
 - [x] 任务状态以 JSON 文件持久化到 `<projectRoot>/.godot-safe-change/tasks/`，重启后可查询与继续；崩溃遗留的 running 步骤可重试。
 - [x] 支持 pause/resume/cancel 和失败重试（每步最多 3 次），所有步骤复用既有 preview/confirm/apply/rollback/run 守卫与审计。
 - [x] 新增 create/get/advance/pause/resume/cancel 六个 MCP 工具与契约测试。
+- [x] 每个 task step 生成 operationId，并持久化 running/succeeded/failed timeline 事件。
 - [x] 真实 MCP + Godot 4.7.2 验收通过：UndoRedo apply、fixture 运行诊断、pause/resume/cancel 状态机与重启后磁盘恢复。
 
 ## Phase 12 — 运行指定场景
@@ -179,7 +180,17 @@
 
 - [x] 增加固定 Godot 4.7.2 的 GitHub Actions runtime job 和临时 fixture smoke harness。
 - [x] smoke 覆盖 search、context、scene apply/rollback、script apply/rollback、diagnostics 和 operation history。
+- [x] smoke 额外覆盖输入动作的 ProjectSettings 持久化 apply/rollback；Linux runtime 使用 `xvfb-run` 为运行中的场景子进程提供显示服务。
 - [ ] 在远程 GitHub Actions 首次运行并确认 Linux headless 环境通过。
+
+## Phase 14 — 更多安全 Godot 操作
+
+状态：in_progress
+
+- [x] 增加受限 scene.set_property，覆盖 visible、position、size、text、color，并通过 UndoRedo apply/rollback smoke。
+- [x] 增加输入动作的 preview/apply/rollback，使用 project.godot revision guard、重复键校验和回滚验证。
+- [x] 增加资源引用 snapshot/preview diff、revision guard、原子 apply 和 rollback。
+- [x] 增加挂载已有脚本的 preview/apply/rollback。
 
 ## 完成定义
 

@@ -185,7 +185,19 @@ npm run build
 
 2026-09-30 已增加项目级短租约：apply/rollback 自动获取用户状态目录中的原子 lease，支持 owner/过期校验，并在并发窗口写入时返回 PROJECT_BUSY。
 
-2026-09-30 已增加 Godot headless CI smoke：固定 Godot 4.7.2，覆盖 search、context、scene/script apply/rollback、diagnostics 和 operation_history；本地 smoke 已通过，远程 Actions 首次运行待确认。
+2026-09-30 已增加 Godot headless CI smoke：固定 Godot 4.7.2，覆盖 search、context、scene/script/input action apply/rollback、diagnostics 和 operation_history；本地 smoke 已通过，Linux workflow 增加 `xvfb-run`，远程 Actions 修复后的首次运行待确认。
+
+2026-09-30 已增加受限 scene.set_property：visible、position、size、text、color 通过白名单和 UndoRedo apply/rollback，真实 Godot smoke 已通过。
+
+2026-09-30 已增加受限 scene.attach_script：仅允许挂载现有 res:// .gd 脚本，通过 UndoRedo apply/rollback，不执行或修改脚本内容。
+
+2026-09-30 已增加 resource.replace_reference 只读 snapshot/preview：校验资源路径、引用匹配和文件 revision；资源原子 apply/rollback 仍待实现。
+
+2026-09-30 已完成 resource.replace_reference：只允许 tscn/tres/res 文件和 res:///uid:// 引用，通过 revision guard、临时文件原子替换和 rollback 保护。
+
+2026-09-30 已完成受限 `project.input_action.add_key`：只允许安全 action 名和 physical keycode，preview 读取 project.godot revision，apply 通过 ProjectSettings.save 持久化，rollback 校验 revision 后恢复原 action 设置；真实 Godot 4.7.2 smoke 已通过。
+
+2026-09-30 已增强 task timeline：每个 task step 持有独立 operationId，running/succeeded/failed 事件随 TaskState 持久化，task_status 可恢复查询。
 
 2026-09-30 已完成第五阶段的多步骤开发任务：create_task 把受限 apply、rollback、run 步骤组成一个任务，状态持久化在项目内 `.godot-safe-change/tasks/`；advance 逐步执行并复用既有确认、revision 守卫和审计；支持暂停、继续、取消、每步最多 3 次的失败重试，以及服务器重启后的任务恢复。真实 Godot 4.7.2 端到端验收通过。
 

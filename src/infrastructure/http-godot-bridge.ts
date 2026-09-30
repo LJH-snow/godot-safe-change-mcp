@@ -7,12 +7,16 @@ import {
   type ApplyChangeRequest,
   type ChangeReport,
   type EditorContext,
+  inputActionSnapshotSchema,
+  type InputActionSnapshot,
   type RollbackReport,
   type RollbackRequest,
   type RunDiagnostics,
   searchProjectReportSchema,
+  resourceSnapshotSchema,
   type SearchProjectReport,
   type SearchProjectRequest,
+  type ResourceSnapshot,
   scriptSnapshotSchema,
   type ScriptSnapshot,
 } from "../domain/contracts.js";
@@ -100,6 +104,28 @@ export class HttpGodotBridge implements GodotBridge {
       .safeParse(payload);
     if (!parsed.success) {
       throw this.protocolError("The bridge returned an invalid script snapshot.", parsed.error);
+    }
+    return parsed.data.snapshot;
+  }
+
+  async readResource(projectRoot: string, resourcePath: string): Promise<ResourceSnapshot> {
+    const payload = await this.post("/v1/resources/read", { projectRoot, resourcePath });
+    const parsed = z
+      .object({ ok: z.literal(true), snapshot: resourceSnapshotSchema })
+      .safeParse(payload);
+    if (!parsed.success) {
+      throw this.protocolError("The bridge returned an invalid resource snapshot.", parsed.error);
+    }
+    return parsed.data.snapshot;
+  }
+
+  async readInputAction(projectRoot: string, actionName: string): Promise<InputActionSnapshot> {
+    const payload = await this.post("/v1/input-actions/read", { projectRoot, actionName });
+    const parsed = z
+      .object({ ok: z.literal(true), snapshot: inputActionSnapshotSchema })
+      .safeParse(payload);
+    if (!parsed.success) {
+      throw this.protocolError("The bridge returned an invalid input action snapshot.", parsed.error);
     }
     return parsed.data.snapshot;
   }

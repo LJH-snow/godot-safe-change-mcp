@@ -2,6 +2,7 @@ import type {
   ApplyChangeRequest,
   ChangeReport,
   EditorContext,
+  InputActionSnapshot,
   ProjectOverview,
   ProjectSection,
   RollbackReport,
@@ -9,6 +10,7 @@ import type {
   RunDiagnostics,
   SearchProjectReport,
   SearchProjectRequest,
+  ResourceSnapshot,
   ScriptSnapshot,
 } from "../domain/contracts.js";
 import { ERROR_CODES, DomainError } from "../domain/errors.js";
@@ -19,6 +21,8 @@ export interface GodotBridge {
   rollbackChange(projectRoot: string, request: RollbackRequest): Promise<RollbackReport>;
   searchProject(projectRoot: string, request: SearchProjectRequest): Promise<SearchProjectReport>;
   readScript(projectRoot: string, scriptPath: string): Promise<ScriptSnapshot>;
+  readResource(projectRoot: string, resourcePath: string): Promise<ResourceSnapshot>;
+  readInputAction(projectRoot: string, actionName: string): Promise<InputActionSnapshot>;
   runCurrentScene(projectRoot: string, timeoutMs: number): Promise<RunDiagnostics>;
   runScene(projectRoot: string, scenePath: string, timeoutMs: number): Promise<RunDiagnostics>;
 }
@@ -75,6 +79,20 @@ export class PendingGodotBridge implements GodotBridge {
   }
 
   async readScript(): Promise<ScriptSnapshot> {
+    throw new DomainError(
+      ERROR_CODES.EDITOR_UNAVAILABLE,
+      "The Godot EditorPlugin bridge is not connected.",
+    );
+  }
+
+  async readResource(): Promise<ResourceSnapshot> {
+    throw new DomainError(
+      ERROR_CODES.EDITOR_UNAVAILABLE,
+      "The Godot EditorPlugin bridge is not connected.",
+    );
+  }
+
+  async readInputAction(): Promise<InputActionSnapshot> {
     throw new DomainError(
       ERROR_CODES.EDITOR_UNAVAILABLE,
       "The Godot EditorPlugin bridge is not connected.",

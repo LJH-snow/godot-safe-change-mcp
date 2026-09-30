@@ -10,9 +10,11 @@ import type {
   ApplyChangeRequest,
   ChangeReport,
   EditorContext,
+  InputActionSnapshot,
   RollbackReport,
   RollbackRequest,
   RunDiagnostics,
+  ResourceSnapshot,
   SearchProjectReport,
   SearchProjectRequest,
   ScriptSnapshot,
@@ -34,7 +36,14 @@ function createContext(revision = "revision-1"): EditorContext {
       path: "res://main.tscn",
       rootName: "Main",
       rootType: "Node2D",
-      nodes: [],
+      nodes: [
+        {
+          path: ".",
+          name: "Main",
+          type: "Node2D",
+          properties: { visible: true, position: { x: 0, y: 0 } },
+        },
+      ],
     },
     selection: [],
     openResources: ["res://main.tscn"],
@@ -52,6 +61,18 @@ class FakeGodotBridge implements GodotBridge {
     path: "res://diagnostic_scene.gd",
     revision: "script-revision-1",
     content: "extends Node2D\n\nfunc _ready() -> void:\n    pass\n",
+  };
+  resourceSnapshot: ResourceSnapshot = {
+    path: "res://resources/theme.tres",
+    revision: "resource-revision-1",
+    content: "[ext_resource path=\"res://old_theme.tres\"]\n",
+  };
+  inputActionSnapshot: InputActionSnapshot = {
+    actionName: "jump",
+    revision: "input-revision-1",
+    exists: false,
+    deadzone: null,
+    events: [],
   };
   runCalls = 0;
   runDiagnosticsResult: RunDiagnostics = {
@@ -71,6 +92,16 @@ class FakeGodotBridge implements GodotBridge {
   async applyChange(_projectRoot: string, request: ApplyChangeRequest): Promise<ChangeReport> {
     this.applied.push(request);
     this.context = createContext("revision-2");
+    const isInputAction = request.operations[0]?.kind === "project.input_action.add_key";
+    if (isInputAction) {
+      this.inputActionSnapshot = {
+        ...this.inputActionSnapshot,
+        revision: "input-revision-2",
+        exists: true,
+        deadzone: 0.2,
+        events: [{ type: "InputEventKey", physicalKeycode: 32, keycode: 0 }],
+      };
+    }
     return {
       schemaVersion: "0.2",
       planId: request.planId,
@@ -78,6 +109,7 @@ class FakeGodotBridge implements GodotBridge {
       revision: "revision-2",
       operationCount: request.operations.length,
       undoLabel: "Godot Safe Change: Add node",
+      ...(isInputAction ? { fileRevision: "input-revision-2" } : {}),
     };
   }
 
@@ -100,12 +132,23 @@ class FakeGodotBridge implements GodotBridge {
   async rollbackChange(_projectRoot: string, request: RollbackRequest): Promise<RollbackReport> {
     this.rolledBack.push(request);
     this.context = createContext("revision-3");
+    const isInputAction = request.expectedFileRevision === "input-revision-2";
+    if (isInputAction) {
+      this.inputActionSnapshot = {
+        ...this.inputActionSnapshot,
+        revision: "input-revision-3",
+        exists: false,
+        deadzone: null,
+        events: [],
+      };
+    }
     return {
       schemaVersion: "0.2",
       planId: request.planId,
       status: "rolled_back",
       revision: "revision-3",
       undoLabel: "Godot Safe Change: Add node",
+      ...(isInputAction ? { fileRevision: "input-revision-3" } : {}),
     };
   }
 
@@ -132,6 +175,14 @@ class FakeGodotBridge implements GodotBridge {
   async readScript(_projectRoot: string, scriptPath: string): Promise<ScriptSnapshot> {
     return { ...this.scriptSnapshot, path: scriptPath };
   }
+
+  async readResource(_projectRoot: string, resourcePath: string): Promise<ResourceSnapshot> {
+    return { ...this.resourceSnapshot, path: resourcePath };
+  }
+
+  async readInputAction(_projectRoot: string, actionName: string): Promise<InputActionSnapshot> {
+    return { ...this.inputActionSnapshot, actionName };
+  }
 }
 
 describe("ChangeCoordinator", () => {
@@ -154,6 +205,47 @@ describe("ChangeCoordinator", () => {
     assert.equal(plan.expectedRevision, "revision-1");
     assert.equal(plan.operations[0]?.kind, "scene.create_node");
     assert.match(plan.diff[0]?.summary ?? "", /SafeMarker/);
+    assert.equal(bridge.applied.length, 0);
+  });
+
+  test("previews a bounded scene property change", async () => {
+    const bridge = new FakeGodotBridge();
+    const coordinator = new ChangeCoordinator(bridge);
+
+    const plan = await coordinator.previewSceneChange({
+      projectRoot,
+      reason: "Move the current scene root.",
+      operation: {
+        kind: "scene.set_property",
+        nodePath: ".",
+        property: "position",
+        value: { x: 32, y: 16 },
+      },
+    });
+
+    assert.equal(plan.operations[0]?.kind, "scene.set_property");
+    assert.equal(plan.diff[0]?.kind, "scene.set_property");
+    assert.match(plan.diff[0]?.summary ?? "", /position/);
+    assert.equal(bridge.applied.length, 0);
+  });
+
+  test("previews attaching an existing script without executing or editing it", async () => {
+    const bridge = new FakeGodotBridge();
+    const coordinator = new ChangeCoordinator(bridge);
+
+    const plan = await coordinator.previewSceneChange({
+      projectRoot,
+      reason: "Attach the existing diagnostic script.",
+      operation: {
+        kind: "scene.attach_script",
+        nodePath: ".",
+        scriptPath: "res://diagnostic_scene.gd",
+      },
+    });
+
+    assert.equal(plan.operations[0]?.kind, "scene.attach_script");
+    assert.equal(plan.diff[0]?.kind, "scene.attach_script");
+    assert.match(plan.diff[0]?.summary ?? "", /diagnostic_scene.gd/);
     assert.equal(bridge.applied.length, 0);
   });
 
@@ -434,6 +526,76 @@ describe("ChangeCoordinator", () => {
     assert.match(plan.diff[0]?.summary ?? "", /diagnostic_scene.gd/);
     assert.equal(bridge.applied.length, 0);
   });
+
+  test("previews a bounded resource reference replacement without applying it", async () => {
+    const bridge = new FakeGodotBridge();
+    const coordinator = new ChangeCoordinator(bridge);
+
+    const plan = await coordinator.previewSceneChange({
+      projectRoot,
+      reason: "Preview a resource reference replacement.",
+      operation: {
+        kind: "resource.replace_reference",
+        resourcePath: "res://resources/theme.tres",
+        from: "res://old_theme.tres",
+        to: "res://new_theme.tres",
+      },
+    });
+
+    assert.equal(plan.expectedFileRevision, "resource-revision-1");
+    assert.equal(plan.operations[0]?.kind, "resource.replace_reference");
+    assert.equal(plan.diff[0]?.kind, "resource.replace_reference");
+    assert.equal(bridge.applied.length, 0);
+  });
+
+  test("previews a bounded input action key addition", async () => {
+    const bridge = new FakeGodotBridge();
+    const coordinator = new ChangeCoordinator(bridge);
+
+    const plan = await coordinator.previewSceneChange({
+      projectRoot,
+      reason: "Preview a jump input action key.",
+      operation: {
+        kind: "project.input_action.add_key",
+        actionName: "jump",
+        physicalKeycode: 32,
+        deadzone: 0.2,
+      },
+    });
+
+    assert.equal(plan.operations[0]?.kind, "project.input_action.add_key");
+    assert.equal(plan.diff[0]?.kind, "project.input_action.add_key");
+    assert.match(plan.diff[0]?.summary ?? "", /jump/);
+    assert.equal(plan.expectedFileRevision, "input-revision-1");
+    assert.equal(bridge.applied.length, 0);
+  });
+
+  test("applies and rolls back an input action key with a file revision guard", async () => {
+    const bridge = new FakeGodotBridge();
+    const coordinator = new ChangeCoordinator(bridge);
+
+    const plan = await coordinator.previewSceneChange({
+      projectRoot,
+      reason: "Persist a jump input action key.",
+      operation: {
+        kind: "project.input_action.add_key",
+        actionName: "jump",
+        physicalKeycode: 32,
+      },
+    });
+    await coordinator.confirmChange({
+      projectRoot,
+      planId: plan.planId,
+      expectedRevision: plan.expectedRevision,
+    });
+
+    const applied = await coordinator.applyChange({ projectRoot, planId: plan.planId });
+    assert.equal(applied.fileRevision, "input-revision-2");
+
+    const rolledBack = await coordinator.rollbackChange({ projectRoot, planId: plan.planId });
+    assert.equal(rolledBack.status, "rolled_back");
+    assert.equal(bridge.rolledBack[0]?.expectedFileRevision, "input-revision-2");
+  });
 });
 
 test("normalizes a symlinked project root before bridge requests", async () => {
@@ -540,6 +702,22 @@ describe("HttpGodotBridge", () => {
               path: body.scriptPath,
               revision: "script-revision-1",
               content: "extends Node2D\\n\\nfunc _ready() -> void:\\n    pass\\n",
+            },
+          }),
+        );
+        return;
+      }
+
+      if (request.url === "/v1/input-actions/read" && request.method === "POST") {
+        response.end(
+          JSON.stringify({
+            ok: true,
+            snapshot: {
+              actionName: body.actionName,
+              revision: "input-revision-1",
+              exists: false,
+              deadzone: null,
+              events: [],
             },
           }),
         );
@@ -653,6 +831,10 @@ describe("HttpGodotBridge", () => {
 
     const snapshot = await bridge.readScript(projectRoot, "res://diagnostic_scene.gd");
     assert.equal(snapshot.revision, "script-revision-1");
+
+    const inputSnapshot = await bridge.readInputAction(projectRoot, "jump");
+    assert.equal(inputSnapshot.actionName, "jump");
+    assert.equal(inputSnapshot.revision, "input-revision-1");
   });
 
   test("waits for the run status endpoint before returning diagnostics", async () => {
@@ -690,6 +872,7 @@ test("the Godot plugin exposes only the bounded vertical-link routes", async () 
   assert.match(source, /\/v1\/changes\/rollback/);
   assert.match(source, /\/v1\/search/);
   assert.match(source, /\/v1\/scripts\/read/);
+  assert.match(source, /\/v1\/input-actions\/read/);
   assert.match(source, /FileAccess\.READ/);
   assert.match(source, /\/v1\/run\/current/);
   assert.match(source, /\/v1\/run\/scene/);
@@ -698,5 +881,8 @@ test("the Godot plugin exposes only the bounded vertical-link routes", async () 
   assert.match(source, /properties/);
   assert.doesNotMatch(source, /execute_gdscript|OS\.execute/);
   assert.match(source, /_is_safe_script_path/);
+  assert.match(source, /scene\.set_property/);
+  assert.match(source, /add_do_property/);
+  assert.match(source, /scene\.attach_script/);
   assert.match(source, /_is_safe_scene_path/);
 });
