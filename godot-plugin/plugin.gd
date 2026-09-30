@@ -236,8 +236,10 @@ func _rollback_change(body: Variant) -> Dictionary:
             {"expectedRevision": last_applied_revision, "actualRevision": actual_revision},
         )
 
-    var undo_redo := get_undo_redo()
-    if not undo_redo.undo():
+    var undo_manager := get_undo_redo()
+    var history_id := undo_manager.get_object_history_id(scene_root)
+    var scene_undo_redo: UndoRedo = undo_manager.get_history_undo_redo(history_id)
+    if not scene_undo_redo.undo():
         return _failure("ROLLBACK_FAILED", "Godot could not undo the applied scene change.", 409)
 
     var rollback_revision := _current_revision(scene_root, scene_path)
@@ -283,18 +285,17 @@ func _apply_create_node(scene_root: Node, operation: Dictionary) -> Dictionary:
 
     var undo_redo := get_undo_redo()
     undo_redo.create_action("Godot Safe Change: Add node")
-    undo_redo.add_do_method(self, "_do_add_node", parent, new_node, scene_root)
+    undo_redo.add_do_method(parent, "add_child", new_node)
+    undo_redo.add_do_method(self, "_set_node_owner", new_node, scene_root)
     undo_redo.add_undo_method(self, "_undo_remove_node", parent, new_node)
     undo_redo.add_do_reference(new_node)
     undo_redo.commit_action()
     EditorInterface.mark_scene_as_unsaved()
     return {}
 
-func _do_add_node(parent: Node, node: Node, scene_root: Node) -> void:
-    if not is_instance_valid(parent) or not is_instance_valid(node):
+func _set_node_owner(node: Node, scene_root: Node) -> void:
+    if not is_instance_valid(node) or not is_instance_valid(scene_root):
         return
-    if node.get_parent() != parent:
-        parent.add_child(node)
     node.owner = scene_root
 
 func _undo_remove_node(parent: Node, node: Node) -> void:
