@@ -14,7 +14,69 @@ export const nodeNameSchema = z
   .max(64)
   .regex(/^[A-Za-z_][A-Za-z0-9_]*$/);
 
-export const nodePathSchema = z.string().min(1).max(256);
+const relativeNodePathPattern = /^(?:\.|[A-Za-z_][A-Za-z0-9_]*(?:\/[A-Za-z_][A-Za-z0-9_]*)*)$/;
+const projectRelativePathPattern = /^res:\/\/(?!\/)(?:[^\/\\\0]+\/)*[^\/\\\0]+$/;
+const resourceIdentifierPattern = /^(?:uid:\/\/[A-Za-z0-9_-]+|res:\/\/(?!\/)(?:[^\/\\\0]+\/)*[^\/\\\0]+)$/;
+
+export const nodePathSchema = z
+  .string()
+  .min(1)
+  .max(256)
+  .regex(relativeNodePathPattern, "NodePath must be relative and contain only safe segments.");
+
+const scriptPathSchema = z
+  .string()
+  .min(1)
+  .max(256)
+  .regex(projectRelativePathPattern, "scriptPath must be a project-relative path.")
+  .regex(/\.gd$/, "scriptPath must target a GDScript file.")
+  .refine(
+    (value) => value.split("/").every((segment) => segment !== "." && segment !== ".."),
+    "scriptPath must not contain traversal segments.",
+  );
+
+const resourcePathSchema = z
+  .string()
+  .min(1)
+  .max(256)
+  .regex(projectRelativePathPattern, "resourcePath must be a project-relative path.")
+  .regex(/\.(tscn|tres|res)$/, "resourcePath must target a supported Godot resource.")
+  .refine(
+    (value) => value.split("/").every((segment) => segment !== "." && segment !== ".."),
+    "resourcePath must not contain traversal segments.",
+  );
+
+const resourceIdentifierSchema = z
+  .string()
+  .min(1)
+  .max(300)
+  .regex(resourceIdentifierPattern, "Resource references must use safe res:// or uid:// identifiers.")
+  .refine(
+    (value) => value.startsWith("uid://") || value.split("/").every((segment) => segment !== "." && segment !== ".."),
+    "Resource references must not contain traversal segments.",
+  );
+
+const finiteNumberSchema = z.number().finite();
+const positionSchema = z
+  .object({
+    x: finiteNumberSchema.min(-1_000_000).max(1_000_000),
+    y: finiteNumberSchema.min(-1_000_000).max(1_000_000),
+  })
+  .strict();
+const sizeSchema = z
+  .object({
+    x: finiteNumberSchema.min(0).max(1_000_000),
+    y: finiteNumberSchema.min(0).max(1_000_000),
+  })
+  .strict();
+const colorSchema = z
+  .object({
+    r: finiteNumberSchema.min(0).max(1),
+    g: finiteNumberSchema.min(0).max(1),
+    b: finiteNumberSchema.min(0).max(1),
+    a: finiteNumberSchema.min(0).max(1),
+  })
+  .strict();
 
 export const createNodeOperationSchema = z
   .object({
@@ -25,44 +87,69 @@ export const createNodeOperationSchema = z
   })
   .strict();
 
-export const sceneSetPropertySchema = z
+const sceneSetVisiblePropertySchema = z
   .object({
     kind: z.literal("scene.set_property"),
     nodePath: nodePathSchema,
-    property: z.enum(["visible", "position", "size", "text", "color"]),
-    value: z.union([
-      z.boolean(),
-      z.string().max(10000),
-      z.object({ x: z.number(), y: z.number() }).strict(),
-      z.object({ r: z.number(), g: z.number(), b: z.number(), a: z.number() }).strict(),
-    ]),
+    property: z.literal("visible"),
+    value: z.boolean(),
   })
   .strict();
+const sceneSetPositionPropertySchema = z
+  .object({
+    kind: z.literal("scene.set_property"),
+    nodePath: nodePathSchema,
+    property: z.literal("position"),
+    value: positionSchema,
+  })
+  .strict();
+const sceneSetSizePropertySchema = z
+  .object({
+    kind: z.literal("scene.set_property"),
+    nodePath: nodePathSchema,
+    property: z.literal("size"),
+    value: sizeSchema,
+  })
+  .strict();
+const sceneSetTextPropertySchema = z
+  .object({
+    kind: z.literal("scene.set_property"),
+    nodePath: nodePathSchema,
+    property: z.literal("text"),
+    value: z.string().max(10000),
+  })
+  .strict();
+const sceneSetColorPropertySchema = z
+  .object({
+    kind: z.literal("scene.set_property"),
+    nodePath: nodePathSchema,
+    property: z.literal("color"),
+    value: colorSchema,
+  })
+  .strict();
+
+export const sceneSetPropertySchema = z.discriminatedUnion("property", [
+  sceneSetVisiblePropertySchema,
+  sceneSetPositionPropertySchema,
+  sceneSetSizePropertySchema,
+  sceneSetTextPropertySchema,
+  sceneSetColorPropertySchema,
+]);
 
 export const sceneAttachScriptSchema = z
   .object({
     kind: z.literal("scene.attach_script"),
     nodePath: nodePathSchema,
-    scriptPath: z
-      .string()
-      .min(1)
-      .max(256)
-      .regex(/^res:\/\/[^\\0]+\.gd$/)
-      .refine((value) => !value.includes(".."), "scriptPath must not contain parent traversal."),
+    scriptPath: scriptPathSchema,
   })
   .strict();
 
 export const resourceReplaceReferenceSchema = z
   .object({
     kind: z.literal("resource.replace_reference"),
-    resourcePath: z
-      .string()
-      .min(1)
-      .max(256)
-      .regex(/^res:\/\/[^\\0]+\.(tscn|tres|res)$/)
-      .refine((value) => !value.includes(".."), "resourcePath must not contain parent traversal."),
-    from: z.string().min(1).max(300).regex(/^(res:\/\/|uid:\/\/)/),
-    to: z.string().min(1).max(300).regex(/^(res:\/\/|uid:\/\/)/),
+    resourcePath: resourcePathSchema,
+    from: resourceIdentifierSchema,
+    to: resourceIdentifierSchema,
   })
   .strict();
 
@@ -71,19 +158,14 @@ export const inputActionAddKeySchema = z
     kind: z.literal("project.input_action.add_key"),
     actionName: z.string().min(1).max(128).regex(/^[A-Za-z_][A-Za-z0-9_]*$/),
     physicalKeycode: z.number().int().min(1).max(10000),
-    deadzone: z.number().min(0).max(1).optional(),
+    deadzone: finiteNumberSchema.min(0).max(1).optional(),
   })
   .strict();
 
 export const scriptReplaceRangeSchema = z
   .object({
     kind: z.literal("script.replace_range"),
-    scriptPath: z
-      .string()
-      .min(1)
-      .max(256)
-      .regex(/^res:\/\/[^\\0]+\.gd$/)
-      .refine((value) => !value.includes(".."), "scriptPath must not contain parent traversal."),
+    scriptPath: scriptPathSchema,
     startLine: z.number().int().min(1),
     endLine: z.number().int().min(1),
     replacement: z.string().max(100000),
@@ -93,7 +175,7 @@ export const scriptReplaceRangeSchema = z
     message: "startLine must be less than or equal to endLine.",
   });
 
-export const changeOperationSchema = z.discriminatedUnion("kind", [
+export const changeOperationSchema = z.union([
   createNodeOperationSchema,
   sceneSetPropertySchema,
   sceneAttachScriptSchema,
@@ -149,14 +231,50 @@ export const inputActionDiffSchema = z.object({
   summary: z.string().min(1),
 });
 
-export const scenePropertyDiffSchema = z.object({
+const scenePropertyDiffBase = {
   kind: z.literal("scene.set_property"),
   target: z.string().min(1),
   summary: z.string().min(1),
-  property: z.string().min(1),
-  before: z.unknown(),
-  after: z.unknown(),
-});
+};
+
+const scenePropertyDiffVisibleSchema = z.object({
+  ...scenePropertyDiffBase,
+  property: z.literal("visible"),
+  before: z.boolean(),
+  after: z.boolean(),
+}).strict();
+const scenePropertyDiffPositionSchema = z.object({
+  ...scenePropertyDiffBase,
+  property: z.literal("position"),
+  before: positionSchema,
+  after: positionSchema,
+}).strict();
+const scenePropertyDiffSizeSchema = z.object({
+  ...scenePropertyDiffBase,
+  property: z.literal("size"),
+  before: sizeSchema,
+  after: sizeSchema,
+}).strict();
+const scenePropertyDiffTextSchema = z.object({
+  ...scenePropertyDiffBase,
+  property: z.literal("text"),
+  before: z.string().max(10000),
+  after: z.string().max(10000),
+}).strict();
+const scenePropertyDiffColorSchema = z.object({
+  ...scenePropertyDiffBase,
+  property: z.literal("color"),
+  before: colorSchema,
+  after: colorSchema,
+}).strict();
+
+export const scenePropertyDiffSchema = z.union([
+  scenePropertyDiffVisibleSchema,
+  scenePropertyDiffPositionSchema,
+  scenePropertyDiffSizeSchema,
+  scenePropertyDiffTextSchema,
+  scenePropertyDiffColorSchema,
+]);
 
 export const sceneAttachScriptDiffSchema = z.object({
   kind: z.literal("scene.attach_script"),
@@ -165,7 +283,7 @@ export const sceneAttachScriptDiffSchema = z.object({
   scriptPath: z.string().min(1),
 });
 
-export const changeDiffSchema = z.discriminatedUnion("kind", [
+export const changeDiffSchema = z.union([
   sceneChangeDiffSchema,
   scenePropertyDiffSchema,
   sceneAttachScriptDiffSchema,

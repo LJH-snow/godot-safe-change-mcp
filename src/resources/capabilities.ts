@@ -20,6 +20,7 @@ const capabilities = {
   tools: [
     "project_overview",
     "search_project",
+    "find_references",
     "operation_history",
     "editor_context",
     "preview_diagnostic_repair",

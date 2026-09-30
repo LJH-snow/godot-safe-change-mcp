@@ -10,7 +10,7 @@ export const findReferencesInputSchema = z.object({
     .min(1)
     .max(300)
     .describe(
-      "Case-insensitive substring of the referenced resource, e.g. res://scripts/player.gd, player.gd or a uid:// identifier.",
+      "Case-insensitive substring of the referenced resource, e.g. res://scripts/player.gd, player.gd or a uid:// identifier. Script preload/load references are included.",
     ),
   limit: z
     .number()
@@ -25,7 +25,9 @@ export type FindReferencesInput = z.infer<typeof findReferencesInputSchema>;
 
 export const referenceEntrySchema = z.object({
   path: z.string().min(1).describe("res:// path of the file that references the target."),
-  kind: z.enum(["scene", "resource"]).describe("Kind of the referencing file."),
+  kind: z
+    .enum(["scene", "resource", "script"])
+    .describe("Kind of the referencing file."),
   targetPath: z
     .string()
     .nullable()

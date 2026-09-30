@@ -19,6 +19,7 @@ const NODE_LINE_PATTERN = /\[node\s+name="([^"]+)"(?:\s+type="([^"]+)")?(?:\s+pa
 const CONNECTION_LINE_PATTERN = /\[connection\s+([^\]]+)\]/;
 const ATTRIBUTE_PATTERN = /([A-Za-z_][A-Za-z0-9_]*)="([^"]*)"/g;
 const SCRIPT_SIGNAL_PATTERN = /^\s*signal\s+([A-Za-z_][A-Za-z0-9_]*)/;
+const SCRIPT_RESOURCE_REFERENCE_PATTERN = /\b(?:preload|load)\s*\(\s*["']((?:res|uid):\/\/[^"']+)["']\s*\)/g;
 const EXT_RESOURCE_LINE_PATTERN = /\[ext_resource\s+([^\]]+)\]/;
 const FILE_UID_PATTERN = /uid="(uid:\/\/[^"]+)"/;
 const SCRIPT_UID_COMMENT_PATTERN = /^\s*#\s*uid\s+(uid:\/\/\S+)/;
@@ -47,6 +48,7 @@ interface ParsedReferenceFile {
   size: number;
   fileUid: string | null;
   extResources: ExtResourceEntry[];
+  scriptResources: ExtResourceEntry[];
 }
 
 export interface LocalSearchOutcome {
@@ -57,7 +59,7 @@ export interface LocalSearchOutcome {
 export interface ReferenceOutcome {
   references: Array<{
     path: string;
-    kind: "scene" | "resource";
+    kind: "scene" | "resource" | "script";
     targetPath: string | null;
     targetType: string | null;
     matchedBy: "path" | "uid";
@@ -183,32 +185,47 @@ async function parseReferenceFile(file: IndexedFile): Promise<ParsedReferenceFil
     return cached;
   }
   const text = await readFile(file.absolutePath, "utf8");
-  const uidMatch = text.match(FILE_UID_PATTERN);
+  const uidMatch = text.match(FILE_UID_PATTERN) ?? text.match(SCRIPT_UID_COMMENT_PATTERN);
   const extResources: ExtResourceEntry[] = [];
+  const scriptResources: ExtResourceEntry[] = [];
   for (const line of text.split("\n")) {
     const match = line.trim().match(EXT_RESOURCE_LINE_PATTERN);
-    if (match === null) {
+    if (match !== null) {
+      const attributes = parseAttributes(match[1] ?? "");
+      if (attributes.path !== undefined || attributes.uid !== undefined) {
+        extResources.push({
+          type: attributes.type ?? "",
+          path: attributes.path ?? null,
+          uid: attributes.uid ?? null,
+        });
+      }
+    }
+    if (file.extension !== ".gd" || line.trimStart().startsWith("#")) {
       continue;
     }
-    const attributes = parseAttributes(match[1] ?? "");
-    if (attributes.path === undefined && attributes.uid === undefined) {
-      continue;
+    for (const referenceMatch of line.matchAll(SCRIPT_RESOURCE_REFERENCE_PATTERN)) {
+      const target = referenceMatch[1] ?? "";
+      if (target.startsWith("res://")) {
+        scriptResources.push({ type: "", path: target, uid: null });
+      } else if (target.startsWith("uid://")) {
+        scriptResources.push({ type: "", path: null, uid: target });
+      }
     }
-    extResources.push({
-      type: attributes.type ?? "",
-      path: attributes.path ?? null,
-      uid: attributes.uid ?? null,
-    });
   }
-  const parsed = { size: file.size, fileUid: uidMatch?.[1] ?? null, extResources };
+  const parsed = {
+    size: file.size,
+    fileUid: uidMatch?.[1] ?? null,
+    extResources,
+    scriptResources,
+  };
   sharedReferenceParseCache.set(file.absolutePath, parsed);
   return parsed;
 }
 
 /**
- * Reverse lookup: which scene and resource files reference the given target.
+ * Reverse lookup: which scene, resource and script files reference the given target.
  * The target is matched case-insensitively as a substring against each
- * ext_resource path, or exactly as a uid:// identifier.
+ * resource path, or through a uid:// identifier resolved from the target file.
  */
 export async function findProjectReferences(
   projectRoot: string,
@@ -224,24 +241,26 @@ export async function findProjectReferences(
   // written uid-only (Godot 4.4+ scenes may omit the path) still match.
   const targetIsUid = normalizedTarget.startsWith("uid://");
   const targetUids = new Set<string>();
+  const targetPaths = new Set<string>();
   const candidates: IndexedFile[] = [];
   for (const file of files) {
-    if (file.extension === ".tscn" || file.extension === ".scn" || file.extension === ".tres") {
+    if (
+      file.extension === ".tscn" ||
+      file.extension === ".scn" ||
+      KIND_EXTENSIONS.resource?.has(file.extension) ||
+      file.extension === ".gd"
+    ) {
       candidates.push(file);
     }
+    const resourcePath = "res://" + file.relativePath;
     if (targetIsUid) {
-      continue;
-    }
-    if (!("res://" + file.relativePath).toLowerCase().includes(normalizedTarget)) {
-      continue;
-    }
-    if (file.extension === ".gd" || file.extension === ".cs") {
-      // Scripts carry their uid in a leading comment, e.g. "# uid uid://b1e...".
-      const text = await readFile(file.absolutePath, "utf8");
-      const uidMatch = text.match(SCRIPT_UID_COMMENT_PATTERN);
-      if (uidMatch !== null) {
-        targetUids.add(uidMatch[1] as string);
+      const parsed = candidates.includes(file) ? await parseReferenceFile(file) : null;
+      if (parsed?.fileUid?.toLowerCase() === normalizedTarget) {
+        targetPaths.add(resourcePath.toLowerCase());
       }
+      continue;
+    }
+    if (!resourcePath.toLowerCase().includes(normalizedTarget)) {
       continue;
     }
     const parsed = await parseReferenceFile(file);
@@ -258,22 +277,28 @@ export async function findProjectReferences(
       break;
     }
     const parsed = await parseReferenceFile(file);
-    for (const extResource of parsed.extResources) {
+    for (const extResource of [...parsed.extResources, ...parsed.scriptResources]) {
       if (references.length >= limit) {
         truncated = true;
         break;
       }
-      const matchesPath =
-        extResource.path !== null && extResource.path.toLowerCase().includes(normalizedTarget);
+      const referencedPath = extResource.path?.toLowerCase() ?? null;
+      const matchesPath = referencedPath !== null && referencedPath.includes(normalizedTarget);
+      const matchesResolvedPath = referencedPath !== null && targetPaths.has(referencedPath);
       const matchesUid =
-        (targetIsUid && extResource.uid !== null && extResource.uid === target.trim()) ||
+        (targetIsUid && extResource.uid?.toLowerCase() === normalizedTarget) ||
         (extResource.uid !== null && targetUids.has(extResource.uid));
-      if (!matchesPath && !matchesUid) {
+      if (!matchesPath && !matchesResolvedPath && !matchesUid) {
         continue;
       }
       references.push({
         path: "res://" + file.relativePath,
-        kind: file.extension === ".tscn" || file.extension === ".scn" ? "scene" : "resource",
+        kind:
+          file.extension === ".tscn" || file.extension === ".scn"
+            ? "scene"
+            : file.extension === ".gd"
+              ? "script"
+              : "resource",
         targetPath: extResource.path,
         targetType: extResource.type === "" ? null : extResource.type,
         matchedBy: matchesPath ? "path" : "uid",

@@ -35,6 +35,10 @@ function waitForExit(processHandle) {
   return new Promise((resolve) => processHandle.once("exit", resolve));
 }
 
+function waitFor(milliseconds) {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
 async function stopProcess(processHandle) {
   if (processHandle === undefined || processHandle.exitCode !== null) {
     return;
@@ -43,15 +47,14 @@ async function stopProcess(processHandle) {
   processHandle.kill("SIGTERM");
   const exited = await Promise.race([
     termination.then(() => true),
-    new Promise((resolve) => setTimeout(() => resolve(false), 3000)),
+    waitFor(3000).then(() => false),
   ]);
   if (exited) {
     return;
   }
   if (processHandle.exitCode === null) {
-    const forcedTermination = waitForExit(processHandle);
     processHandle.kill("SIGKILL");
-    await forcedTermination;
+    await Promise.race([waitForExit(processHandle), waitFor(3000)]);
   }
 }
 
@@ -81,6 +84,84 @@ function structured(result) {
     throw new Error(result.content?.[0]?.text ?? "MCP tool error");
   }
   return result.structuredContent ?? JSON.parse(result.content?.[0]?.text ?? "null");
+}
+
+async function readEditorContext(projectRoot) {
+  return structured(await request("tools/call", {
+    name: "editor_context",
+    arguments: { projectRoot },
+  }));
+}
+
+function sceneNode(context, nodePath) {
+  return context.currentScene.nodes.find((node) => node.path === nodePath);
+}
+
+function assertValueClose(actual, expected, label) {
+  if (typeof expected === "number") {
+    assert.equal(typeof actual, "number", `${label} should be numeric.`);
+    assert.ok(Math.abs(actual - expected) <= 1e-5, `${label} differed: ${actual} vs ${expected}`);
+    return;
+  }
+  if (expected !== null && typeof expected === "object") {
+    assert.ok(actual !== null && typeof actual === "object", `${label} should be an object.`);
+    assert.deepEqual(Object.keys(actual).sort(), Object.keys(expected).sort());
+    for (const key of Object.keys(expected)) {
+      assertValueClose(actual[key], expected[key], `${label}.${key}`);
+    }
+    return;
+  }
+  assert.deepEqual(actual, expected, label);
+}
+
+async function expectToolError(name, argumentsValue, pattern = null) {
+  await assert.rejects(
+    () => request("tools/call", { name, arguments: argumentsValue }).then(structured),
+    (error) => pattern === null || pattern.test(error instanceof Error ? error.message : String(error)),
+  );
+}
+
+async function roundTripSceneProperty(projectRoot, nodePath, property, value) {
+  const beforeContext = await readEditorContext(projectRoot);
+  const beforeNode = sceneNode(beforeContext, nodePath);
+  assert.ok(beforeNode, `Expected ${nodePath} in the editor context.`);
+  const beforeValue = beforeNode.properties[property];
+  assert.notEqual(beforeValue, undefined, `Expected ${property} on ${nodePath}.`);
+
+  const plan = structured(await request("tools/call", {
+    name: "preview_scene_change",
+    arguments: {
+      projectRoot,
+      reason: `CI ${property} apply and rollback smoke test.`,
+      operation: { kind: "scene.set_property", nodePath, property, value },
+    },
+  }));
+  assert.equal(plan.expectedRevision, beforeContext.revision);
+  structured(await request("tools/call", {
+    name: "confirm_scene_change",
+    arguments: { projectRoot, planId: plan.planId, expectedRevision: plan.expectedRevision },
+  }));
+  const applied = structured(await request("tools/call", {
+    name: "apply_scene_change",
+    arguments: { projectRoot, planId: plan.planId },
+  }));
+  assert.equal(applied.status, "applied");
+  assert.notEqual(applied.revision, beforeContext.revision);
+
+  const appliedContext = await readEditorContext(projectRoot);
+  assert.equal(appliedContext.revision, applied.revision);
+  assertValueClose(sceneNode(appliedContext, nodePath)?.properties[property], value, `${nodePath}.${property}`);
+
+  const rollback = structured(await request("tools/call", {
+    name: "rollback_scene_change",
+    arguments: { projectRoot, planId: plan.planId },
+  }));
+  assert.equal(rollback.status, "rolled_back");
+  assert.equal(rollback.undoLabel, "Godot Safe Change: Set property");
+
+  const restoredContext = await readEditorContext(projectRoot);
+  assert.equal(restoredContext.revision, beforeContext.revision);
+  assertValueClose(sceneNode(restoredContext, nodePath)?.properties[property], beforeValue, `${nodePath}.${property} restored`);
 }
 
 async function waitForEditor(projectRoot, godotOutputRef) {
@@ -122,16 +203,10 @@ try {
     [
       "--editor",
       "--headless",
-      "--display-driver",
-      "headless",
-      "--audio-driver",
-      "Dummy",
       "--path",
       fixtureRoot,
       "--scene",
       "res://main.tscn",
-      "--quit-after",
-      "0",
     ],
     {
     cwd: fixtureRoot,
@@ -183,28 +258,27 @@ try {
   }));
   assert.equal(sceneRollback.status, "rolled_back");
 
-  const propertyPlan = structured(await request("tools/call", {
-    name: "preview_scene_change",
-    arguments: {
-      projectRoot: fixtureRoot,
-      reason: "CI node property apply and rollback smoke test.",
-      operation: { kind: "scene.set_property", nodePath: ".", property: "position", value: { x: 12, y: 8 } },
-    },
-  }));
-  structured(await request("tools/call", {
-    name: "confirm_scene_change",
-    arguments: { projectRoot: fixtureRoot, planId: propertyPlan.planId, expectedRevision: propertyPlan.expectedRevision },
-  }));
-  const propertyApply = structured(await request("tools/call", {
-    name: "apply_scene_change",
-    arguments: { projectRoot: fixtureRoot, planId: propertyPlan.planId },
-  }));
-  assert.equal(propertyApply.status, "applied");
-  const propertyRollback = structured(await request("tools/call", {
-    name: "rollback_scene_change",
-    arguments: { projectRoot: fixtureRoot, planId: propertyPlan.planId },
-  }));
-  assert.equal(propertyRollback.status, "rolled_back");
+  await roundTripSceneProperty(fixtureRoot, ".", "visible", false);
+  await roundTripSceneProperty(fixtureRoot, ".", "position", { x: 12, y: 8 });
+  await roundTripSceneProperty(fixtureRoot, "Canvas", "size", { x: 400, y: 220 });
+  await roundTripSceneProperty(fixtureRoot, "Canvas/Title", "text", "Updated fixture title");
+  await roundTripSceneProperty(fixtureRoot, "Canvas/ColorPanel", "color", { r: 0.8, g: 0.1, b: 0.3, a: 0.75 });
+
+  await expectToolError("preview_scene_change", {
+    projectRoot: fixtureRoot,
+    reason: "Reject an incomplete property value.",
+    operation: { kind: "scene.set_property", nodePath: "Canvas", property: "size", value: { x: 10 } },
+  });
+  await expectToolError("preview_scene_change", {
+    projectRoot: fixtureRoot,
+    reason: "Reject an out-of-range property value.",
+    operation: { kind: "scene.set_property", nodePath: "Canvas", property: "size", value: { x: 1000001, y: 10 } },
+  });
+  await expectToolError("preview_scene_change", {
+    projectRoot: fixtureRoot,
+    reason: "Reject an unsafe scene node path.",
+    operation: { kind: "scene.set_property", nodePath: "../Canvas", property: "size", value: { x: 10, y: 10 } },
+  });
 
   const resourceFile = path.join(fixtureRoot, "resources/theme.tres");
   const originalResource = await readFile(resourceFile, "utf8");
@@ -268,12 +342,14 @@ try {
   const restoredProjectSettings = await readFile(projectSettingsFile, "utf8");
   assert.doesNotMatch(restoredProjectSettings, /\njump=\{/);
 
+  const attachBefore = await readEditorContext(fixtureRoot);
+  assert.equal(sceneNode(attachBefore, "Scriptless")?.properties.scriptPath, null);
   const attachPlan = structured(await request("tools/call", {
     name: "preview_scene_change",
     arguments: {
       projectRoot: fixtureRoot,
-      reason: "CI attach existing script apply and rollback smoke test.",
-      operation: { kind: "scene.attach_script", nodePath: ".", scriptPath: "res://diagnostic_scene.gd" },
+      reason: "CI attach script apply and rollback smoke test.",
+      operation: { kind: "scene.attach_script", nodePath: "Scriptless", scriptPath: "res://diagnostic_scene.gd" },
     },
   }));
   structured(await request("tools/call", {
@@ -285,11 +361,18 @@ try {
     arguments: { projectRoot: fixtureRoot, planId: attachPlan.planId },
   }));
   assert.equal(attachApply.status, "applied");
+  assert.equal(sceneNode(await readEditorContext(fixtureRoot), "Scriptless")?.properties.scriptPath, "res://diagnostic_scene.gd");
   const attachRollback = structured(await request("tools/call", {
     name: "rollback_scene_change",
     arguments: { projectRoot: fixtureRoot, planId: attachPlan.planId },
   }));
   assert.equal(attachRollback.status, "rolled_back");
+  assert.equal(attachRollback.undoLabel, "Godot Safe Change: Attach script");
+  assert.equal(sceneNode(await readEditorContext(fixtureRoot), "Scriptless")?.properties.scriptPath, null);
+  await expectToolError("rollback_scene_change", {
+    projectRoot: fixtureRoot,
+    planId: attachPlan.planId,
+  }, /PLAN_NOT_APPLIED|PLAN_ALREADY_ROLLED_BACK/);
 
   const scriptPlan = structured(await request("tools/call", {
     name: "preview_scene_change",
@@ -317,10 +400,11 @@ try {
   assert.equal(await readFile(scriptPath, "utf8"), originalScript);
 
   const diagnostics = structured(await request("tools/call", {
-    name: "run_current_scene",
-    arguments: { projectRoot: fixtureRoot, timeoutMs: 15000 },
+    name: "run_scene",
+    arguments: { projectRoot: fixtureRoot, scenePath: "res://main.tscn", timeoutMs: 15000 },
   }));
   assert.equal(diagnostics.status, "stopped");
+  assert.equal(diagnostics.scenePath, "res://main.tscn");
   assert.ok(diagnostics.warnings.some((warning) => warning.source === "res://diagnostic_scene.gd"));
 
   const history = structured(await request("tools/call", {

@@ -16,7 +16,7 @@
 - operation_history：查询最近的 preview、confirm、apply、rollback、run 操作及其输入、输出、revision 和错误证据；审计事件持久化在用户状态目录，支持重启后恢复。
 - project lease：apply/rollback 自动获取短租约，多个窗口同时写入同一项目时返回 PROJECT_BUSY；租约状态存放在用户状态目录，不写入 Godot 项目。
 - search_project：统一的只读项目搜索，覆盖场景、节点、脚本、资源、信号连接和输入映射。场景/节点/脚本/资源优先由连接的 Godot 编辑器返回（编辑中场景的实时状态），编辑器离线时自动回退到本地只读索引；信号与输入结果始终来自本地索引。每条结果带 `source` 标记来源。
-- find_references：反向引用查找，回答“哪些场景/资源引用了这个脚本、贴图或资源”。支持按 res:// 路径或 uid:// 标识匹配，能解析 Godot 4.4+ 中省略路径、只写 uid 的引用（纯本地只读）。
+- find_references：反向引用查找，回答“哪些场景、资源或脚本引用了这个脚本、贴图或资源”。支持场景/资源 ext_resource、GDScript `preload()` / `load()`，可按 res:// 路径或 uid:// 标识匹配，能解析 Godot 4.4+ 中省略路径、只写 uid 的引用（纯本地只读）。
 - preview_scene_change：生成一个受限 scene.create_node 变更的稳定计划和 diff。
 - preview_scene_change：也支持受限 script.replace_range preview，返回文件 revision 和行级 before/after diff；apply 使用临时文件原子替换，rollback 恢复原始内容。
 - confirm_scene_change：检查 expected revision 并确认计划。

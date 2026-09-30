@@ -24,6 +24,11 @@ var run_started_at := 0
 var last_applied_plan_id := ""
 var last_applied_revision := ""
 var last_applied_kind := ""
+var last_applied_undo_history_id := -1
+var last_applied_undo_version := -1
+var last_applied_undo_action := -1
+var last_applied_undo_label := ""
+var last_applied_scene_path := ""
 var last_script_path := ""
 var last_script_original_content := ""
 var last_script_applied_revision := ""
@@ -118,7 +123,10 @@ func record_debugger_message(data: Array) -> void:
         var repair_hint := _safe_repair_hint(data[5])
         if not repair_hint.is_empty():
             entry["repairHint"] = repair_hint
-    if severity == "error":
+    if severity == "run_complete":
+        run_status = "stopped"
+        diagnostics["output"].append(message)
+    elif severity == "error":
         diagnostics["errors"].append(entry)
     elif severity == "warning":
         diagnostics["warnings"].append(entry)
@@ -132,7 +140,7 @@ func _safe_repair_hint(value: Dictionary) -> Dictionary:
     var reason := String(value.get("reason", ""))
     if String(value.get("kind", "")) != "scene.create_node":
         return {}
-    if not ALLOWED_NODE_TYPES.has(node_type) or parent_path == "" or parent_path.begins_with("/"):
+    if not ALLOWED_NODE_TYPES.has(node_type) or not _is_safe_node_path(parent_path):
         return {}
     var name_regex := RegEx.new()
     name_regex.compile("^[A-Za-z_][A-Za-z0-9_]*$")
@@ -167,7 +175,39 @@ func _read_script(body: Variant) -> Dictionary:
     })
 
 func _is_safe_script_path(script_path: String) -> bool:
-    return script_path.begins_with("res://") and script_path.ends_with(".gd") and not script_path.contains("..")
+    return _is_safe_project_path(script_path) and script_path.ends_with(".gd")
+
+func _is_safe_project_path(project_path: String) -> bool:
+    if project_path.length() < 7 or project_path.length() > 256 or not project_path.begins_with("res://"):
+        return false
+    var relative_path := project_path.substr(6)
+    if relative_path == "" or relative_path.contains("//") or relative_path.contains("\\") or project_path.contains(".."):
+        return false
+    for segment in relative_path.split("/"):
+        if segment == "" or segment == "." or segment == "..":
+            return false
+    return true
+
+func _is_safe_node_path(node_path: String) -> bool:
+    if node_path == ".":
+        return true
+    if node_path.length() < 1 or node_path.length() > 256 or node_path.begins_with("/") or node_path.contains("..") or node_path.contains("\\") or node_path.contains(":"):
+        return false
+    var segment_regex := RegEx.new()
+    segment_regex.compile("^[A-Za-z_][A-Za-z0-9_]*$")
+    for segment in node_path.split("/"):
+        if segment == "" or segment_regex.search(segment) == null:
+            return false
+    return true
+
+func _is_safe_resource_identifier(identifier: String) -> bool:
+    if identifier.length() < 1 or identifier.length() > 300:
+        return false
+    if identifier.begins_with("uid://"):
+        var uid_regex := RegEx.new()
+        uid_regex.compile("^uid://[A-Za-z0-9_-]+$")
+        return uid_regex.search(identifier) != null
+    return _is_safe_project_path(identifier)
 
 func _read_resource(body: Variant) -> Dictionary:
     if typeof(body) != TYPE_DICTIONARY:
@@ -191,7 +231,7 @@ func _read_resource(body: Variant) -> Dictionary:
 
 func _is_safe_resource_path(resource_path: String) -> bool:
     var extension := resource_path.get_extension().to_lower()
-    return resource_path.begins_with("res://") and not resource_path.contains("..") and extension in ["tscn", "tres", "res"]
+    return _is_safe_project_path(resource_path) and extension in ["tscn", "tres", "res"]
 
 func _read_input_action(body: Variant) -> Dictionary:
     if typeof(body) != TYPE_DICTIONARY:
@@ -224,6 +264,8 @@ func _read_input_action(body: Variant) -> Dictionary:
     })
 
 func _is_safe_input_action_name(action_name: String) -> bool:
+    if action_name.length() < 1 or action_name.length() > 128:
+        return false
     var name_regex := RegEx.new()
     name_regex.compile("^[A-Za-z_][A-Za-z0-9_]*$")
     return name_regex.search(action_name) != null
@@ -346,8 +388,20 @@ func _node_context(scene_root: Node, node: Node) -> Dictionary:
         "properties": _safe_node_properties(node),
     }
 
+func _scene_node(scene_root: Node, node_path: String) -> Node:
+    if scene_root == null or not _is_safe_node_path(node_path):
+        return null
+    if node_path == ".":
+        return scene_root
+    var node := scene_root.get_node_or_null(NodePath(node_path))
+    if node == null or not scene_root.is_ancestor_of(node):
+        return null
+    return node
+
 func _safe_node_properties(node: Node) -> Dictionary:
     var properties := {}
+    var script_resource: Variant = node.get_script()
+    properties["scriptPath"] = String(script_resource.resource_path) if script_resource is Script and String(script_resource.resource_path) != "" else null
     if node is CanvasItem:
         properties["visible"] = node.visible
     if node is Node2D:
@@ -466,8 +520,135 @@ func _field_matches(query: String, fields: Array) -> Array:
             matches.append(field_names[index])
     return matches
 
+func _has_exact_keys(value: Dictionary, required: Array, optional: Array = []) -> bool:
+    for key in required:
+        if not value.has(key):
+            return false
+    for key in value.keys():
+        if not required.has(key) and not optional.has(key):
+            return false
+    return true
+
+func _is_finite_number(value: Variant) -> bool:
+    if typeof(value) != TYPE_INT and typeof(value) != TYPE_FLOAT:
+        return false
+    return is_finite(float(value))
+
+func _is_valid_number(value: Variant, minimum: float, maximum: float) -> bool:
+    return _is_finite_number(value) and float(value) >= minimum and float(value) <= maximum
+
+func _is_valid_integer(value: Variant, minimum: float, maximum: float) -> bool:
+    return _is_valid_number(value, minimum, maximum) and int(value) == float(value)
+
+func _is_valid_point(value: Variant, minimum: float, maximum: float) -> bool:
+    if typeof(value) != TYPE_DICTIONARY:
+        return false
+    var point: Dictionary = value
+    if not _has_exact_keys(point, ["x", "y"]):
+        return false
+    return _is_valid_number(point["x"], minimum, maximum) and _is_valid_number(point["y"], minimum, maximum)
+
+func _is_valid_color(value: Variant) -> bool:
+    if typeof(value) != TYPE_DICTIONARY:
+        return false
+    var color: Dictionary = value
+    if not _has_exact_keys(color, ["r", "g", "b", "a"]):
+        return false
+    return _is_valid_number(color["r"], 0.0, 1.0) \
+        and _is_valid_number(color["g"], 0.0, 1.0) \
+        and _is_valid_number(color["b"], 0.0, 1.0) \
+        and _is_valid_number(color["a"], 0.0, 1.0)
+
+func _is_safe_plan_id(plan_id: String) -> bool:
+    var plan_regex := RegEx.new()
+    plan_regex.compile("^[A-Za-z0-9_-]{1,128}$")
+    return plan_regex.search(plan_id) != null
+
+func _validate_change_request(request_body: Dictionary) -> Dictionary:
+    if not _has_exact_keys(request_body, ["projectRoot", "planId", "expectedRevision", "operations"], ["expectedFileRevision"]):
+        return _failure("VALIDATION_FAILED", "The change request contains unsupported or missing fields.")
+    if typeof(request_body.get("projectRoot")) != TYPE_STRING or String(request_body["projectRoot"]) == "":
+        return _failure("VALIDATION_FAILED", "projectRoot is required.")
+    if not _is_safe_plan_id(String(request_body.get("planId", ""))):
+        return _failure("VALIDATION_FAILED", "planId contains unsupported characters.")
+    if typeof(request_body.get("expectedRevision")) != TYPE_STRING or String(request_body["expectedRevision"]) == "":
+        return _failure("VALIDATION_FAILED", "expectedRevision is required.")
+    if request_body.has("expectedFileRevision") and (typeof(request_body["expectedFileRevision"]) != TYPE_STRING or String(request_body["expectedFileRevision"]) == ""):
+        return _failure("VALIDATION_FAILED", "expectedFileRevision must be a non-empty string when provided.")
+    var operations: Variant = request_body["operations"]
+    if typeof(operations) != TYPE_ARRAY or operations.size() != 1 or typeof(operations[0]) != TYPE_DICTIONARY:
+        return _failure("UNSAFE_OPERATION", "Exactly one bounded operation is supported.")
+    var operation: Dictionary = operations[0]
+    var kind := String(operation.get("kind", ""))
+    if kind == "scene.create_node":
+        if not _has_exact_keys(operation, ["kind", "parentPath", "nodeName", "nodeType"]):
+            return _failure("VALIDATION_FAILED", "scene.create_node contains unsupported or missing fields.")
+        if not _is_safe_node_path(String(operation["parentPath"])):
+            return _failure("VALIDATION_FAILED", "parentPath must be a safe relative NodePath.")
+        if typeof(operation["nodeName"]) != TYPE_STRING or String(operation["nodeName"]) == "":
+            return _failure("VALIDATION_FAILED", "nodeName is required.")
+        var node_name_regex := RegEx.new()
+        node_name_regex.compile("^[A-Za-z_][A-Za-z0-9_]*$")
+        if node_name_regex.search(String(operation["nodeName"])) == null:
+            return _failure("VALIDATION_FAILED", "nodeName contains unsupported characters.")
+        if not ALLOWED_NODE_TYPES.has(String(operation["nodeType"])):
+            return _failure("UNSAFE_OPERATION", "The requested node type is not allowlisted.")
+    elif kind == "scene.set_property":
+        if not _has_exact_keys(operation, ["kind", "nodePath", "property", "value"]):
+            return _failure("VALIDATION_FAILED", "scene.set_property contains unsupported or missing fields.")
+        if not _is_safe_node_path(String(operation["nodePath"])):
+            return _failure("VALIDATION_FAILED", "nodePath must be a safe relative NodePath.")
+        var property := String(operation["property"])
+        var value: Variant = operation["value"]
+        if property == "visible":
+            if typeof(value) != TYPE_BOOL:
+                return _failure("VALIDATION_FAILED", "visible must be a boolean.")
+        elif property == "position":
+            if not _is_valid_point(value, -1000000.0, 1000000.0):
+                return _failure("VALIDATION_FAILED", "position must contain finite x and y values in range.")
+        elif property == "size":
+            if not _is_valid_point(value, 0.0, 1000000.0):
+                return _failure("VALIDATION_FAILED", "size must contain finite non-negative x and y values.")
+        elif property == "text":
+            if typeof(value) != TYPE_STRING or String(value).length() > 10000:
+                return _failure("VALIDATION_FAILED", "text must be a bounded string.")
+        elif property == "color":
+            if not _is_valid_color(value):
+                return _failure("VALIDATION_FAILED", "color must contain finite channel values from 0 to 1.")
+        else:
+            return _failure("UNSAFE_OPERATION", "The requested node property is not allowlisted.")
+    elif kind == "scene.attach_script":
+        if not _has_exact_keys(operation, ["kind", "nodePath", "scriptPath"]):
+            return _failure("VALIDATION_FAILED", "scene.attach_script contains unsupported or missing fields.")
+        if not _is_safe_node_path(String(operation["nodePath"])) or not _is_safe_script_path(String(operation["scriptPath"])):
+            return _failure("UNSAFE_OPERATION", "Only safe scene node paths and project-relative scripts can be attached.")
+    elif kind == "resource.replace_reference":
+        if not _has_exact_keys(operation, ["kind", "resourcePath", "from", "to"]):
+            return _failure("VALIDATION_FAILED", "resource.replace_reference contains unsupported or missing fields.")
+        if not _is_safe_resource_path(String(operation["resourcePath"])) or not _is_safe_resource_identifier(String(operation["from"])) or not _is_safe_resource_identifier(String(operation["to"])):
+            return _failure("UNSAFE_OPERATION", "Only safe resource paths and identifiers can be changed.")
+    elif kind == "project.input_action.add_key":
+        if not _has_exact_keys(operation, ["kind", "actionName", "physicalKeycode"], ["deadzone"]):
+            return _failure("VALIDATION_FAILED", "project.input_action.add_key contains unsupported or missing fields.")
+        var physical_keycode_value: Variant = operation["physicalKeycode"]
+        if not _is_safe_input_action_name(String(operation["actionName"])) or not _is_valid_number(physical_keycode_value, 1.0, 10000.0) or int(physical_keycode_value) != float(physical_keycode_value):
+            return _failure("VALIDATION_FAILED", "The input action name or physical keycode is invalid.")
+        if operation.has("deadzone") and not _is_valid_number(operation["deadzone"], 0.0, 1.0):
+            return _failure("VALIDATION_FAILED", "deadzone must be a finite number from 0 to 1.")
+    elif kind == "script.replace_range":
+        if not _has_exact_keys(operation, ["kind", "scriptPath", "startLine", "endLine", "replacement"]):
+            return _failure("VALIDATION_FAILED", "script.replace_range contains unsupported or missing fields.")
+        if not _is_safe_script_path(String(operation["scriptPath"])) or not _is_valid_integer(operation["startLine"], 1.0, 1000000.0) or not _is_valid_integer(operation["endLine"], 1.0, 1000000.0) or int(operation["endLine"]) < int(operation["startLine"]) or typeof(operation["replacement"]) != TYPE_STRING or String(operation["replacement"]).length() > 100000:
+            return _failure("VALIDATION_FAILED", "The script replacement range or content is invalid.")
+    else:
+        return _failure("UNSAFE_OPERATION", "Only the bounded safe change operations are enabled.")
+    return {}
+
 func _apply_change(body: Variant) -> Dictionary:
     var request_body: Dictionary = body
+    var request_error := _validate_change_request(request_body)
+    if not request_error.is_empty():
+        return request_error
     var scene_root := EditorInterface.get_edited_scene_root()
     if scene_root == null:
         return _failure("VALIDATION_FAILED", "A current scene is required before applying a change.")
@@ -481,6 +662,13 @@ func _apply_change(body: Variant) -> Dictionary:
             "The current editor revision does not match the requested revision.",
             409,
             {"expectedRevision": expected_revision, "actualRevision": actual_revision},
+        )
+    if last_applied_plan_id != "":
+        return _failure(
+            "PLAN_ALREADY_APPLIED",
+            "Rollback the latest applied plan before applying another plan through this editor bridge.",
+            409,
+            {"planId": last_applied_plan_id},
         )
 
     var operations: Variant = request_body.get("operations", [])
@@ -509,10 +697,8 @@ func _apply_change(body: Variant) -> Dictionary:
     var applied_revision := _current_revision(scene_root, scene_path)
     last_applied_plan_id = String(request_body.get("planId", ""))
     last_applied_revision = applied_revision
-    last_applied_kind = "scene"
-    last_script_path = ""
-    last_script_original_content = ""
-    last_script_applied_revision = ""
+    _clear_file_action_state()
+    _record_scene_action(scene_root, scene_path, "scene.create_node", "Godot Safe Change: Add node")
     var report := {
         "schemaVersion": "0.2",
         "planId": String(request_body.get("planId", "")),
@@ -527,7 +713,9 @@ func _apply_scene_property_change(request_body: Dictionary, scene_root: Node, sc
     var operation: Dictionary = request_body["operations"][0]
     var node_path := String(operation.get("nodePath", ""))
     var property := String(operation.get("property", ""))
-    var node: Node = scene_root if node_path == "." else scene_root.get_node_or_null(NodePath(node_path))
+    if not _is_safe_node_path(node_path):
+        return _failure("VALIDATION_FAILED", "nodePath must be a safe relative NodePath.")
+    var node: Node = _scene_node(scene_root, node_path)
     if node == null:
         return _failure("VALIDATION_FAILED", "The requested scene node does not exist.")
 
@@ -546,26 +734,24 @@ func _apply_scene_property_change(request_body: Dictionary, scene_root: Node, sc
     EditorInterface.mark_scene_as_unsaved()
     last_applied_plan_id = String(request_body.get("planId", ""))
     last_applied_revision = _current_revision(scene_root, scene_path)
-    last_applied_kind = "scene"
-    last_script_path = ""
-    last_script_original_content = ""
-    last_script_applied_revision = ""
+    _clear_file_action_state()
+    _record_scene_action(scene_root, scene_path, "scene.set_property", "Godot Safe Change: Set property")
     return _success("report", {
         "schemaVersion": "0.2",
         "planId": String(request_body.get("planId", "")),
         "status": "applied",
         "revision": last_applied_revision,
         "operationCount": 1,
-        "undoLabel": "Godot Safe Change: Set property",
+        "undoLabel": last_applied_undo_label,
     })
 
 func _apply_attach_script(request_body: Dictionary, scene_root: Node, scene_path: String) -> Dictionary:
     var operation: Dictionary = request_body["operations"][0]
     var node_path := String(operation.get("nodePath", ""))
     var script_path := String(operation.get("scriptPath", ""))
-    if not _is_safe_script_path(script_path):
-        return _failure("UNSAFE_OPERATION", "Only project-relative .gd scripts can be attached.")
-    var node: Node = scene_root if node_path == "." else scene_root.get_node_or_null(NodePath(node_path))
+    if not _is_safe_node_path(node_path) or not _is_safe_script_path(script_path):
+        return _failure("UNSAFE_OPERATION", "Only safe scene node paths and project-relative .gd scripts can be attached.")
+    var node: Node = _scene_node(scene_root, node_path)
     if node == null:
         return _failure("VALIDATION_FAILED", "The requested scene node does not exist.")
     var script_resource: Variant = ResourceLoader.load(script_path)
@@ -580,17 +766,15 @@ func _apply_attach_script(request_body: Dictionary, scene_root: Node, scene_path
     EditorInterface.mark_scene_as_unsaved()
     last_applied_plan_id = String(request_body.get("planId", ""))
     last_applied_revision = _current_revision(scene_root, scene_path)
-    last_applied_kind = "scene"
-    last_script_path = ""
-    last_script_original_content = ""
-    last_script_applied_revision = ""
+    _clear_file_action_state()
+    _record_scene_action(scene_root, scene_path, "scene.attach_script", "Godot Safe Change: Attach script")
     return _success("report", {
         "schemaVersion": "0.2",
         "planId": last_applied_plan_id,
         "status": "applied",
         "revision": last_applied_revision,
         "operationCount": 1,
-        "undoLabel": "Godot Safe Change: Attach script",
+        "undoLabel": last_applied_undo_label,
     })
 
 func _apply_resource_change(request_body: Dictionary, scene_root: Node, scene_path: String) -> Dictionary:
@@ -600,8 +784,8 @@ func _apply_resource_change(request_body: Dictionary, scene_root: Node, scene_pa
     var to_path := String(operation.get("to", ""))
     if not _is_safe_resource_path(resource_path):
         return _failure("UNSAFE_OPERATION", "Only project-relative scene/resource files can be modified.")
-    if not (from_path.begins_with("res://") or from_path.begins_with("uid://")) or not (to_path.begins_with("res://") or to_path.begins_with("uid://")):
-        return _failure("VALIDATION_FAILED", "Resource references must use res:// or uid:// identifiers.")
+    if not _is_safe_resource_identifier(from_path) or not _is_safe_resource_identifier(to_path):
+        return _failure("VALIDATION_FAILED", "Resource references must use safe res:// or uid:// identifiers.")
 
     var snapshot_result := _read_resource_snapshot(resource_path)
     if snapshot_result.is_empty() or not snapshot_result.get("ok", false):
@@ -620,15 +804,14 @@ func _apply_resource_change(request_body: Dictionary, scene_root: Node, scene_pa
         return write_error
 
     var file_revision := str(next_content.hash())
+    _clear_scene_action_state()
+    _clear_file_action_state()
     last_applied_plan_id = plan_id
     last_applied_revision = _current_revision(scene_root, scene_path)
     last_applied_kind = "resource"
     last_resource_path = resource_path
     last_resource_original_content = content
     last_resource_applied_revision = file_revision
-    last_script_path = ""
-    last_script_original_content = ""
-    last_script_applied_revision = ""
     return _success("report", {
         "schemaVersion": "0.2",
         "planId": plan_id,
@@ -642,9 +825,12 @@ func _apply_resource_change(request_body: Dictionary, scene_root: Node, scene_pa
 func _apply_input_action_change(request_body: Dictionary, scene_root: Node, scene_path: String) -> Dictionary:
     var operation: Dictionary = request_body["operations"][0]
     var action_name := String(operation.get("actionName", ""))
-    var physical_keycode := int(operation.get("physicalKeycode", 0))
-    if not _is_safe_input_action_name(action_name) or physical_keycode < 1:
+    var physical_keycode_value: Variant = operation.get("physicalKeycode")
+    if not _is_safe_input_action_name(action_name) or not _is_valid_integer(physical_keycode_value, 1.0, 10000.0):
         return _failure("VALIDATION_FAILED", "The input action name or physical keycode is invalid.")
+    var physical_keycode := int(physical_keycode_value)
+    if operation.has("deadzone") and not _is_valid_number(operation["deadzone"], 0.0, 1.0):
+        return _failure("VALIDATION_FAILED", "deadzone must be a finite number from 0 to 1.")
 
     var expected_file_revision := String(request_body.get("expectedFileRevision", ""))
     var actual_file_revision := _project_settings_revision()
@@ -675,7 +861,10 @@ func _apply_input_action_change(request_body: Dictionary, scene_root: Node, scen
     var key_event := InputEventKey.new()
     key_event.physical_keycode = physical_keycode
     key_event.pressed = true
-    var deadzone := float(operation.get("deadzone", next_setting.get("deadzone", 0.2)))
+    var deadzone_value: Variant = operation.get("deadzone", next_setting.get("deadzone", 0.2))
+    if not _is_valid_number(deadzone_value, 0.0, 1.0):
+        return _failure("VALIDATION_FAILED", "deadzone must be a finite number from 0 to 1.")
+    var deadzone := float(deadzone_value)
     next_setting["deadzone"] = deadzone
     existing_events.append(key_event)
     next_setting["events"] = existing_events
@@ -692,18 +881,14 @@ func _apply_input_action_change(request_body: Dictionary, scene_root: Node, scen
     var plan_id := String(request_body.get("planId", ""))
     var applied_revision := _current_revision(scene_root, scene_path)
     var applied_file_revision := _project_settings_revision()
+    _clear_scene_action_state()
+    _clear_file_action_state()
     last_applied_plan_id = plan_id
     last_applied_revision = applied_revision
     last_applied_kind = "input"
     last_input_action_name = action_name
     last_input_action_original_setting = original_setting
     last_input_action_applied_revision = applied_file_revision
-    last_script_path = ""
-    last_script_original_content = ""
-    last_script_applied_revision = ""
-    last_resource_path = ""
-    last_resource_original_content = ""
-    last_resource_applied_revision = ""
     return _success("report", {
         "schemaVersion": "0.2",
         "planId": plan_id,
@@ -726,18 +911,21 @@ func _read_resource_snapshot(resource_path: String) -> Dictionary:
 func _property_value(node: Node, property: String, value: Variant):
     if property == "visible" and node is CanvasItem and typeof(value) == TYPE_BOOL:
         return value
-    if property == "text" and node is Label and typeof(value) == TYPE_STRING:
+    if property == "text" and node is Label and typeof(value) == TYPE_STRING and String(value).length() <= 10000:
         return value
-    if property == "position" and node is Node2D and typeof(value) == TYPE_DICTIONARY:
-        return Vector2(float(value.get("x", 0.0)), float(value.get("y", 0.0)))
-    if property == "size" and node is Control and typeof(value) == TYPE_DICTIONARY:
-        return Vector2(float(value.get("x", 0.0)), float(value.get("y", 0.0)))
-    if property == "color" and node is ColorRect and typeof(value) == TYPE_DICTIONARY:
+    if property == "position" and node is Node2D and _is_valid_point(value, -1000000.0, 1000000.0):
+        var position: Dictionary = value
+        return Vector2(float(position["x"]), float(position["y"]))
+    if property == "size" and node is Control and _is_valid_point(value, 0.0, 1000000.0):
+        var size: Dictionary = value
+        return Vector2(float(size["x"]), float(size["y"]))
+    if property == "color" and node is ColorRect and _is_valid_color(value):
+        var color: Dictionary = value
         return Color(
-            float(value.get("r", 0.0)),
-            float(value.get("g", 0.0)),
-            float(value.get("b", 0.0)),
-            float(value.get("a", 1.0)),
+            float(color["r"]),
+            float(color["g"]),
+            float(color["b"]),
+            float(color["a"]),
         )
     return null
 
@@ -753,6 +941,44 @@ func _property_snapshot(node: Node, property: String):
     if property == "color" and node is ColorRect:
         return {"r": node.color.r, "g": node.color.g, "b": node.color.b, "a": node.color.a}
     return null
+
+func _record_scene_action(scene_root: Node, scene_path: String, kind: String, label: String) -> void:
+    var undo_manager := get_undo_redo()
+    var history_id := undo_manager.get_object_history_id(scene_root)
+    var scene_undo_redo: UndoRedo = undo_manager.get_history_undo_redo(history_id)
+    last_applied_undo_history_id = history_id
+    last_applied_undo_version = scene_undo_redo.get_version()
+    last_applied_undo_action = scene_undo_redo.get_current_action()
+    last_applied_undo_label = scene_undo_redo.get_current_action_name()
+    if last_applied_undo_label == "":
+        last_applied_undo_label = label
+    last_applied_kind = kind
+    last_applied_scene_path = scene_path
+
+func _clear_scene_action_state() -> void:
+    last_applied_undo_history_id = -1
+    last_applied_undo_version = -1
+    last_applied_undo_action = -1
+    last_applied_undo_label = ""
+    last_applied_scene_path = ""
+
+func _clear_file_action_state() -> void:
+    last_script_path = ""
+    last_script_original_content = ""
+    last_script_applied_revision = ""
+    last_resource_path = ""
+    last_resource_original_content = ""
+    last_resource_applied_revision = ""
+    last_input_action_name = ""
+    last_input_action_original_setting = null
+    last_input_action_applied_revision = ""
+
+func _clear_applied_state() -> void:
+    last_applied_plan_id = ""
+    last_applied_revision = ""
+    last_applied_kind = ""
+    _clear_scene_action_state()
+    _clear_file_action_state()
 
 func _apply_script_change(request_body: Dictionary, scene_root: Node, scene_path: String) -> Dictionary:
     var operation: Dictionary = request_body["operations"][0]
@@ -794,6 +1020,8 @@ func _apply_script_change(request_body: Dictionary, scene_root: Node, scene_path
         return write_error
 
     var file_revision := str(next_content.hash())
+    _clear_scene_action_state()
+    _clear_file_action_state()
     last_applied_plan_id = plan_id
     last_applied_revision = _current_revision(scene_root, scene_path)
     last_applied_kind = "script"
@@ -835,8 +1063,24 @@ func _atomic_replace_script(script_path: String, content: String, operation_id: 
         return _failure("OPERATION_REJECTED", "Godot could not atomically replace the script.", 409, {"error": rename_error})
     return {}
 
+func _validate_rollback_request(request_body: Dictionary) -> Dictionary:
+    if not _has_exact_keys(request_body, ["planId", "expectedRevision"], ["expectedFileRevision", "projectRoot"]):
+        return _failure("VALIDATION_FAILED", "The rollback request contains unsupported or missing fields.")
+    if not _is_safe_plan_id(String(request_body.get("planId", ""))):
+        return _failure("VALIDATION_FAILED", "planId contains unsupported characters.")
+    if typeof(request_body.get("expectedRevision")) != TYPE_STRING or String(request_body["expectedRevision"]) == "":
+        return _failure("VALIDATION_FAILED", "expectedRevision is required.")
+    if request_body.has("expectedFileRevision") and (typeof(request_body["expectedFileRevision"]) != TYPE_STRING or String(request_body["expectedFileRevision"]) == ""):
+        return _failure("VALIDATION_FAILED", "expectedFileRevision must be a non-empty string when provided.")
+    return {}
+
 func _rollback_change(body: Variant) -> Dictionary:
+    if typeof(body) != TYPE_DICTIONARY:
+        return _failure("VALIDATION_FAILED", "The rollback request body must be a JSON object.")
     var request_body: Dictionary = body
+    var request_error := _validate_rollback_request(request_body)
+    if not request_error.is_empty():
+        return request_error
     var scene_root := EditorInterface.get_edited_scene_root()
     if scene_root == null:
         return _failure("VALIDATION_FAILED", "A current scene is required before rollback.")
@@ -862,22 +1106,45 @@ func _rollback_change(body: Variant) -> Dictionary:
     if last_applied_kind == "input":
         return _rollback_input_action_change(request_body, scene_root, scene_path, plan_id)
 
+    if last_applied_scene_path != scene_path or last_applied_undo_history_id < 0 or last_applied_undo_version < 0:
+        return _failure("REVISION_CONFLICT", "The applied scene history is no longer available for a safe rollback.", 409)
+
     var undo_manager := get_undo_redo()
     var history_id := undo_manager.get_object_history_id(scene_root)
     var scene_undo_redo: UndoRedo = undo_manager.get_history_undo_redo(history_id)
+    var current_action := scene_undo_redo.get_current_action()
+    var current_label := scene_undo_redo.get_current_action_name()
+    if history_id != last_applied_undo_history_id \
+        or scene_undo_redo.get_version() != last_applied_undo_version \
+        or current_action != last_applied_undo_action \
+        or current_label != last_applied_undo_label:
+        return _failure(
+            "REVISION_CONFLICT",
+            "The editor UndoRedo history changed after the plan was applied; refusing to undo another action.",
+            409,
+            {
+                "expectedHistoryId": last_applied_undo_history_id,
+                "actualHistoryId": history_id,
+                "expectedVersion": last_applied_undo_version,
+                "actualVersion": scene_undo_redo.get_version(),
+                "expectedAction": last_applied_undo_action,
+                "actualAction": current_action,
+                "expectedLabel": last_applied_undo_label,
+                "actualLabel": current_label,
+            },
+        )
     if not scene_undo_redo.undo():
         return _failure("ROLLBACK_FAILED", "Godot could not undo the applied scene change.", 409)
 
     var rollback_revision := _current_revision(scene_root, scene_path)
-    last_applied_plan_id = ""
-    last_applied_revision = ""
-    last_applied_kind = ""
+    var undo_label := last_applied_undo_label
+    _clear_applied_state()
     return _success("report", {
         "schemaVersion": "0.2",
         "planId": plan_id,
         "status": "rolled_back",
         "revision": rollback_revision,
-        "undoLabel": "Godot Safe Change: Add node",
+        "undoLabel": undo_label,
     })
 
 func _rollback_script_change(request_body: Dictionary, scene_root: Node, scene_path: String, plan_id: String) -> Dictionary:
@@ -898,12 +1165,7 @@ func _rollback_script_change(request_body: Dictionary, scene_root: Node, scene_p
 
     var rollback_revision := _current_revision(scene_root, scene_path)
     var restored_file_revision := str(last_script_original_content.hash())
-    last_applied_plan_id = ""
-    last_applied_revision = ""
-    last_applied_kind = ""
-    last_script_path = ""
-    last_script_original_content = ""
-    last_script_applied_revision = ""
+    _clear_applied_state()
     return _success("report", {
         "schemaVersion": "0.2",
         "planId": plan_id,
@@ -931,12 +1193,7 @@ func _rollback_resource_change(request_body: Dictionary, scene_root: Node, scene
 
     var rollback_revision := _current_revision(scene_root, scene_path)
     var restored_file_revision := str(last_resource_original_content.hash())
-    last_applied_plan_id = ""
-    last_applied_revision = ""
-    last_applied_kind = ""
-    last_resource_path = ""
-    last_resource_original_content = ""
-    last_resource_applied_revision = ""
+    _clear_applied_state()
     return _success("report", {
         "schemaVersion": "0.2",
         "planId": plan_id,
@@ -969,12 +1226,7 @@ func _rollback_input_action_change(request_body: Dictionary, scene_root: Node, s
 
     var rollback_revision := _current_revision(scene_root, scene_path)
     var restored_file_revision := _project_settings_revision()
-    last_applied_plan_id = ""
-    last_applied_revision = ""
-    last_applied_kind = ""
-    last_input_action_name = ""
-    last_input_action_original_setting = null
-    last_input_action_applied_revision = ""
+    _clear_applied_state()
     return _success("report", {
         "schemaVersion": "0.2",
         "planId": plan_id,
@@ -988,8 +1240,8 @@ func _apply_create_node(scene_root: Node, operation: Dictionary) -> Dictionary:
     var parent_path := String(operation.get("parentPath", ""))
     var node_name := String(operation.get("nodeName", ""))
     var node_type := String(operation.get("nodeType", ""))
-    if parent_path == "" or parent_path.begins_with("/"):
-        return _failure("VALIDATION_FAILED", "parentPath must be a relative NodePath.")
+    if not _is_safe_node_path(parent_path):
+        return _failure("VALIDATION_FAILED", "parentPath must be a safe relative NodePath.")
     if not ALLOWED_NODE_TYPES.has(node_type):
         return _failure("UNSAFE_OPERATION", "The requested node type is not allowlisted.")
 
@@ -1054,6 +1306,15 @@ func _run_current_scene() -> Dictionary:
     EditorInterface.play_current_scene()
     return _success("diagnostics", _run_diagnostics_snapshot())
 
+func _run_scene(_scene: String, args: PackedStringArray) -> PackedStringArray:
+    var adjusted_args := args.duplicate()
+    if not adjusted_args.has("--headless"):
+        adjusted_args.append("--headless")
+    if not adjusted_args.has("--audio-driver"):
+        adjusted_args.append("--audio-driver")
+        adjusted_args.append("Dummy")
+    return adjusted_args
+
 func _run_specific_scene(body: Variant) -> Dictionary:
     var scene_path := String(body.get("scenePath", ""))
     if not _is_safe_scene_path(scene_path):
@@ -1075,9 +1336,7 @@ func _run_specific_scene(body: Variant) -> Dictionary:
     return _success("diagnostics", _run_diagnostics_snapshot())
 
 func _is_safe_scene_path(scene_path: String) -> bool:
-    return scene_path.begins_with("res://") \
-        and scene_path.ends_with(".tscn") \
-        and not scene_path.contains("..")
+    return _is_safe_project_path(scene_path) and scene_path.ends_with(".tscn")
 
 func _run_status_response(body: Variant) -> Dictionary:
     var requested_run_id := String(body.get("runId", ""))
@@ -1113,9 +1372,15 @@ func _current_revision(scene_root: Node, scene_path: String) -> String:
     return str((scene_path + "|" + _scene_fingerprint(scene_root)).hash())
 
 func _scene_fingerprint(node: Node) -> String:
-    var fingerprint := String(node.name) + ":" + String(node.get_class())
+    return _scene_fingerprint_at(node, ".")
+
+func _scene_fingerprint_at(node: Node, node_path: String) -> String:
+    var script_resource: Variant = node.get_script()
+    var script_path := String(script_resource.resource_path) if script_resource is Script else ""
+    var fingerprint := node_path + ":" + String(node.name) + ":" + String(node.get_class()) + ":script=" + script_path
+    fingerprint += ":properties=" + JSON.stringify(_safe_node_properties(node))
     for child in node.get_children():
-        fingerprint += "[" + _scene_fingerprint(child) + "]"
+        fingerprint += "[" + _scene_fingerprint_at(child, node_path + "/" + String(child.name) if node_path != "." else String(child.name)) + "]"
     return fingerprint
 
 func _success(key: String, value: Variant) -> Dictionary:
