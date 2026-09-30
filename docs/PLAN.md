@@ -187,7 +187,7 @@ npm run build
 
 2026-09-30 已完成 task-level lease heartbeat：任务持有 lease 期间按 TTL/3 自动续租，续租失败会停止 heartbeat 并标记任务可恢复；timeline 记录 lease_acquired、lease_renewed、lease_released 和 lease_reclaimed。
 
-2026-09-30 已增加 Godot headless CI smoke：固定 Godot 4.7.2，覆盖 search、context、scene/script/input action apply/rollback、diagnostics 和 operation_history；本地 smoke 已通过，Linux workflow 增加 `xvfb-run`，远程 Actions 修复后的首次运行待确认。
+2026-09-30 已完成 Godot headless CI smoke：固定 Godot 4.7.2，覆盖 search、context、scene/script/input action apply/rollback、diagnostics 和 operation_history；Linux workflow 使用 `xvfb-run`、阶段日志、硬超时和 smoke artifact，远程 Actions run `36741526625` 已通过。
 
 2026-09-30 已增加受限 scene.set_property：visible、position、size、text、color 通过白名单和 UndoRedo apply/rollback，真实 Godot smoke 已通过。
 

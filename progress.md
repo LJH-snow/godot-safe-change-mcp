@@ -56,7 +56,13 @@
 
 - 复盘远程 run `36704166909`：Linux Godot 运行场景子进程时缺少 X11 display，导致 diagnostics warning 未返回。
 - smoke 显式使用 Godot `--display-driver headless` 与 `--audio-driver Dummy`；GitHub Actions 安装 `xvfb` 并通过 `xvfb-run` 启动 smoke。
-- 本地 Godot 4.7.2 smoke 已通过；修复后的远程 Actions 首次运行仍待提交到远程分支确认。
+- 本地 Godot 4.7.2 smoke 已通过；修复后的远程 Actions run `36741526625` 已通过。
+
+## 2026-09-30 Linux CI verification
+
+- GitHub Actions run `36741526625` 的 `check` 与 `godot-runtime` 均成功。
+- Godot runtime smoke 覆盖 search、context、scene/property/script/resource/input apply/rollback、diagnostics 和 operation history。
+- smoke 进程组清理、硬超时和 artifact 日志均已验证，远程 runner 不再被孤儿 Godot 进程长期占用。
 
 ## 2026-09-30 project lease
 
