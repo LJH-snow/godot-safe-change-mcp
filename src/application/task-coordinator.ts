@@ -23,6 +23,14 @@ import {
 import { normalizeProjectRoot } from "../infrastructure/project-root.js";
 
 const MAX_STEP_ATTEMPTS = 3;
+const DEFAULT_TASK_LEASE_TTL_MS = 120000;
+
+interface LeaseHeartbeat {
+  timer: ReturnType<typeof setInterval>;
+  leaseId: string;
+  ttlMs: number;
+  renewing: boolean;
+}
 
 /**
  * Orchestrates bounded multi-step Godot tasks on top of the existing
@@ -33,6 +41,7 @@ const MAX_STEP_ATTEMPTS = 3;
 export class TaskCoordinator {
   private readonly tasks = new Map<string, TaskState>();
   private readonly taskLeases = new Map<string, ProjectLease>();
+  private readonly leaseHeartbeats = new Map<string, LeaseHeartbeat>();
   private readonly explicitLeaseTaskIds = new Set<string>();
   private readonly ownerId = "task-coordinator-" + process.pid + "-" + randomUUID();
   private readonly leaseStore: ProjectLeaseStore;
@@ -229,7 +238,7 @@ export class TaskCoordinator {
     const parsedInput = acquireTaskLeaseInputSchema.parse(input);
     const projectRoot = await normalizeProjectRoot(parsedInput.projectRoot);
     const task = await this.requireTask(parsedInput.taskId, projectRoot);
-    await this.ensureTaskLease(task, projectRoot);
+    await this.ensureTaskLease(task, projectRoot, parsedInput.ttlMs ?? DEFAULT_TASK_LEASE_TTL_MS);
     this.explicitLeaseTaskIds.add(task.taskId);
     await this.store.save(task.projectRoot, task);
     return structuredClone(task);
@@ -244,22 +253,17 @@ export class TaskCoordinator {
     if (leaseId === undefined || leaseId !== parsedInput.leaseId) {
       throw new DomainError(ERROR_CODES.LEASE_INVALID, "The task lease is not owned by this coordinator.");
     }
-    const renewed = await this.leaseStore.renew(
-      currentLease ?? {
+    if (currentLease === undefined) {
+      this.taskLeases.set(task.taskId, {
         leaseId,
         projectRoot,
         ownerId: task.lease?.ownerId ?? "",
         acquiredAt: task.lease?.acquiredAt ?? new Date().toISOString(),
         expiresAt: task.lease?.expiresAt ?? new Date().toISOString(),
-      },
-      parsedInput.ttlMs ?? 120000,
-    );
-    this.taskLeases.set(task.taskId, renewed);
-    task.lease = this.taskLeaseState(renewed);
-    task.recoverable = false;
-    task.updatedAt = new Date().toISOString();
-    await this.store.save(task.projectRoot, task);
-    return structuredClone(task);
+      });
+    }
+    await this.renewHeldTaskLease(task.taskId, parsedInput.ttlMs ?? DEFAULT_TASK_LEASE_TTL_MS);
+    return structuredClone(this.tasks.get(task.taskId) ?? task);
   }
 
   async releaseTaskLease(input: TaskLeaseInput): Promise<TaskState> {
@@ -271,22 +275,18 @@ export class TaskCoordinator {
     if (leaseId === undefined || leaseId !== parsedInput.leaseId) {
       throw new DomainError(ERROR_CODES.LEASE_INVALID, "The task lease is not owned by this coordinator.");
     }
-    await this.leaseStore.release(
-      currentLease ?? {
+    this.explicitLeaseTaskIds.delete(task.taskId);
+    if (currentLease === undefined) {
+      this.taskLeases.set(task.taskId, {
         leaseId,
         projectRoot,
         ownerId: task.lease?.ownerId ?? "",
         acquiredAt: task.lease?.acquiredAt ?? new Date().toISOString(),
         expiresAt: task.lease?.expiresAt ?? new Date().toISOString(),
-      },
-    );
-    this.taskLeases.delete(task.taskId);
-    this.explicitLeaseTaskIds.delete(task.taskId);
-    task.lease = null;
-    task.recoverable = true;
-    task.updatedAt = new Date().toISOString();
-    await this.store.save(task.projectRoot, task);
-    return structuredClone(task);
+      });
+    }
+    await this.releaseHeldTaskLease(task.taskId);
+    return structuredClone(this.tasks.get(task.taskId) ?? task);
   }
 
   private async transition(
@@ -391,12 +391,18 @@ export class TaskCoordinator {
     }
   }
 
-  private async ensureTaskLease(task: TaskState, projectRoot: string): Promise<ProjectLease> {
+  private async ensureTaskLease(
+    task: TaskState,
+    projectRoot: string,
+    ttlMs = DEFAULT_TASK_LEASE_TTL_MS,
+  ): Promise<ProjectLease> {
     const existingLease = this.taskLeases.get(task.taskId);
     if (existingLease !== undefined) {
       await this.leaseStore.assert(projectRoot, existingLease.leaseId);
+      this.startLeaseHeartbeat(task, existingLease, ttlMs);
       return existingLease;
     }
+    let reclaimed = false;
     if (task.lease !== null) {
       try {
         await this.leaseStore.assert(projectRoot, task.lease.leaseId);
@@ -412,14 +418,23 @@ export class TaskCoordinator {
         ) {
           throw error;
         }
+        reclaimed = true;
       }
     }
-    const lease = await this.leaseStore.acquire(projectRoot, this.ownerId + ":" + task.taskId, 120000);
+    const lease = await this.leaseStore.acquire(projectRoot, this.ownerId + ":" + task.taskId, ttlMs);
     this.taskLeases.set(task.taskId, lease);
     task.lease = this.taskLeaseState(lease);
     task.recoverable = false;
     task.updatedAt = new Date().toISOString();
+    this.appendTimeline(task, {
+      stepId: null,
+      operationId: null,
+      status: reclaimed ? "lease_reclaimed" : "lease_acquired",
+      at: task.updatedAt,
+      result: { leaseId: lease.leaseId, ownerId: lease.ownerId, expiresAt: lease.expiresAt },
+    });
     await this.store.save(task.projectRoot, task);
+    this.startLeaseHeartbeat(task, lease, ttlMs);
     return lease;
   }
 
@@ -428,6 +443,7 @@ export class TaskCoordinator {
     if (lease === undefined) {
       return;
     }
+    this.stopLeaseHeartbeat(taskId);
     this.taskLeases.delete(taskId);
     await this.leaseStore.release(lease).catch(() => undefined);
     const task = this.tasks.get(taskId);
@@ -435,7 +451,84 @@ export class TaskCoordinator {
       task.lease = null;
       task.recoverable = true;
       task.updatedAt = new Date().toISOString();
+      this.appendTimeline(task, {
+        stepId: null,
+        operationId: null,
+        status: "lease_released",
+        at: task.updatedAt,
+        result: { leaseId: lease.leaseId, ownerId: lease.ownerId },
+      });
       await this.store.save(task.projectRoot, task);
+    }
+  }
+
+  private startLeaseHeartbeat(task: TaskState, lease: ProjectLease, ttlMs: number): void {
+    const current = this.leaseHeartbeats.get(task.taskId);
+    if (current?.leaseId === lease.leaseId && current.ttlMs === ttlMs) {
+      return;
+    }
+    this.stopLeaseHeartbeat(task.taskId);
+    const timer = setInterval(() => {
+      void this.renewHeldTaskLease(task.taskId, ttlMs).catch(() => undefined);
+    }, Math.max(100, Math.floor(ttlMs / 3)));
+    timer.unref?.();
+    this.leaseHeartbeats.set(task.taskId, { timer, leaseId: lease.leaseId, ttlMs, renewing: false });
+  }
+
+  private stopLeaseHeartbeat(taskId: string): void {
+    const heartbeat = this.leaseHeartbeats.get(taskId);
+    if (heartbeat === undefined) {
+      return;
+    }
+    clearInterval(heartbeat.timer);
+    this.leaseHeartbeats.delete(taskId);
+  }
+
+  private async renewHeldTaskLease(taskId: string, ttlMs: number): Promise<void> {
+    const heartbeat = this.leaseHeartbeats.get(taskId);
+    if (heartbeat?.renewing) {
+      return;
+    }
+    if (heartbeat !== undefined) {
+      heartbeat.renewing = true;
+    }
+    try {
+      const task = this.tasks.get(taskId);
+      const lease = this.taskLeases.get(taskId);
+      if (task === undefined || lease === undefined) {
+        return;
+      }
+      const renewed = await this.leaseStore.renew(lease, ttlMs);
+      this.taskLeases.set(taskId, renewed);
+      task.lease = this.taskLeaseState(renewed);
+      task.recoverable = false;
+      task.updatedAt = new Date().toISOString();
+      this.appendTimeline(task, {
+        stepId: null,
+        operationId: null,
+        status: "lease_renewed",
+        at: task.updatedAt,
+        result: { leaseId: renewed.leaseId, ownerId: renewed.ownerId, expiresAt: renewed.expiresAt },
+      });
+      await this.store.save(task.projectRoot, task);
+      if (heartbeat !== undefined) {
+        heartbeat.leaseId = renewed.leaseId;
+      } else {
+        this.startLeaseHeartbeat(task, renewed, ttlMs);
+      }
+    } catch (error) {
+      this.stopLeaseHeartbeat(taskId);
+      const task = this.tasks.get(taskId);
+      if (task !== undefined) {
+        task.recoverable = true;
+        task.updatedAt = new Date().toISOString();
+        await this.store.save(task.projectRoot, task).catch(() => undefined);
+      }
+      throw error;
+    } finally {
+      if (heartbeat !== undefined && this.leaseHeartbeats.get(taskId) === heartbeat) {
+        heartbeat.renewing = false;
+      }
     }
   }
 

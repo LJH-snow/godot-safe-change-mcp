@@ -31,7 +31,8 @@ const scriptPathSchema = z
   .regex(projectRelativePathPattern, "scriptPath must be a project-relative path.")
   .regex(/\.gd$/, "scriptPath must target a GDScript file.")
   .refine(
-    (value) => value.split("/").every((segment) => segment !== "." && segment !== ".."),
+    (value) =>
+      !value.includes("..") && value.split("/").every((segment) => segment !== "." && segment !== ".."),
     "scriptPath must not contain traversal segments.",
   );
 
@@ -42,7 +43,8 @@ const resourcePathSchema = z
   .regex(projectRelativePathPattern, "resourcePath must be a project-relative path.")
   .regex(/\.(tscn|tres|res)$/, "resourcePath must target a supported Godot resource.")
   .refine(
-    (value) => value.split("/").every((segment) => segment !== "." && segment !== ".."),
+    (value) =>
+      !value.includes("..") && value.split("/").every((segment) => segment !== "." && segment !== ".."),
     "resourcePath must not contain traversal segments.",
   );
 
@@ -52,7 +54,9 @@ const resourceIdentifierSchema = z
   .max(300)
   .regex(resourceIdentifierPattern, "Resource references must use safe res:// or uid:// identifiers.")
   .refine(
-    (value) => value.startsWith("uid://") || value.split("/").every((segment) => segment !== "." && segment !== ".."),
+    (value) =>
+      value.startsWith("uid://") ||
+      (!value.includes("..") && value.split("/").every((segment) => segment !== "." && segment !== "..")),
     "Resource references must not contain traversal segments.",
   );
 

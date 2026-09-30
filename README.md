@@ -17,18 +17,20 @@
 - project lease：apply/rollback 自动获取短租约，多个窗口同时写入同一项目时返回 PROJECT_BUSY；租约状态存放在用户状态目录，不写入 Godot 项目。
 - search_project：统一的只读项目搜索，覆盖场景、节点、脚本、资源、信号连接和输入映射。场景/节点/脚本/资源优先由连接的 Godot 编辑器返回（编辑中场景的实时状态），编辑器离线时自动回退到本地只读索引；信号与输入结果始终来自本地索引。每条结果带 `source` 标记来源。
 - find_references：反向引用查找，回答“哪些场景、资源或脚本引用了这个脚本、贴图或资源”。支持场景/资源 ext_resource、GDScript `preload()` / `load()`，可按 res:// 路径或 uid:// 标识匹配，能解析 Godot 4.4+ 中省略路径、只写 uid 的引用（纯本地只读）。
-- preview_scene_change：生成一个受限 scene.create_node 变更的稳定计划和 diff。
-- preview_scene_change：也支持受限 script.replace_range preview，返回文件 revision 和行级 before/after diff；apply 使用临时文件原子替换，rollback 恢复原始内容。
+- preview_scene_change：生成受限 scene.create_node、scene.set_property、scene.attach_script、resource.replace_reference、project.input_action.add_key 或 script.replace_range 计划和 diff。
+- scene.set_property：仅允许 visible、position、size、text、color，并绑定节点类型、严格对象字段、finite 数值范围和当前属性快照。
+- scene.attach_script：仅允许给当前场景节点挂载项目内现有 `.gd` 脚本，不执行或修改脚本内容。
+- resource.replace_reference / project.input_action.add_key：分别通过文件 revision 或 project.godot revision guard 执行受限原子替换和 ProjectSettings 保存，并支持安全 rollback。
 - confirm_scene_change：检查 expected revision 并确认计划。
-- apply_scene_change：只把已确认且 revision 未过期的计划交给 Godot UndoRedo。
-- rollback_scene_change：只回滚仍处于最新 revision 的已应用计划。
+- apply_scene_change：只把已确认且 revision 未过期的计划交给 Godot UndoRedo 或对应的受限文件/设置写入路径；同一项目同时只允许一个已应用计划。
+- rollback_scene_change：只回滚仍处于最新 revision、文件 revision 或 UndoRedo history 的已应用计划。
 - run_current_scene：运行当前场景，并轮询插件返回 stopped 或 failed 诊断。
 - run_scene：运行一个经过 `res://` 和 `.tscn` 路径校验的指定场景，并通过 run ID 轮询长时运行状态。
 - create_task / get_task / advance_task / pause_task / resume_task / cancel_task：把受限的 apply、rollback 和 run 步骤组成一个可审查的多步骤任务；任务状态持久化在项目内 `.godot-safe-change/tasks/`，支持暂停、继续、取消、失败重试和重启后恢复。步骤只复用既有的确认、revision 守卫和 UndoRedo 语义，不引入新的写入能力。
 
 - acquire_task_lease / renew_task_lease / release_task_lease：管理跨多个 task 步骤的项目 lease，返回 owner、过期时间和 recoverable 状态。
 
-当前只支持在当前场景内创建一个 allowlist 中的节点类型：Node、Node2D、Control、Label、ColorRect。
+当前只支持在当前场景内创建一个 allowlist 中的节点类型：Node、Node2D、Control、Label、ColorRect；场景属性修改和脚本挂载也只针对当前场景内的相对 NodePath 和 allowlisted 属性。
 
 ## 本地运行
 
@@ -75,16 +77,17 @@ npx godot-safe-change-mcp
 res://addons/godot-safe-change-bridge/
 ~~~
 
-在 Godot 编辑器中启用 Godot Safe Change Bridge 插件。插件只绑定 127.0.0.1:8765，并只提供固定的 context、changes/apply、run/current 和 run/status 路由。
+在 Godot 编辑器中启用 Godot Safe Change Bridge 插件。插件只绑定 127.0.0.1:8765，并只提供固定的 context、changes/apply、changes/rollback、search、受限 snapshot/read 和 run 路由。
 
 没有 Godot 编辑器连接时，MCP 工具返回稳定的 EDITOR_UNAVAILABLE，而不会伪造成功。
 
 ## 安全边界
 
 - 写操作必须经过 preview、confirmation 和 expected revision 检查。
-- 场景节点创建只能由 GDScript 插件通过 Godot EditorUndoRedoManager 执行。
+- 场景创建、属性修改和脚本挂载只能由 GDScript 插件通过 Godot EditorUndoRedoManager 执行；scene rollback 会校验 history、version、action 和 label。
+- 文件和项目设置修改只走受限 `.gd` 原子替换、资源引用替换或 ProjectSettings 路径，并保留 file revision guard。
 - 不执行 Agent 生成的任意 GDScript、shell、Python 或任意 Godot RPC。
-- 插件只接受固定路由和 allowlist 节点类型，并校验当前项目根目录。
+- 插件只接受固定路由、allowlist 节点类型、safe relative NodePath 和项目内路径，并校验当前项目根目录。
 - 运行诊断只返回插件采集的输出、warning、error 和运行状态。
 
 完整产品计划见 docs/PLAN.md；测试边界和 Godot 手工验收见 tests/README.md。

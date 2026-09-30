@@ -2,7 +2,7 @@
 
 ## 目标
 
-在保持 TypeScript MCP Server + GDScript Godot EditorPlugin 分层、禁止任意 GDScript/shell/Python 的前提下，打通第一条可验证链路：
+在保持 TypeScript MCP Server + GDScript Godot EditorPlugin 分层、禁止任意 GDScript/shell/Python 的前提下，打通并加固第一条可验证链路：
 
 > 读取编辑器上下文 → 本地桥接 → 生成并预览受限场景/节点变更 → 经 Godot UndoRedo 应用 → 运行当前场景 → 返回诊断结果
 
@@ -27,43 +27,43 @@
 
 ### Phase 1 — 契约和现状基线
 
-状态：`in_progress`
+状态：`complete`
 
-- [ ] 检查现有 MCP 入口、领域契约、桥接适配器、工具、资源和插件代码。
-- [ ] 确定 HTTP 本地桥接协议、请求/响应 envelope、错误码和 revision 语义。
-- [x] 先补契约测试和 fake bridge 测试，证明关键行为当前失败。
+- [x] 检查现有 MCP 入口、领域契约、桥接适配器、工具、资源和插件代码。
+- [x] 确定 HTTP 本地桥接协议、请求/响应 envelope、错误码和 revision 语义。
+- [x] 补契约测试和 fake bridge 测试，证明关键行为当前失败并完成回归。
 
 ### Phase 2 — 只读编辑器上下文
 
-状态：`pending`
+状态：`complete`
 
-- [ ] GDScript EditorPlugin 启动受限本地 HTTP 服务并返回上下文。
-- [ ] TypeScript bridge adapter 连接、超时、解析和错误映射。
-- [ ] MCP 暴露上下文查询工具/资源。
+- [x] GDScript EditorPlugin 启动受限本地 HTTP 服务并返回上下文。
+- [x] TypeScript bridge adapter 连接、超时、解析和错误映射。
+- [x] MCP 暴露上下文查询工具/资源。
 
 ### Phase 3 — 变更预览与确认
 
-状态：`pending`
+状态：`complete`
 
-- [ ] 定义受限节点创建操作、稳定计划 ID、expected revision 和 diff。
-- [ ] MCP 生成 preview，不产生副作用。
-- [ ] MCP 单独确认计划，拒绝过期或不匹配的确认。
+- [x] 定义受限节点创建、属性、脚本、资源、输入动作和脚本范围操作，以及稳定计划 ID、expected revision 和 diff。
+- [x] MCP 生成 preview，不产生副作用。
+- [x] MCP 单独确认计划，拒绝过期或不匹配的确认。
 
 ### Phase 4 — UndoRedo 应用与运行诊断
 
-状态：`pending`
+状态：`complete`
 
-- [ ] 插件只接受受限领域操作，并通过 `UndoRedo` 提交。
-- [ ] MCP 请求运行当前场景并收集状态、输出、错误和警告。
-- [ ] 返回 change report、revision 和诊断证据。
+- [x] 插件只接受受限领域操作，并通过 `UndoRedo` 提交场景变更。
+- [x] MCP 请求运行当前场景或指定场景并收集状态、输出、错误和警告。
+- [x] 返回 change report、scene/file revision 和诊断证据。
 
 ### Phase 5 — 集成验证和文档
 
-状态：`pending`
+状态：`complete`
 
-- [ ] 补齐 Godot fixture/手工验收入口。
-- [ ] 运行 typecheck、build、自动化测试和最小真实服务器检查。
-- [ ] 更新 README、插件说明和测试边界。
+- [x] 补齐 Godot fixture、真实 runtime smoke 和手工验收入口。
+- [x] 运行 typecheck、build、57 项自动化测试、diff 检查和真实 Godot smoke。
+- [x] 更新 README、插件安全边界、进度记录和测试边界。
 
 ## 决策记录
 
@@ -96,11 +96,12 @@
 
 ## 本轮状态
 
-- Phase 1：契约、错误码、fake bridge 和红灯测试已完成。
+- Phase 1：契约、错误码、fake bridge 和回归测试已完成。
 - Phase 2：TypeScript HTTP bridge、MCP 上下文工具和 GDScript context 路由已实现并通过 Godot 4.7.2 runtime 验证。
-- Phase 3：单节点预览、确认、expected revision 和 apply 状态机已实现并通过真实 revision 变化验证。
-- Phase 4：UndoRedo 应用、当前场景运行和诊断轮询已实现并返回 stopped 与 fixture 诊断。
-- Phase 5：自动化、MCP HTTP 端点、文档和 Godot fixture 已完成；本轮真实端到端验收通过。
+- Phase 3：受限节点、属性、脚本、资源、输入动作和脚本范围操作的 preview、confirm、expected revision 和 apply 状态机已完成。
+- Phase 4：UndoRedo 应用、文件/项目设置 revision guard、场景运行和诊断轮询已完成。
+- Phase 5：自动化、MCP HTTP 端点、文档和 Godot fixture 已完成；当前 57/57 测试通过，本地真实端到端验收通过。
+- 远程 GitHub Actions 的 Xvfb 修复后首次运行仍待确认；本轮不自动 commit/push。
 
 ## Phase 6 — 受限回滚
 
@@ -152,6 +153,7 @@
 - [x] 并发 owner、过期 lease 和任务恢复测试通过。
 - [x] 支持 acquire_task_lease、renew_task_lease、release_task_lease 和 task_status。
 - [x] 任务步骤可复用显式 leaseId，lease owner、expiresAt 和 recoverable 状态持久化可见。
+- [x] 显式任务 lease 在持有期间按 TTL/3 自动 heartbeat 续租，并记录 acquire、renew、release、reclaim timeline 事件。
 
 ## Phase 11 — 多步骤开发任务
 
@@ -171,7 +173,7 @@
 - [x] 新增 `run_scene` 契约、MCP 工具、ChangeCoordinator 用例和 `/v1/run/scene` HTTP bridge 路由。
 - [x] 通过 `EditorInterface.play_custom_scene` 运行经过 `res://`、`.tscn` 和路径遍历校验的指定场景。
 - [x] 任务步骤支持 `run_scene`，并保存 scenePath 与 timeoutMs；旧任务状态可由 schema 默认字段恢复。
-- [x] 自动化测试 50/50、typecheck、build 已通过。
+- [x] 自动化测试 57/57、typecheck、build 已通过。
 - [x] 真实 MCP + Godot 4.7.2 验收通过：`run_scene` 返回 stopped、指定 scenePath 和 fixture 输出；非法路径在工具层拒绝；任务中的 run_scene 步骤完成。
 
 ## Phase 13 — Godot headless CI

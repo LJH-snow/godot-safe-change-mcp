@@ -1,5 +1,13 @@
 # 进度记录
 
+## 2026-09-30 safe change hardening
+
+- `scene.set_property` 已按属性绑定严格契约：visible、position、size、text、color 分别校验类型、exact keys、finite 数值和范围；路径校验拒绝绝对路径、空段、反斜杠和 traversal。
+- `scene.attach_script`、`resource.replace_reference`、`project.input_action.add_key` 和 `script.replace_range` 均完成 preview → confirm → apply → rollback，并保留 scene/file/project-settings revision guard。
+- Godot 插件增加独立的第二道请求校验、active-plan guard、场景 fingerprint 属性/脚本状态和 UndoRedo history/version/action/label rollback guard；直接 loopback 非法请求由插件返回稳定错误码。
+- fixture/runtime smoke 已覆盖五种属性、scriptless attach、资源引用、输入动作、脚本替换、用户修改后的 revision conflict 和重复 rollback。
+- 当前验证基线为 `npm test` 57/57、typecheck、build、`git diff --check` 和本地 Godot 4.7.2 smoke；远程 GitHub Actions 的 Xvfb 修复后首次运行仍待确认。
+
 ## 2026-09-30 Godot CI smoke
 
 - 新增 tests/godot-runtime-smoke.mjs，临时复制 fixture/plugin 并通过 MCP 验证完整 Godot workflow。
@@ -9,18 +17,18 @@
 ## 2026-09-30 safe scene property
 
 - 新增 scene.set_property，严格限制 visible、position、size、text、color 与对应节点类型。
-- 真实 MCP + Godot 4.7.2 smoke 已覆盖属性 apply/rollback；输入动作、资源引用和脚本挂载仍待实现。
+- 真实 MCP + Godot 4.7.2 smoke 已覆盖五种属性 apply/rollback；非法类型、缺字段、越界数值和非法 NodePath 由契约层拒绝。
 
 ## 2026-09-30 attach existing script
 
 - 新增 scene.attach_script，只允许现有 res:// .gd 脚本和当前场景节点。
 - 通过 Godot UndoRedo 设置/恢复 script 属性；真实 Godot smoke 已覆盖 apply/rollback。
-- 输入动作、资源引用替换和远程 GitHub Actions 首次运行仍待实现。
+- Scriptless 节点的真实 attach → rollback 已验证恢复为无脚本；远程 GitHub Actions 首次运行仍待确认。
 
 ## 2026-09-30 resource preview
 
 - 新增 resource.replace_reference preview，读取受限 tscn/tres/res 文件，校验明确 from/to 引用并返回文件 revision 与匹配数量。
-- GDScript resources/read 只读路由已解析通过；资源 apply/rollback 保持下一阶段，不直接写资源文件。
+- GDScript resources/read 只读路由已解析通过；资源 apply/rollback 已通过受限原子替换、file revision guard 和真实 smoke。
 
 ## 2026-09-30 resource apply verification
 
@@ -32,11 +40,17 @@
 - TaskState 增加 task step operationId 和 timeline 事件，覆盖 running、succeeded、failed 以及 pause/resume/cancel 状态事件。
 - 重启恢复测试保持通过，task_status 可同时返回 lease owner、expiresAt、recoverable 和 timeline。
 
+## 2026-09-30 task lease heartbeat
+
+- TaskCoordinator 为显式和多步骤任务 lease 启动 TTL/3 heartbeat，自动调用 lease store renew 并持久化新的 expiresAt。
+- heartbeat 停止、续租失败和任务释放不会留下活动定时器；timeline 增加 lease_acquired、lease_renewed、lease_released、lease_reclaimed 事件。
+- 自动化回归通过：58/58 tests、typecheck、build。
+
 ## 2026-09-30 input action persistence
 
 - 新增只读 `/v1/input-actions/read`，返回 action 是否存在、deadzone、受限 key event 摘要和 `project.godot` revision。
 - `project.input_action.add_key` preview 读取并锁定 project settings revision，拒绝重复 physical key；apply 通过 `ProjectSettings.save()` 持久化，rollback 在 revision 未变化时恢复原 action 设置。
-- TypeScript 契约、HTTP bridge、Fake bridge 和真实 Godot 4.7.2 smoke 均覆盖 apply/rollback；`npm test` 55/55、typecheck、build 通过。
+- TypeScript 契约、HTTP bridge、Fake bridge 和真实 Godot 4.7.2 smoke 均覆盖 apply/rollback；当前 `npm test` 57/57、typecheck、build 通过。
 
 ## 2026-09-30 Linux CI hardening
 
@@ -48,7 +62,7 @@
 
 - 新增 FileProjectLeaseStore 和 InMemoryProjectLeaseStore，使用状态目录独占文件实现跨进程租约。
 - ChangeCoordinator 的 apply/rollback 自动获取 30 秒短租约；已有 leaseId 会验证 owner/过期时间。
-- 并发 owner 返回 PROJECT_BUSY，过期租约可回收；任务编排和现有 50 个测试全部通过。
+- 并发 owner 返回 PROJECT_BUSY，过期租约可回收；任务编排和当前 57 个测试全部通过。
 - 新增 acquire_task_lease、renew_task_lease、release_task_lease、task_status；显式 lease 可跨多个 task 步骤保持并续租。
 - task advance 在没有显式 lease 时使用操作级短租约，避免进程崩溃后阻塞任务恢复。
 
@@ -58,15 +72,15 @@
 - HTTP bridge 新增 `/v1/run/scene` 并复用 run/status 轮询；ChangeCoordinator 为指定场景运行生成审计记录和诊断关联。
 - Godot 插件使用 `EditorInterface.play_custom_scene`，拒绝不存在场景、并发运行和不安全路径。
 - 多步骤任务新增 `run_scene` 步骤，持久化 scenePath/timeoutMs，并兼容旧任务 JSON。
-- 自动化回归已通过：50/50 tests、typecheck、build。
+- 自动化回归已通过：当前 57/57 tests、typecheck、build。
 - 真实 MCP + Godot 4.7.2 验收通过：`run_scene` 返回 stopped、res://main.tscn、custom scene requested 与 fixture 输出；非法遍历路径被工具层拒绝；任务中的 run_scene 步骤返回 completed/succeeded。
 
 ## 2026-09-30 multi-step task verification
 
-- 新增受限多步骤任务编排：active/paused/completed/failed/cancelled 状态机，步骤只允许 apply_plan、rollback_plan 和 run_current_scene。
+- 新增受限多步骤任务编排：active/paused/completed/failed/cancelled 状态机，步骤只允许 apply_plan、rollback_plan、run_current_scene 和 run_scene。
 - 任务状态以 JSON 持久化到项目内 .godot-safe-change/tasks/，重启后 get_task 可恢复；崩溃遗留的 running 步骤可重试。
 - 支持 pause/resume/cancel 与失败重试（每步最多 3 次）；所有步骤复用既有 confirm、expected revision、UndoRedo 与审计守卫。
-- 新增 create/get/advance/pause/resume/cancel 六个 MCP 工具；npm test 42/42、typecheck、build 通过。
+- 新增 create/get/advance/pause/resume/cancel 六个 MCP 工具；当前 npm test 57/57、typecheck、build 通过。
 - 真实 MCP + Godot 4.7.2 验收通过：apply 步骤经真实 UndoRedo 应用（revision 1865036137 变化），run 步骤返回 stopped 与 fixture 输出；暂停后 advance 被拒绝 TASK_INVALID_STATUS，恢复后继续；取消后剩余步骤标记 cancelled；重启 MCP 服务器后 get_task 从磁盘恢复任务状态。
 
 ## 2026-09-30 persistent audit

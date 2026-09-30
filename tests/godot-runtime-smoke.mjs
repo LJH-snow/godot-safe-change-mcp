@@ -7,6 +7,7 @@ import { spawn } from "node:child_process";
 const repositoryRoot = process.cwd();
 const godotBinary = process.env.GODOT_BIN;
 const endpoint = "http://127.0.0.1:3100/mcp";
+const bridgeEndpoint = "http://127.0.0.1:8765";
 const fixtureRoot = await mkdtemp(path.join(tmpdir(), "godot-safe-change-ci-"));
 const scriptPath = path.join(fixtureRoot, "diagnostic_scene.gd");
 let nextRequestId = 1;
@@ -77,6 +78,15 @@ async function request(method, params) {
     throw new Error(JSON.stringify(envelope.error));
   }
   return envelope.result;
+}
+
+async function bridgeRequest(pathname, body, method = "POST") {
+  const response = await fetch(bridgeEndpoint + pathname, {
+    method,
+    headers: { "content-type": "application/json" },
+    body: method === "GET" ? undefined : JSON.stringify(body),
+  });
+  return { status: response.status, body: await response.json() };
 }
 
 function structured(result) {
@@ -223,6 +233,21 @@ try {
   assert.equal(context.connection, "connected");
   assert.ok(context.currentScene.nodes.length > 0);
 
+  const directInvalidChange = await bridgeRequest("/v1/changes/apply", {
+    projectRoot: context.projectRoot,
+    planId: "direct-plugin-validation",
+    expectedRevision: context.revision,
+    operations: [{
+      kind: "scene.set_property",
+      nodePath: "../Canvas",
+      property: "size",
+      value: { x: 10, y: 10 },
+    }],
+  });
+  assert.equal(directInvalidChange.status, 400);
+  assert.equal(directInvalidChange.body.ok, false);
+  assert.equal(directInvalidChange.body.error.code, "VALIDATION_FAILED");
+
   const nodeSearch = structured(await request("tools/call", {
     name: "search_project",
     arguments: { projectRoot: fixtureRoot, query: "Main", kinds: ["node"] },
@@ -304,7 +329,15 @@ try {
     arguments: { projectRoot: fixtureRoot, planId: resourcePlan.planId },
   }));
   assert.equal(resourceApply.status, "applied");
-  assert.notEqual(await readFile(resourceFile, "utf8"), originalResource);
+  const appliedResource = await readFile(resourceFile, "utf8");
+  assert.notEqual(appliedResource, originalResource);
+  await writeFile(resourceFile, appliedResource + "\n; user edit after apply\n", "utf8");
+  await expectToolError("rollback_scene_change", {
+    projectRoot: fixtureRoot,
+    planId: resourcePlan.planId,
+  }, /REVISION_CONFLICT/);
+  assert.match(await readFile(resourceFile, "utf8"), /user edit after apply/);
+  await writeFile(resourceFile, appliedResource, "utf8");
   const resourceRollback = structured(await request("tools/call", {
     name: "rollback_scene_change",
     arguments: { projectRoot: fixtureRoot, planId: resourcePlan.planId },
