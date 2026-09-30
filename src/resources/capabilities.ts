@@ -1,0 +1,65 @@
+import type { MCPServer } from "mcp-use";
+
+const capabilities = {
+  schemaVersion: "0.2",
+  productDirection: "reviewable and verifiable Godot changes",
+  transport: {
+    kind: "loopback_http",
+    bindAddress: "127.0.0.1",
+    defaultPort: 8765,
+    routes: [
+      "POST /v1/context",
+      "POST /v1/changes/apply",
+      "POST /v1/changes/rollback",
+      "POST /v1/run/current",
+      "POST /v1/run/status",
+    ],
+  },
+  tools: [
+    "project_overview",
+    "editor_context",
+    "preview_scene_change",
+    "confirm_scene_change",
+    "apply_scene_change",
+    "rollback_scene_change",
+    "run_current_scene",
+  ],
+  lifecycle: [
+    "inspect",
+    "propose",
+    "preview",
+    "confirm",
+    "apply",
+    "validate",
+    "rollback",
+  ],
+  writePolicy:
+    "Only one allowlisted scene.create_node operation is supported; preview, confirmation, expected revision, Godot UndoRedo, and revision-guarded rollback are required for the write lifecycle.",
+  forbidden: [
+    "arbitrary GDScript execution",
+    "shell execution",
+    "Python workers",
+    "unrestricted filesystem writes",
+    "arbitrary Godot RPC",
+  ],
+};
+
+export function registerCapabilitiesResource(server: MCPServer): void {
+  server.resource(
+    {
+      name: "Godot MCP capabilities",
+      uri: "godot://capabilities",
+      description: "The initial contract and safety boundary of this server.",
+      mimeType: "application/json",
+    },
+    async (uri) => ({
+      contents: [
+        {
+          uri: uri.href,
+          mimeType: "application/json",
+          text: JSON.stringify(capabilities, null, 2),
+        },
+      ],
+    }),
+  );
+}

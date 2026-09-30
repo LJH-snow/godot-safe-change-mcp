@@ -1,0 +1,15 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "outDir": ".test-dist",
+    "rootDir": ".",
+    "sourceMap": false
+  },
+  "include": [
+    "index.ts",
+    "mcp-env.d.ts",
+    "src/**/*",
+    "tests/**/*.ts"
+  ]
+}

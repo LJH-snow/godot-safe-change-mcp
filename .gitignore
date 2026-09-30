@@ -1,0 +1,15 @@
+node_modules/
+dist/
+.test-dist/
+.mcp-use/
+.env
+.env.*
+!.env.example
+.DS_Store
+.godot/
+godot-plugin/.godot/
+.mimosa/
+.agents/
+.claude/
+.cursor/
+*.tmp

@@ -1,0 +1,36 @@
+{
+  "name": "godot-safe-change-mcp",
+  "type": "module",
+  "engines": {
+    "node": ">=22.22.2"
+  },
+  "version": "1.0.0",
+  "description": "An MCP server for reviewable and verifiable Godot project changes",
+  "author": "Project owner",
+  "license": "MIT",
+  "keywords": [
+    "mcp",
+    "mcp-server",
+    "chatgpt plugins",
+    "claude connector",
+    "mcp-app",
+    "mcp-use",
+    "manufact"
+  ],
+  "scripts": {
+    "build": "mcp-use build",
+    "dev": "mcp-use dev",
+    "start": "mcp-use start",
+    "deploy": "mcp-use deploy",
+    "typecheck": "mcp-use typecheck",
+    "test": "rm -rf .test-dist && tsc -p tsconfig.test.json && node --test .test-dist/tests/**/*.test.js"
+  },
+  "dependencies": {
+    "mcp-use": "2.7.1",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.0",
+    "typescript": "^7.0.2"
+  }
+}
