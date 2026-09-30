@@ -33,7 +33,8 @@ test("allows one owner and rejects a concurrent owner", async () => {
 
 test("reclaims an expired lease", async () => {
   const store = new FileProjectLeaseStore(stateDirectory);
-  await store.acquire("/tmp/expired-project", "owner-a", -1);
+  await store.acquire("/tmp/expired-project", "owner-a", 10);
+  await new Promise((resolve) => setTimeout(resolve, 25));
 
   const reclaimed = await store.acquire("/tmp/expired-project", "owner-b", 10000);
   assert.equal(reclaimed.ownerId, "owner-b");
