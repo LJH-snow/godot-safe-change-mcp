@@ -129,8 +129,6 @@ try {
       fixtureRoot,
       "--scene",
       "res://main.tscn",
-      "--quit-after",
-      "0",
     ],
     {
     cwd: fixtureRoot,
