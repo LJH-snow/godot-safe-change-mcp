@@ -583,6 +583,12 @@ func _validate_change_request(request_body: Dictionary) -> Dictionary:
             return _failure("VALIDATION_FAILED", "parentPath must be a safe relative NodePath.")
         if typeof(operation["nodeName"]) != TYPE_STRING or String(operation["nodeName"]) == "":
             return _failure("VALIDATION_FAILED", "nodeName is required.")
+        var node_name_regex := RegEx.new()
+        node_name_regex.compile("^[A-Za-z_][A-Za-z0-9_]*$")
+        if node_name_regex.search(String(operation["nodeName"])) == null:
+            return _failure("VALIDATION_FAILED", "nodeName contains unsupported characters.")
+        if not ALLOWED_NODE_TYPES.has(String(operation["nodeType"])):
+            return _failure("UNSAFE_OPERATION", "The requested node type is not allowlisted.")
     elif kind == "scene.set_property":
         if not _has_exact_keys(operation, ["kind", "nodePath", "property", "value"]):
             return _failure("VALIDATION_FAILED", "scene.set_property contains unsupported or missing fields.")
@@ -653,6 +659,13 @@ func _apply_change(body: Variant) -> Dictionary:
             409,
             {"expectedRevision": expected_revision, "actualRevision": actual_revision},
         )
+    if last_applied_plan_id != "":
+        return _failure(
+            "PLAN_ALREADY_APPLIED",
+            "Rollback the latest applied plan before applying another plan through this editor bridge.",
+            409,
+            {"planId": last_applied_plan_id},
+        )
 
     var operations: Variant = request_body.get("operations", [])
     if typeof(operations) != TYPE_ARRAY or operations.size() != 1:
@@ -680,10 +693,8 @@ func _apply_change(body: Variant) -> Dictionary:
     var applied_revision := _current_revision(scene_root, scene_path)
     last_applied_plan_id = String(request_body.get("planId", ""))
     last_applied_revision = applied_revision
-    last_applied_kind = "scene"
-    last_script_path = ""
-    last_script_original_content = ""
-    last_script_applied_revision = ""
+    _clear_file_action_state()
+    _record_scene_action(scene_root, scene_path, "scene.create_node", "Godot Safe Change: Add node")
     var report := {
         "schemaVersion": "0.2",
         "planId": String(request_body.get("planId", "")),
@@ -719,17 +730,15 @@ func _apply_scene_property_change(request_body: Dictionary, scene_root: Node, sc
     EditorInterface.mark_scene_as_unsaved()
     last_applied_plan_id = String(request_body.get("planId", ""))
     last_applied_revision = _current_revision(scene_root, scene_path)
-    last_applied_kind = "scene"
-    last_script_path = ""
-    last_script_original_content = ""
-    last_script_applied_revision = ""
+    _clear_file_action_state()
+    _record_scene_action(scene_root, scene_path, "scene.set_property", "Godot Safe Change: Set property")
     return _success("report", {
         "schemaVersion": "0.2",
         "planId": String(request_body.get("planId", "")),
         "status": "applied",
         "revision": last_applied_revision,
         "operationCount": 1,
-        "undoLabel": "Godot Safe Change: Set property",
+        "undoLabel": last_applied_undo_label,
     })
 
 func _apply_attach_script(request_body: Dictionary, scene_root: Node, scene_path: String) -> Dictionary:
@@ -753,17 +762,15 @@ func _apply_attach_script(request_body: Dictionary, scene_root: Node, scene_path
     EditorInterface.mark_scene_as_unsaved()
     last_applied_plan_id = String(request_body.get("planId", ""))
     last_applied_revision = _current_revision(scene_root, scene_path)
-    last_applied_kind = "scene"
-    last_script_path = ""
-    last_script_original_content = ""
-    last_script_applied_revision = ""
+    _clear_file_action_state()
+    _record_scene_action(scene_root, scene_path, "scene.attach_script", "Godot Safe Change: Attach script")
     return _success("report", {
         "schemaVersion": "0.2",
         "planId": last_applied_plan_id,
         "status": "applied",
         "revision": last_applied_revision,
         "operationCount": 1,
-        "undoLabel": "Godot Safe Change: Attach script",
+        "undoLabel": last_applied_undo_label,
     })
 
 func _apply_resource_change(request_body: Dictionary, scene_root: Node, scene_path: String) -> Dictionary:
