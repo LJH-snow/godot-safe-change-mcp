@@ -19,6 +19,8 @@ The first safe vertical workflow is now fully connected:
 - apply_scene_change: hand only a confirmed, non-expired plan to Godot UndoRedo.
 - rollback_scene_change: roll back only an applied plan whose revision is still current.
 - run_current_scene: run the current scene and poll the plugin until it returns stopped or failed diagnostics.
+- run_scene: run one validated `res://` `.tscn` scene through the editor and poll its run ID until it returns terminal diagnostics.
+- create_task / get_task / advance_task / pause_task / resume_task / cancel_task: compose bounded apply, rollback and run steps into an auditable task with pause/resume/cancel, retry and restart recovery.
 
 Currently only one node type from the allowlist can be created inside the current scene: Node, Node2D, Control, Label, ColorRect.
 

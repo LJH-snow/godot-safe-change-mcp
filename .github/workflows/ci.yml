@@ -18,3 +18,30 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
+
+  godot-runtime:
+    needs: check
+    runs-on: ubuntu-latest
+    env:
+      GODOT_VERSION: "4.7.2"
+      GODOT_DIR: "/tmp/godot"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Install Godot editor
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/godot-$GODOT_VERSION.zip"
+          binary="$GODOT_DIR/Godot_v$GODOT_VERSION-stable_linux.x86_64"
+          mkdir -p "$GODOT_DIR"
+          curl --fail --location --retry 3 --output "$archive" "https://github.com/godotengine/godot/releases/download/$GODOT_VERSION-stable/Godot_v$GODOT_VERSION-stable_linux.x86_64.zip"
+          unzip -q "$archive" -d "$GODOT_DIR"
+          chmod +x "$binary"
+          echo "GODOT_BIN=$binary" >> "$GITHUB_ENV"
+      - name: Run Godot runtime smoke
+        run: node tests/godot-runtime-smoke.mjs

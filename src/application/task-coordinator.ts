@@ -2,14 +2,23 @@ import { randomUUID } from "node:crypto";
 import type { ChangeCoordinator } from "./change-coordinator.js";
 import {
   createTaskInputSchema,
+  acquireTaskLeaseInputSchema,
   taskIdInputSchema,
+  taskLeaseInputSchema,
+  type AcquireTaskLeaseInput,
   type CreateTaskInput,
   type TaskIdInput,
   type TaskState,
+  type TaskLease,
+  type TaskLeaseInput,
   type TaskStepState,
 } from "../domain/task-contracts.js";
 import { DomainError, ERROR_CODES } from "../domain/errors.js";
 import type { FileTaskStore } from "../infrastructure/task-store.js";
+import {
+  type ProjectLease,
+  type ProjectLeaseStore,
+} from "../infrastructure/project-lease-store.js";
 import { normalizeProjectRoot } from "../infrastructure/project-root.js";
 
 const MAX_STEP_ATTEMPTS = 3;
@@ -22,11 +31,18 @@ const MAX_STEP_ATTEMPTS = 3;
  */
 export class TaskCoordinator {
   private readonly tasks = new Map<string, TaskState>();
+  private readonly taskLeases = new Map<string, ProjectLease>();
+  private readonly explicitLeaseTaskIds = new Set<string>();
+  private readonly ownerId = "task-coordinator-" + process.pid + "-" + randomUUID();
+  private readonly leaseStore: ProjectLeaseStore;
 
   constructor(
     private readonly changeCoordinator: ChangeCoordinator,
     private readonly store: FileTaskStore,
-  ) {}
+    leaseStore?: ProjectLeaseStore,
+  ) {
+    this.leaseStore = leaseStore ?? changeCoordinator.getProjectLeaseStore();
+  }
 
   async createTask(input: CreateTaskInput): Promise<TaskState> {
     const parsedInput = createTaskInputSchema.parse(input);
@@ -42,6 +58,8 @@ export class TaskCoordinator {
       nextStepId: parsedInput.steps[0]?.stepId ?? null,
       createdAt: now,
       updatedAt: now,
+      lease: null,
+      recoverable: true,
     };
     this.tasks.set(task.taskId, task);
     await this.store.save(projectRoot, task);
@@ -51,10 +69,27 @@ export class TaskCoordinator {
   async getTask(input: TaskIdInput): Promise<TaskState> {
     const parsedInput = taskIdInputSchema.parse(input);
     const projectRoot = await normalizeProjectRoot(parsedInput.projectRoot);
-    return structuredClone(await this.requireTask(parsedInput.taskId, projectRoot));
+    const task = await this.requireTask(parsedInput.taskId, projectRoot);
+    this.refreshTaskRecoverability(task);
+    return structuredClone(task);
   }
 
   async advanceTask(input: TaskIdInput): Promise<TaskState> {
+    const parsedInput = taskIdInputSchema.parse(input);
+    const projectRoot = await normalizeProjectRoot(parsedInput.projectRoot);
+    const task = await this.requireTask(parsedInput.taskId, projectRoot);
+    await this.ensureTaskLease(task, projectRoot);
+    try {
+      return await this.advanceTaskInternal(input);
+    } finally {
+      const latestTask = this.tasks.get(task.taskId);
+      if (!this.explicitLeaseTaskIds.has(task.taskId) || latestTask?.status !== "active") {
+        await this.releaseHeldTaskLease(task.taskId);
+      }
+    }
+  }
+
+  private async advanceTaskInternal(input: TaskIdInput): Promise<TaskState> {
     const parsedInput = taskIdInputSchema.parse(input);
     const projectRoot = await normalizeProjectRoot(parsedInput.projectRoot);
     const task = await this.requireTask(parsedInput.taskId, projectRoot);
@@ -132,30 +167,100 @@ export class TaskCoordinator {
   }
 
   async pauseTask(input: TaskIdInput): Promise<TaskState> {
-    const task = await this.transition(input, ["active"], "paused", "Only an active task can be paused.");
-    await this.store.save(task.projectRoot, task);
-    return structuredClone(task);
+    return this.withTaskLease(input, async () => {
+      const task = await this.transition(input, ["active"], "paused", "Only an active task can be paused.");
+      await this.store.save(task.projectRoot, task);
+      return structuredClone(task);
+    });
   }
 
   async resumeTask(input: TaskIdInput): Promise<TaskState> {
-    const task = await this.transition(input, ["paused"], "active", "Only a paused task can be resumed.");
+    return this.withTaskLease(input, async () => {
+      const task = await this.transition(input, ["paused"], "active", "Only a paused task can be resumed.");
+      await this.store.save(task.projectRoot, task);
+      return structuredClone(task);
+    });
+  }
+
+  async cancelTask(input: TaskIdInput): Promise<TaskState> {
+    return this.withTaskLease(input, async () => {
+      const task = await this.transition(
+        input,
+        ["active", "paused", "failed"],
+        "cancelled",
+        "Only an active, paused or failed task can be cancelled.",
+      );
+      for (const step of task.steps) {
+        if (step.status === "pending" || step.status === "running") {
+          step.status = "cancelled";
+        }
+      }
+      task.nextStepId = null;
+      task.updatedAt = new Date().toISOString();
+      await this.store.save(task.projectRoot, task);
+      return structuredClone(task);
+    });
+  }
+
+  async acquireTaskLease(input: Omit<AcquireTaskLeaseInput, "taskId"> & { taskId: string }): Promise<TaskState> {
+    const parsedInput = acquireTaskLeaseInputSchema.parse(input);
+    const projectRoot = await normalizeProjectRoot(parsedInput.projectRoot);
+    const task = await this.requireTask(parsedInput.taskId, projectRoot);
+    await this.ensureTaskLease(task, projectRoot);
+    this.explicitLeaseTaskIds.add(task.taskId);
     await this.store.save(task.projectRoot, task);
     return structuredClone(task);
   }
 
-  async cancelTask(input: TaskIdInput): Promise<TaskState> {
-    const task = await this.transition(
-      input,
-      ["active", "paused", "failed"],
-      "cancelled",
-      "Only an active, paused or failed task can be cancelled.",
-    );
-    for (const step of task.steps) {
-      if (step.status === "pending" || step.status === "running") {
-        step.status = "cancelled";
-      }
+  async renewTaskLease(input: TaskLeaseInput): Promise<TaskState> {
+    const parsedInput = taskLeaseInputSchema.parse(input);
+    const projectRoot = await normalizeProjectRoot(parsedInput.projectRoot);
+    const task = await this.requireTask(parsedInput.taskId, projectRoot);
+    const currentLease = this.taskLeases.get(task.taskId);
+    const leaseId = currentLease?.leaseId ?? task.lease?.leaseId;
+    if (leaseId === undefined || leaseId !== parsedInput.leaseId) {
+      throw new DomainError(ERROR_CODES.LEASE_INVALID, "The task lease is not owned by this coordinator.");
     }
-    task.nextStepId = null;
+    const renewed = await this.leaseStore.renew(
+      currentLease ?? {
+        leaseId,
+        projectRoot,
+        ownerId: task.lease?.ownerId ?? "",
+        acquiredAt: task.lease?.acquiredAt ?? new Date().toISOString(),
+        expiresAt: task.lease?.expiresAt ?? new Date().toISOString(),
+      },
+      parsedInput.ttlMs ?? 120000,
+    );
+    this.taskLeases.set(task.taskId, renewed);
+    task.lease = this.taskLeaseState(renewed);
+    task.recoverable = false;
+    task.updatedAt = new Date().toISOString();
+    await this.store.save(task.projectRoot, task);
+    return structuredClone(task);
+  }
+
+  async releaseTaskLease(input: TaskLeaseInput): Promise<TaskState> {
+    const parsedInput = taskLeaseInputSchema.parse(input);
+    const projectRoot = await normalizeProjectRoot(parsedInput.projectRoot);
+    const task = await this.requireTask(parsedInput.taskId, projectRoot);
+    const currentLease = this.taskLeases.get(task.taskId);
+    const leaseId = currentLease?.leaseId ?? task.lease?.leaseId;
+    if (leaseId === undefined || leaseId !== parsedInput.leaseId) {
+      throw new DomainError(ERROR_CODES.LEASE_INVALID, "The task lease is not owned by this coordinator.");
+    }
+    await this.leaseStore.release(
+      currentLease ?? {
+        leaseId,
+        projectRoot,
+        ownerId: task.lease?.ownerId ?? "",
+        acquiredAt: task.lease?.acquiredAt ?? new Date().toISOString(),
+        expiresAt: task.lease?.expiresAt ?? new Date().toISOString(),
+      },
+    );
+    this.taskLeases.delete(task.taskId);
+    this.explicitLeaseTaskIds.delete(task.taskId);
+    task.lease = null;
+    task.recoverable = true;
     task.updatedAt = new Date().toISOString();
     await this.store.save(task.projectRoot, task);
     return structuredClone(task);
@@ -190,7 +295,24 @@ export class TaskCoordinator {
   ): Promise<unknown> {
     const projectRoot = task.projectRoot;
     if (step.kind === "run_current_scene") {
-      return this.changeCoordinator.runCurrentScene({ projectRoot });
+      return this.changeCoordinator.runCurrentScene({
+        projectRoot,
+        timeoutMs: step.timeoutMs ?? undefined,
+      });
+    }
+    if (step.kind === "run_scene") {
+      if (step.scenePath === null) {
+        throw new DomainError(
+          ERROR_CODES.VALIDATION_FAILED,
+          "The run_scene step needs a scenePath.",
+          { taskId: task.taskId, stepId: step.stepId },
+        );
+      }
+      return this.changeCoordinator.runScene({
+        projectRoot,
+        scenePath: step.scenePath,
+        timeoutMs: step.timeoutMs ?? undefined,
+      });
     }
     if (step.planId === null) {
       throw new DomainError(
@@ -200,7 +322,11 @@ export class TaskCoordinator {
       );
     }
     if (step.kind === "rollback_plan") {
-      return this.changeCoordinator.rollbackChange({ projectRoot, planId: step.planId });
+      return this.changeCoordinator.rollbackChange({
+        projectRoot,
+        planId: step.planId,
+        leaseId: this.taskLeases.get(task.taskId)?.leaseId,
+      });
     }
     if (step.expectedRevision === null) {
       throw new DomainError(
@@ -214,7 +340,87 @@ export class TaskCoordinator {
       planId: step.planId,
       expectedRevision: step.expectedRevision,
     });
-    return this.changeCoordinator.applyChange({ projectRoot, planId: step.planId });
+    return this.changeCoordinator.applyChange({
+      projectRoot,
+      planId: step.planId,
+      leaseId: this.taskLeases.get(task.taskId)?.leaseId,
+    });
+  }
+
+  private async withTaskLease<T>(input: TaskIdInput, action: () => Promise<T>): Promise<T> {
+    const parsedInput = taskIdInputSchema.parse(input);
+    const projectRoot = await normalizeProjectRoot(parsedInput.projectRoot);
+    const task = await this.requireTask(parsedInput.taskId, projectRoot);
+    await this.ensureTaskLease(task, projectRoot);
+    try {
+      return await action();
+    } finally {
+      const latestTask = this.tasks.get(task.taskId);
+      if (!this.explicitLeaseTaskIds.has(task.taskId) || latestTask?.status !== "active") {
+        await this.releaseHeldTaskLease(task.taskId);
+      }
+    }
+  }
+
+  private async ensureTaskLease(task: TaskState, projectRoot: string): Promise<ProjectLease> {
+    const existingLease = this.taskLeases.get(task.taskId);
+    if (existingLease !== undefined) {
+      await this.leaseStore.assert(projectRoot, existingLease.leaseId);
+      return existingLease;
+    }
+    if (task.lease !== null) {
+      try {
+        await this.leaseStore.assert(projectRoot, task.lease.leaseId);
+        throw new DomainError(ERROR_CODES.PROJECT_BUSY, "The task is leased by another coordinator.", {
+          taskId: task.taskId,
+          ownerId: task.lease.ownerId,
+          expiresAt: task.lease.expiresAt,
+        });
+      } catch (error) {
+        if (
+          !(error instanceof DomainError) ||
+          (error.code !== ERROR_CODES.LEASE_EXPIRED && error.code !== ERROR_CODES.LEASE_NOT_FOUND)
+        ) {
+          throw error;
+        }
+      }
+    }
+    const lease = await this.leaseStore.acquire(projectRoot, this.ownerId + ":" + task.taskId, 120000);
+    this.taskLeases.set(task.taskId, lease);
+    task.lease = this.taskLeaseState(lease);
+    task.recoverable = false;
+    task.updatedAt = new Date().toISOString();
+    await this.store.save(task.projectRoot, task);
+    return lease;
+  }
+
+  private async releaseHeldTaskLease(taskId: string): Promise<void> {
+    const lease = this.taskLeases.get(taskId);
+    if (lease === undefined) {
+      return;
+    }
+    this.taskLeases.delete(taskId);
+    await this.leaseStore.release(lease).catch(() => undefined);
+    const task = this.tasks.get(taskId);
+    if (task !== undefined) {
+      task.lease = null;
+      task.recoverable = true;
+      task.updatedAt = new Date().toISOString();
+      await this.store.save(task.projectRoot, task);
+    }
+  }
+
+  private taskLeaseState(lease: ProjectLease): TaskLease {
+    return {
+      leaseId: lease.leaseId,
+      ownerId: lease.ownerId,
+      acquiredAt: lease.acquiredAt,
+      expiresAt: lease.expiresAt,
+    };
+  }
+
+  private refreshTaskRecoverability(task: TaskState): void {
+    task.recoverable = task.lease === null || Date.parse(task.lease.expiresAt) <= Date.now();
   }
 
   private findNextStep(task: TaskState): TaskStepState | undefined {
@@ -228,6 +434,8 @@ export class TaskCoordinator {
       stepId: step.stepId,
       kind: step.kind,
       planId: "planId" in step ? step.planId : null,
+      scenePath: "scenePath" in step ? step.scenePath : null,
+      timeoutMs: "timeoutMs" in step ? step.timeoutMs ?? null : null,
       expectedRevision: "expectedRevision" in step ? step.expectedRevision : null,
       status: "pending",
       attempts: 0,

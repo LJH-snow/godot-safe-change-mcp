@@ -20,9 +20,11 @@ import type {
   PreviewRepairFromDiagnosticInput,
   RollbackReport,
   RunDiagnostics,
+  RunSceneInput,
 } from "../domain/contracts.js";
 import { previewRepairFromDiagnosticInputSchema } from "../domain/contracts.js";
 import { operationHistoryInputSchema } from "../domain/contracts.js";
+import { runSceneInputSchema } from "../domain/contracts.js";
 import { DomainError, ERROR_CODES } from "../domain/errors.js";
 import type { GodotBridge } from "../infrastructure/godot-bridge.js";
 import { normalizeProjectRoot } from "../infrastructure/project-root.js";
@@ -30,6 +32,10 @@ import {
   InMemoryOperationAuditStore,
   type OperationAuditStore,
 } from "../infrastructure/operation-audit-store.js";
+import {
+  InMemoryProjectLeaseStore,
+  type ProjectLeaseStore,
+} from "../infrastructure/project-lease-store.js";
 
 type PlanState = "preview" | "confirmed" | "applied" | "rolled_back";
 
@@ -58,7 +64,12 @@ export class ChangeCoordinator {
   constructor(
     private readonly bridge: GodotBridge,
     private readonly auditStore: OperationAuditStore = new InMemoryOperationAuditStore(),
+    private readonly leaseStore: ProjectLeaseStore = new InMemoryProjectLeaseStore(),
   ) {}
+
+  getProjectLeaseStore(): ProjectLeaseStore {
+    return this.leaseStore;
+  }
 
   async getContext(projectRootInput: string): Promise<EditorContext> {
     return this.bridge.getContext(await normalizeProjectRoot(projectRootInput));
@@ -202,6 +213,12 @@ export class ChangeCoordinator {
 
   private async applyChangeInternal(input: ApplyChangeInput): Promise<ChangeReport> {
     const parsedInput = applyChangeInputSchema.parse(input);
+    return this.withProjectLease(parsedInput.projectRoot, parsedInput.leaseId, () =>
+      this.applyChangeCore(parsedInput),
+    );
+  }
+
+  private async applyChangeCore(parsedInput: ApplyChangeInput): Promise<ChangeReport> {
     const storedPlan = await this.requirePlan(parsedInput.planId, parsedInput.projectRoot);
 
     if (storedPlan.state === "applied") {
@@ -241,6 +258,12 @@ export class ChangeCoordinator {
 
   private async rollbackChangeInternal(input: ApplyChangeInput): Promise<RollbackReport> {
     const parsedInput = applyChangeInputSchema.parse(input);
+    return this.withProjectLease(parsedInput.projectRoot, parsedInput.leaseId, () =>
+      this.rollbackChangeCore(parsedInput),
+    );
+  }
+
+  private async rollbackChangeCore(parsedInput: ApplyChangeInput): Promise<RollbackReport> {
     const storedPlan = await this.requirePlan(parsedInput.planId, parsedInput.projectRoot);
 
     if (storedPlan.state === "rolled_back") {
@@ -312,6 +335,25 @@ export class ChangeCoordinator {
     const timeoutMs = Math.min(Math.max(input.timeoutMs ?? 10000, 100), 30000);
     await this.requireConnectedContext(projectRoot);
     const diagnostics = await this.bridge.runCurrentScene(projectRoot, timeoutMs);
+    return this.associateDiagnostics(projectRoot, diagnostics);
+  }
+
+  async runScene(input: RunSceneInput): Promise<RunDiagnostics> {
+    return this.withAudit("run", input.projectRoot, null, input, () =>
+      this.runSceneInternal(input),
+    );
+  }
+
+  private async runSceneInternal(input: RunSceneInput): Promise<RunDiagnostics> {
+    const parsedInput = runSceneInputSchema.parse(input);
+    const projectRoot = await normalizeProjectRoot(parsedInput.projectRoot);
+    const timeoutMs = Math.min(Math.max(parsedInput.timeoutMs ?? 10000, 100), 30000);
+    await this.requireConnectedContext(projectRoot);
+    const diagnostics = await this.bridge.runScene(
+      projectRoot,
+      parsedInput.scenePath,
+      timeoutMs,
+    );
     return this.associateDiagnostics(projectRoot, diagnostics);
   }
 
@@ -478,6 +520,29 @@ export class ChangeCoordinator {
       } catch {
       }
       throw error;
+    }
+  }
+
+  private async withProjectLease<T>(
+    projectRootInput: string,
+    leaseId: string | undefined,
+    action: () => Promise<T>,
+  ): Promise<T> {
+    const projectRoot = await normalizeProjectRoot(projectRootInput);
+    if (leaseId !== undefined) {
+      await this.leaseStore.assert(projectRoot, leaseId);
+      return action();
+    }
+
+    const lease = await this.leaseStore.acquire(
+      projectRoot,
+      "coordinator-" + process.pid + "-" + randomUUID(),
+      30000,
+    );
+    try {
+      return await action();
+    } finally {
+      await this.leaseStore.release(lease).catch(() => undefined);
     }
   }
 }

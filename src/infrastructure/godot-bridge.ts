@@ -20,6 +20,7 @@ export interface GodotBridge {
   searchProject(projectRoot: string, request: SearchProjectRequest): Promise<SearchProjectReport>;
   readScript(projectRoot: string, scriptPath: string): Promise<ScriptSnapshot>;
   runCurrentScene(projectRoot: string, timeoutMs: number): Promise<RunDiagnostics>;
+  runScene(projectRoot: string, scenePath: string, timeoutMs: number): Promise<RunDiagnostics>;
 }
 
 export class PendingGodotBridge implements GodotBridge {
@@ -46,6 +47,13 @@ export class PendingGodotBridge implements GodotBridge {
   }
 
   async runCurrentScene(): Promise<RunDiagnostics> {
+    throw new DomainError(
+      ERROR_CODES.EDITOR_UNAVAILABLE,
+      "The Godot EditorPlugin bridge is not connected.",
+    );
+  }
+
+  async runScene(): Promise<RunDiagnostics> {
     throw new DomainError(
       ERROR_CODES.EDITOR_UNAVAILABLE,
       "The Godot EditorPlugin bridge is not connected.",

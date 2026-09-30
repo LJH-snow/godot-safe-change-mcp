@@ -19,6 +19,8 @@ import type {
 } from "../src/domain/contracts.js";
 import type { GodotBridge } from "../src/infrastructure/godot-bridge.js";
 import { FileTaskStore } from "../src/infrastructure/task-store.js";
+import { InMemoryProjectLeaseStore } from "../src/infrastructure/project-lease-store.js";
+import { normalizeProjectRoot } from "../src/infrastructure/project-root.js";
 
 function createContext(projectRoot: string, revision = "revision-1"): EditorContext {
   return {
@@ -90,6 +92,17 @@ class FakeGodotBridge implements GodotBridge {
     return this.runDiagnosticsResult;
   }
 
+  sceneRunPaths: string[] = [];
+
+  async runScene(_projectRoot: string, scenePath: string): Promise<RunDiagnostics> {
+    this.sceneRunPaths.push(scenePath);
+    return {
+      ...this.runDiagnosticsResult,
+      scenePath,
+      output: ["custom scene requested: " + scenePath, ...this.runDiagnosticsResult.output],
+    };
+  }
+
   async rollbackChange(_projectRoot: string, request: RollbackRequest): Promise<RollbackReport> {
     this.rolledBack.push(request);
     this.context = createContext(this.projectRoot, "revision-3");
@@ -127,8 +140,9 @@ interface Harness {
 async function createHarness(): Promise<Harness> {
   const projectRoot = await mkdtemp(join(tmpdir(), "godot-task-test-"));
   const bridge = new FakeGodotBridge(projectRoot);
-  const changeCoordinator = new ChangeCoordinator(bridge);
-  const taskCoordinator = new TaskCoordinator(changeCoordinator, new FileTaskStore());
+  const leaseStore = new InMemoryProjectLeaseStore();
+  const changeCoordinator = new ChangeCoordinator(bridge, undefined, leaseStore);
+  const taskCoordinator = new TaskCoordinator(changeCoordinator, new FileTaskStore(), leaseStore);
   return { projectRoot, bridge, changeCoordinator, taskCoordinator };
 }
 
@@ -316,6 +330,25 @@ describe("TaskCoordinator", () => {
     assert.equal(bridge.applied.length, appliedBefore + 1);
   });
 
+  test("executes a run_scene step for a specific scene", async () => {
+    const { projectRoot, taskCoordinator, bridge } = harness;
+    const task = await taskCoordinator.createTask({
+      projectRoot,
+      title: "Run one specific scene",
+      steps: [{ kind: "run_scene", stepId: "run-main", scenePath: "res://levels/main.tscn" }],
+    });
+
+    const finished = await taskCoordinator.advanceTask({ projectRoot, taskId: task.taskId });
+
+    assert.equal(finished.status, "completed");
+    assert.equal(finished.steps[0]?.status, "succeeded");
+    assert.deepEqual(bridge.sceneRunPaths, ["res://levels/main.tscn"]);
+    assert.equal(
+      (finished.steps[0]?.result as { scenePath?: string } | undefined)?.scenePath,
+      "res://levels/main.tscn",
+    );
+  });
+
   test("rejects unknown tasks and stops retries after the attempt limit", async () => {
     const { projectRoot, changeCoordinator, taskCoordinator, bridge } = harness;
     await assert.rejects(
@@ -363,5 +396,60 @@ describe("TaskCoordinator", () => {
       (error: unknown) =>
         error instanceof DomainError && error.code === ERROR_CODES.OPERATION_REJECTED,
     );
+  });
+
+  test("rejects task advancement while another window owns the project lease", async () => {
+    const { projectRoot, changeCoordinator } = harness;
+    const leaseStore = changeCoordinator.getProjectLeaseStore() as InMemoryProjectLeaseStore;
+    const coordinator = new TaskCoordinator(changeCoordinator, new FileTaskStore(), leaseStore);
+    const task = await coordinator.createTask({
+      projectRoot,
+      title: "Lease conflict",
+      steps: [{ kind: "run_current_scene", stepId: "run-lease" }],
+    });
+    const normalizedProjectRoot = await normalizeProjectRoot(projectRoot);
+    const otherWindowLease = await leaseStore.acquire(normalizedProjectRoot, "other-window", 10000);
+
+    await assert.rejects(
+      () => coordinator.advanceTask({ projectRoot, taskId: task.taskId }),
+      (error: unknown) => error instanceof DomainError && error.code === ERROR_CODES.PROJECT_BUSY,
+    );
+
+    await leaseStore.release(otherWindowLease);
+  });
+
+  test("supports explicit task lease acquire, renew, status and release", async () => {
+    const { projectRoot, taskCoordinator } = harness;
+    const task = await taskCoordinator.createTask({
+      projectRoot,
+      title: "Explicit task lease lifecycle",
+      steps: [{ kind: "run_current_scene", stepId: "run-lease-lifecycle" }],
+    });
+
+    const acquired = await taskCoordinator.acquireTaskLease({
+      projectRoot,
+      taskId: task.taskId,
+      ttlMs: 10000,
+    });
+    assert.equal(acquired.recoverable, false);
+    assert.equal(acquired.lease?.ownerId.includes("task-coordinator"), true);
+    assert.ok(acquired.lease?.expiresAt);
+
+    const renewed = await taskCoordinator.renewTaskLease({
+      projectRoot,
+      taskId: task.taskId,
+      leaseId: acquired.lease!.leaseId,
+      ttlMs: 20000,
+    });
+    assert.equal(renewed.recoverable, false);
+    assert.equal(renewed.lease?.leaseId, acquired.lease?.leaseId);
+
+    const released = await taskCoordinator.releaseTaskLease({
+      projectRoot,
+      taskId: task.taskId,
+      leaseId: renewed.lease!.leaseId,
+    });
+    assert.equal(released.lease, null);
+    assert.equal(released.recoverable, true);
   });
 });

@@ -1,7 +1,9 @@
 import type { MCPServer } from "mcp-use";
 import {
+  acquireTaskLeaseInputSchema,
   createTaskInputSchema,
   taskIdInputSchema,
+  taskLeaseInputSchema,
   taskStateSchema,
   type CreateTaskInput,
   type TaskIdInput,
@@ -48,6 +50,102 @@ export function registerGetTaskTool(server: MCPServer, coordinator: TaskCoordina
     async (input: TaskIdInput) => {
       try {
         const task = await coordinator.getTask(input);
+        return {
+          content: [{ type: "text" as const, text: JSON.stringify(task, null, 2) }],
+          structuredContent: task,
+        };
+      } catch (error) {
+        return toolError(error);
+      }
+    },
+  );
+}
+
+export function registerTaskStatusTool(server: MCPServer, coordinator: TaskCoordinator) {
+  return server.tool(
+    {
+      name: "task_status",
+      title: "Read task status",
+      description: "Read task state, lease owner, expiry and recoverability after a restart.",
+      inputSchema: taskIdInputSchema,
+      outputSchema: taskStateSchema,
+      annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    },
+    async (input: TaskIdInput) => {
+      try {
+        const task = await coordinator.getTask(input);
+        return {
+          content: [{ type: "text" as const, text: JSON.stringify(task, null, 2) }],
+          structuredContent: task,
+        };
+      } catch (error) {
+        return toolError(error);
+      }
+    },
+  );
+}
+
+export function registerAcquireTaskLeaseTool(server: MCPServer, coordinator: TaskCoordinator) {
+  return server.tool(
+    {
+      name: "acquire_task_lease",
+      title: "Acquire task lease",
+      description: "Hold a project lease across multiple task steps until released or expired.",
+      inputSchema: acquireTaskLeaseInputSchema,
+      outputSchema: taskStateSchema,
+      annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
+    },
+    async (input) => {
+      try {
+        const task = await coordinator.acquireTaskLease(input);
+        return {
+          content: [{ type: "text" as const, text: JSON.stringify(task, null, 2) }],
+          structuredContent: task,
+        };
+      } catch (error) {
+        return toolError(error);
+      }
+    },
+  );
+}
+
+export function registerRenewTaskLeaseTool(server: MCPServer, coordinator: TaskCoordinator) {
+  return server.tool(
+    {
+      name: "renew_task_lease",
+      title: "Renew task lease",
+      description: "Extend an owned task lease before it expires.",
+      inputSchema: taskLeaseInputSchema,
+      outputSchema: taskStateSchema,
+      annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
+    },
+    async (input) => {
+      try {
+        const task = await coordinator.renewTaskLease(input);
+        return {
+          content: [{ type: "text" as const, text: JSON.stringify(task, null, 2) }],
+          structuredContent: task,
+        };
+      } catch (error) {
+        return toolError(error);
+      }
+    },
+  );
+}
+
+export function registerReleaseTaskLeaseTool(server: MCPServer, coordinator: TaskCoordinator) {
+  return server.tool(
+    {
+      name: "release_task_lease",
+      title: "Release task lease",
+      description: "Release an owned task lease so another window can resume the task.",
+      inputSchema: taskLeaseInputSchema,
+      outputSchema: taskStateSchema,
+      annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
+    },
+    async (input) => {
+      try {
+        const task = await coordinator.releaseTaskLease(input);
         return {
           content: [{ type: "text" as const, text: JSON.stringify(task, null, 2) }],
           structuredContent: task,

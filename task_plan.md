@@ -143,15 +143,43 @@
 - [x] 跨 coordinator/store 实例恢复最新操作状态。
 - [x] 保留重启前未完成的 running 操作，供后续任务恢复与异常提示使用。
 
+## Phase 11 — 多窗口项目租约
+
+状态：complete
+
+- [x] 通过独占文件创建实现跨进程项目 lease。
+- [x] apply/rollback 自动获取短租约，支持显式 leaseId 校验和过期回收。
+- [x] 并发 owner、过期 lease 和任务恢复测试通过。
+- [x] 支持 acquire_task_lease、renew_task_lease、release_task_lease 和 task_status。
+- [x] 任务步骤可复用显式 leaseId，lease owner、expiresAt 和 recoverable 状态持久化可见。
+
 ## Phase 11 — 多步骤开发任务
 
 状态：complete
 
-- [x] 增加受限任务状态机：active/paused/completed/failed/cancelled，步骤只允许 apply_plan、rollback_plan 和 run_current_scene 三种受限操作。
+- [x] 增加受限任务状态机：active/paused/completed/failed/cancelled，步骤只允许 apply_plan、rollback_plan、run_current_scene 和 run_scene 四种受限操作。
 - [x] 任务状态以 JSON 文件持久化到 `<projectRoot>/.godot-safe-change/tasks/`，重启后可查询与继续；崩溃遗留的 running 步骤可重试。
 - [x] 支持 pause/resume/cancel 和失败重试（每步最多 3 次），所有步骤复用既有 preview/confirm/apply/rollback/run 守卫与审计。
 - [x] 新增 create/get/advance/pause/resume/cancel 六个 MCP 工具与契约测试。
 - [x] 真实 MCP + Godot 4.7.2 验收通过：UndoRedo apply、fixture 运行诊断、pause/resume/cancel 状态机与重启后磁盘恢复。
+
+## Phase 12 — 运行指定场景
+
+状态：complete
+
+- [x] 新增 `run_scene` 契约、MCP 工具、ChangeCoordinator 用例和 `/v1/run/scene` HTTP bridge 路由。
+- [x] 通过 `EditorInterface.play_custom_scene` 运行经过 `res://`、`.tscn` 和路径遍历校验的指定场景。
+- [x] 任务步骤支持 `run_scene`，并保存 scenePath 与 timeoutMs；旧任务状态可由 schema 默认字段恢复。
+- [x] 自动化测试 50/50、typecheck、build 已通过。
+- [x] 真实 MCP + Godot 4.7.2 验收通过：`run_scene` 返回 stopped、指定 scenePath 和 fixture 输出；非法路径在工具层拒绝；任务中的 run_scene 步骤完成。
+
+## Phase 13 — Godot headless CI
+
+状态：in_progress
+
+- [x] 增加固定 Godot 4.7.2 的 GitHub Actions runtime job 和临时 fixture smoke harness。
+- [x] smoke 覆盖 search、context、scene apply/rollback、script apply/rollback、diagnostics 和 operation history。
+- [ ] 在远程 GitHub Actions 首次运行并确认 Linux headless 环境通过。
 
 ## 完成定义
 

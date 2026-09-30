@@ -1,5 +1,28 @@
 # 进度记录
 
+## 2026-09-30 Godot CI smoke
+
+- 新增 tests/godot-runtime-smoke.mjs，临时复制 fixture/plugin 并通过 MCP 验证完整 Godot workflow。
+- GitHub Actions 新增 godot-runtime job，固定下载 Godot 4.7.2 Linux editor，运行 headless smoke。
+- 本地 Godot 4.7.2 smoke 已通过；远程 Actions 尚未在本轮执行。
+
+## 2026-09-30 project lease
+
+- 新增 FileProjectLeaseStore 和 InMemoryProjectLeaseStore，使用状态目录独占文件实现跨进程租约。
+- ChangeCoordinator 的 apply/rollback 自动获取 30 秒短租约；已有 leaseId 会验证 owner/过期时间。
+- 并发 owner 返回 PROJECT_BUSY，过期租约可回收；任务编排和现有 50 个测试全部通过。
+- 新增 acquire_task_lease、renew_task_lease、release_task_lease、task_status；显式 lease 可跨多个 task 步骤保持并续租。
+- task advance 在没有显式 lease 时使用操作级短租约，避免进程崩溃后阻塞任务恢复。
+
+## 2026-09-30 run_scene implementation
+
+- 新增 `run_scene` MCP 工具和 `RunSceneInput` 契约，仅接受不含遍历的 `res://` `.tscn` 路径。
+- HTTP bridge 新增 `/v1/run/scene` 并复用 run/status 轮询；ChangeCoordinator 为指定场景运行生成审计记录和诊断关联。
+- Godot 插件使用 `EditorInterface.play_custom_scene`，拒绝不存在场景、并发运行和不安全路径。
+- 多步骤任务新增 `run_scene` 步骤，持久化 scenePath/timeoutMs，并兼容旧任务 JSON。
+- 自动化回归已通过：50/50 tests、typecheck、build。
+- 真实 MCP + Godot 4.7.2 验收通过：`run_scene` 返回 stopped、res://main.tscn、custom scene requested 与 fixture 输出；非法遍历路径被工具层拒绝；任务中的 run_scene 步骤返回 completed/succeeded。
+
 ## 2026-09-30 multi-step task verification
 
 - 新增受限多步骤任务编排：active/paused/completed/failed/cancelled 状态机，步骤只允许 apply_plan、rollback_plan 和 run_current_scene。

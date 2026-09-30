@@ -236,6 +236,19 @@ export const runCurrentSceneInputSchema = z.object({
 
 export type RunCurrentSceneInput = z.infer<typeof runCurrentSceneInputSchema>;
 
+export const runSceneInputSchema = z.object({
+  projectRoot: z.string().min(1),
+  scenePath: z
+    .string()
+    .min(1)
+    .max(256)
+    .regex(/^res:\/\/[^\0]+\.tscn$/, "scenePath must be a res:// .tscn path.")
+    .refine((value) => !value.includes(".."), "scenePath must not contain parent traversal."),
+  timeoutMs: z.number().int().min(100).max(30000).optional(),
+});
+
+export type RunSceneInput = z.infer<typeof runSceneInputSchema>;
+
 export const runDiagnosticsSchema = z.object({
   schemaVersion: z.literal("0.2"),
   runId: z.string().min(1),

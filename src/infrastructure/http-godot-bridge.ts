@@ -106,7 +106,20 @@ export class HttpGodotBridge implements GodotBridge {
 
   async runCurrentScene(projectRoot: string, timeoutMs: number): Promise<RunDiagnostics> {
     const payload = await this.post("/v1/run/current", { projectRoot, timeoutMs });
-    let diagnostics = this.parseRunDiagnostics(payload);
+    return this.waitForRunTerminalState(projectRoot, payload, timeoutMs);
+  }
+
+  async runScene(projectRoot: string, scenePath: string, timeoutMs: number): Promise<RunDiagnostics> {
+    const payload = await this.post("/v1/run/scene", { projectRoot, scenePath, timeoutMs });
+    return this.waitForRunTerminalState(projectRoot, payload, timeoutMs);
+  }
+
+  private async waitForRunTerminalState(
+    projectRoot: string,
+    startPayload: unknown,
+    timeoutMs: number,
+  ): Promise<RunDiagnostics> {
+    let diagnostics = this.parseRunDiagnostics(startPayload);
     if (diagnostics.status === "stopped" || diagnostics.status === "failed") {
       return diagnostics;
     }
