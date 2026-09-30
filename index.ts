@@ -18,7 +18,7 @@ import { registerSearchProjectTool } from "./src/tools/project-search.js";
 const server = new MCPServer({
   name: "godot-safe-change-mcp",
   title: "Godot Safe Change MCP",
-  version: "0.1.0",
+  version: "1.0.0",
   description: "Project intelligence and reviewable Godot changes.",
 });
 

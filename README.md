@@ -42,6 +42,22 @@ npm test
 npm run build
 ~~~
 
+## 通过 npx 运行
+
+无需克隆仓库即可启动（需要 Node >= 22.22.2，首次运行会自动构建）：
+
+~~~bash
+npx github:LJH-snow/godot-safe-change-mcp
+~~~
+
+发布到 npm 后也可以：
+
+~~~bash
+npx godot-safe-change-mcp
+~~~
+
+服务器在 `http://127.0.0.1:3000/mcp` 提供 MCP Streamable HTTP 端点；可用 `PORT`、`HOST` 和 `GODOT_BRIDGE_URL` 环境变量覆盖默认值。
+
 ## Godot 插件
 
 将 godot-plugin 目录复制到目标 Godot 项目：

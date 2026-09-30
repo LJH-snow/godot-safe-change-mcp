@@ -17,11 +17,31 @@
     "mcp-use",
     "manufact"
   ],
+  "bin": {
+    "godot-safe-change-mcp": "./bin/mcp-server.mjs"
+  },
+  "files": [
+    "bin",
+    ".mcp-use/build",
+    "godot-plugin",
+    "README.md",
+    "README.en.md",
+    "LICENSE",
+    ".env.example"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/LJH-snow/godot-safe-change-mcp.git"
+  },
+  "homepage": "https://github.com/LJH-snow/godot-safe-change-mcp#readme",
+  "bugs": "https://github.com/LJH-snow/godot-safe-change-mcp/issues",
   "scripts": {
     "build": "mcp-use build",
     "dev": "mcp-use dev",
     "start": "mcp-use start",
     "deploy": "mcp-use deploy",
+    "prepare": "mcp-use build",
+    "prepublishOnly": "npm run typecheck && npm test",
     "typecheck": "mcp-use typecheck",
     "test": "rm -rf .test-dist && tsc -p tsconfig.test.json && node --test .test-dist/tests/**/*.test.js"
   },

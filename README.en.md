@@ -42,6 +42,22 @@ npm test
 npm run build
 ~~~
 
+## Running with npx
+
+Start without cloning the repository (requires Node >= 22.22.2; the first run builds automatically):
+
+~~~bash
+npx github:LJH-snow/godot-safe-change-mcp
+~~~
+
+Once published to npm, this will also work:
+
+~~~bash
+npx godot-safe-change-mcp
+~~~
+
+The server exposes an MCP Streamable HTTP endpoint at `http://127.0.0.1:3000/mcp`; override the defaults with the `PORT`, `HOST` and `GODOT_BRIDGE_URL` environment variables.
+
 ## Godot plugin
 
 Copy the godot-plugin directory into the target Godot project:
