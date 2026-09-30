@@ -135,6 +135,24 @@
 - [x] 通过临时文件和原子替换 apply 脚本修改。
 - [x] 为脚本修改增加 revision 守卫、回滚报告和真实 Godot fixture 验收。
 
+## Phase 10 — 持久化任务审计
+
+状态：complete
+
+- [x] 使用用户状态目录的 JSONL 事件文件持久化 operation audit，不写入 Godot 项目。
+- [x] 跨 coordinator/store 实例恢复最新操作状态。
+- [x] 保留重启前未完成的 running 操作，供后续任务恢复与异常提示使用。
+
+## Phase 11 — 多步骤开发任务
+
+状态：complete
+
+- [x] 增加受限任务状态机：active/paused/completed/failed/cancelled，步骤只允许 apply_plan、rollback_plan 和 run_current_scene 三种受限操作。
+- [x] 任务状态以 JSON 文件持久化到 `<projectRoot>/.godot-safe-change/tasks/`，重启后可查询与继续；崩溃遗留的 running 步骤可重试。
+- [x] 支持 pause/resume/cancel 和失败重试（每步最多 3 次），所有步骤复用既有 preview/confirm/apply/rollback/run 守卫与审计。
+- [x] 新增 create/get/advance/pause/resume/cancel 六个 MCP 工具与契约测试。
+- [x] 真实 MCP + Godot 4.7.2 验收通过：UndoRedo apply、fixture 运行诊断、pause/resume/cancel 状态机与重启后磁盘恢复。
+
 ## 完成定义
 
 只有在验收标准全部满足、自动化检查通过，并且真实或 fixture Godot 链路有可复现证据后，才将所有阶段标记为 `complete`。

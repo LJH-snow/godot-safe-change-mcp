@@ -181,6 +181,10 @@ npm run build
 
 2026-09-30 已完成受限 script.replace_range：读取 .gd 快照、校验行范围和文件 revision，返回 before/after diff，并通过临时文件原子替换与原始内容 rollback。
 
+2026-09-30 已增加持久化 operation audit：生产 MCP 使用用户状态目录的 JSONL store，事件按 operationId 折叠，支持重启后恢复成功、失败和中断中的 running 状态。
+
+2026-09-30 已完成第五阶段的多步骤开发任务：create_task 把受限 apply、rollback、run 步骤组成一个任务，状态持久化在项目内 `.godot-safe-change/tasks/`；advance 逐步执行并复用既有确认、revision 守卫和审计；支持暂停、继续、取消、每步最多 3 次的失败重试，以及服务器重启后的任务恢复。真实 Godot 4.7.2 端到端验收通过。
+
 ## 7. 待决定问题
 
 - 本地桥接使用 HTTP、WebSocket，还是两个都提供；

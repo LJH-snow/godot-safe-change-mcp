@@ -27,6 +27,12 @@ const capabilities = {
     "apply_scene_change",
     "rollback_scene_change",
     "run_current_scene",
+    "create_task",
+    "get_task",
+    "advance_task",
+    "pause_task",
+    "resume_task",
+    "cancel_task",
   ],
   lifecycle: [
     "inspect",
@@ -36,6 +42,7 @@ const capabilities = {
     "apply",
     "validate",
     "rollback",
+    "task_pause_resume_cancel",
   ],
   writePolicy:
     "Only one allowlisted scene.create_node operation is supported; preview, confirmation, expected revision, Godot UndoRedo, and revision-guarded rollback are required for the write lifecycle.",

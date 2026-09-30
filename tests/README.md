@@ -4,9 +4,10 @@ Automated coverage currently includes:
 
 - contracts and application: preview, explicit confirmation, revision conflicts, apply reports and run diagnostics through a fake bridge;
 - search index: read-only scene/script/resource/node matching, signal declarations, input actions, truncation and symlink safety;
-- operation audit: lifecycle operation IDs, inputs, outputs, revisions and failure evidence;
+- operation audit: lifecycle operation IDs, inputs, outputs, revisions, failure evidence and JSONL restart recovery;
 - diagnostics: source/line/NodePath association and preview generation from explicit repair hints;
 - script changes: bounded .gd line-range preview, temporary-file atomic apply, file revision guard and rollback;
+- multi-step tasks: bounded task state machine with apply/rollback/run steps, pause/resume/cancel transitions, retry budget, project-directory persistence and restart recovery;
 - HTTP bridge: loopback protocol envelopes, context/search/apply requests and run status polling;
 - plugin boundary: fixed TCPServer transport, context/apply/rollback/run route markers and forbidden-operation checks.
 
@@ -32,5 +33,8 @@ The real EditorPlugin check uses godot-fixture and requires a local Godot 4.x ed
 10. Call rollback_scene_change while the applied revision is current and verify the node is undone with a rolled_back report.
 11. Run run_current_scene and verify the returned run ID, status and diagnostics.
 12. Change the scene after apply and verify rollback_scene_change returns REVISION_CONFLICT.
+13. Call create_task with an apply_plan step (planId and expectedRevision from step 7) followed by a run_current_scene step; advance twice and verify the apply step returns "applied", the run step returns "stopped", and the task ends "completed".
+14. Create a second task, pause it and verify advance_task returns TASK_INVALID_STATUS; resume, advance once, then cancel and verify the remaining steps become "cancelled".
+15. Restart the MCP server and call get_task; verify the task state is restored from `.godot-safe-change/tasks/` inside the project.
 
 The first write-operation test must keep preview, confirmation, apply and rollback as separate states.

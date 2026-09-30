@@ -26,6 +26,10 @@ import { operationHistoryInputSchema } from "../domain/contracts.js";
 import { DomainError, ERROR_CODES } from "../domain/errors.js";
 import type { GodotBridge } from "../infrastructure/godot-bridge.js";
 import { normalizeProjectRoot } from "../infrastructure/project-root.js";
+import {
+  InMemoryOperationAuditStore,
+  type OperationAuditStore,
+} from "../infrastructure/operation-audit-store.js";
 
 type PlanState = "preview" | "confirmed" | "applied" | "rolled_back";
 
@@ -51,7 +55,10 @@ export class ChangeCoordinator {
   private readonly plans = new Map<string, StoredPlan>();
   private readonly auditLog: OperationAuditEntry[] = [];
 
-  constructor(private readonly bridge: GodotBridge) {}
+  constructor(
+    private readonly bridge: GodotBridge,
+    private readonly auditStore: OperationAuditStore = new InMemoryOperationAuditStore(),
+  ) {}
 
   async getContext(projectRootInput: string): Promise<EditorContext> {
     return this.bridge.getContext(await normalizeProjectRoot(projectRootInput));
@@ -340,9 +347,7 @@ export class ChangeCoordinator {
     return {
       schemaVersion: "0.1",
       projectRoot,
-      operations: this.auditLog
-        .filter((operation) => operation.projectRoot === projectRoot)
-        .slice(0, parsedInput.limit ?? 20),
+      operations: await this.auditStore.list(projectRoot, parsedInput.limit ?? 20),
     };
   }
 
@@ -452,12 +457,14 @@ export class ChangeCoordinator {
       input,
     };
     this.auditLog.unshift(entry);
+    await this.auditStore.append(entry);
 
     try {
       const output = await action();
       entry.status = "succeeded";
       entry.finishedAt = new Date().toISOString();
       entry.output = output;
+      await this.auditStore.append(entry);
       return output;
     } catch (error) {
       entry.status = "failed";
@@ -466,6 +473,10 @@ export class ChangeCoordinator {
         error instanceof DomainError
           ? { code: error.code, message: error.message, details: error.details }
           : { code: "INTERNAL_ERROR", message: error instanceof Error ? error.message : String(error) };
+      try {
+        await this.auditStore.append(entry);
+      } catch {
+      }
       throw error;
     }
   }
