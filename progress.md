@@ -6,6 +6,44 @@
 - GitHub Actions 新增 godot-runtime job，固定下载 Godot 4.7.2 Linux editor，运行 headless smoke。
 - 本地 Godot 4.7.2 smoke 已通过；远程 Actions 尚未在本轮执行。
 
+## 2026-09-30 safe scene property
+
+- 新增 scene.set_property，严格限制 visible、position、size、text、color 与对应节点类型。
+- 真实 MCP + Godot 4.7.2 smoke 已覆盖属性 apply/rollback；输入动作、资源引用和脚本挂载仍待实现。
+
+## 2026-09-30 attach existing script
+
+- 新增 scene.attach_script，只允许现有 res:// .gd 脚本和当前场景节点。
+- 通过 Godot UndoRedo 设置/恢复 script 属性；真实 Godot smoke 已覆盖 apply/rollback。
+- 输入动作、资源引用替换和远程 GitHub Actions 首次运行仍待实现。
+
+## 2026-09-30 resource preview
+
+- 新增 resource.replace_reference preview，读取受限 tscn/tres/res 文件，校验明确 from/to 引用并返回文件 revision 与匹配数量。
+- GDScript resources/read 只读路由已解析通过；资源 apply/rollback 保持下一阶段，不直接写资源文件。
+
+## 2026-09-30 resource apply verification
+
+- resource.replace_reference 已支持 revision guard、临时文件原子替换和原始内容 rollback。
+- Godot 4.7.2 smoke 已验证 resource apply 后内容变化、rollback 后恢复。
+
+## 2026-09-30 task timeline
+
+- TaskState 增加 task step operationId 和 timeline 事件，覆盖 running、succeeded、failed 以及 pause/resume/cancel 状态事件。
+- 重启恢复测试保持通过，task_status 可同时返回 lease owner、expiresAt、recoverable 和 timeline。
+
+## 2026-09-30 input action persistence
+
+- 新增只读 `/v1/input-actions/read`，返回 action 是否存在、deadzone、受限 key event 摘要和 `project.godot` revision。
+- `project.input_action.add_key` preview 读取并锁定 project settings revision，拒绝重复 physical key；apply 通过 `ProjectSettings.save()` 持久化，rollback 在 revision 未变化时恢复原 action 设置。
+- TypeScript 契约、HTTP bridge、Fake bridge 和真实 Godot 4.7.2 smoke 均覆盖 apply/rollback；`npm test` 55/55、typecheck、build 通过。
+
+## 2026-09-30 Linux CI hardening
+
+- 复盘远程 run `36704166909`：Linux Godot 运行场景子进程时缺少 X11 display，导致 diagnostics warning 未返回。
+- smoke 显式使用 Godot `--display-driver headless` 与 `--audio-driver Dummy`；GitHub Actions 安装 `xvfb` 并通过 `xvfb-run` 启动 smoke。
+- 本地 Godot 4.7.2 smoke 已通过；修复后的远程 Actions 首次运行仍待提交到远程分支确认。
+
 ## 2026-09-30 project lease
 
 - 新增 FileProjectLeaseStore 和 InMemoryProjectLeaseStore，使用状态目录独占文件实现跨进程租约。

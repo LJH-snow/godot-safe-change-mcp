@@ -25,6 +25,56 @@ export const createNodeOperationSchema = z
   })
   .strict();
 
+export const sceneSetPropertySchema = z
+  .object({
+    kind: z.literal("scene.set_property"),
+    nodePath: nodePathSchema,
+    property: z.enum(["visible", "position", "size", "text", "color"]),
+    value: z.union([
+      z.boolean(),
+      z.string().max(10000),
+      z.object({ x: z.number(), y: z.number() }).strict(),
+      z.object({ r: z.number(), g: z.number(), b: z.number(), a: z.number() }).strict(),
+    ]),
+  })
+  .strict();
+
+export const sceneAttachScriptSchema = z
+  .object({
+    kind: z.literal("scene.attach_script"),
+    nodePath: nodePathSchema,
+    scriptPath: z
+      .string()
+      .min(1)
+      .max(256)
+      .regex(/^res:\/\/[^\\0]+\.gd$/)
+      .refine((value) => !value.includes(".."), "scriptPath must not contain parent traversal."),
+  })
+  .strict();
+
+export const resourceReplaceReferenceSchema = z
+  .object({
+    kind: z.literal("resource.replace_reference"),
+    resourcePath: z
+      .string()
+      .min(1)
+      .max(256)
+      .regex(/^res:\/\/[^\\0]+\.(tscn|tres|res)$/)
+      .refine((value) => !value.includes(".."), "resourcePath must not contain parent traversal."),
+    from: z.string().min(1).max(300).regex(/^(res:\/\/|uid:\/\/)/),
+    to: z.string().min(1).max(300).regex(/^(res:\/\/|uid:\/\/)/),
+  })
+  .strict();
+
+export const inputActionAddKeySchema = z
+  .object({
+    kind: z.literal("project.input_action.add_key"),
+    actionName: z.string().min(1).max(128).regex(/^[A-Za-z_][A-Za-z0-9_]*$/),
+    physicalKeycode: z.number().int().min(1).max(10000),
+    deadzone: z.number().min(0).max(1).optional(),
+  })
+  .strict();
+
 export const scriptReplaceRangeSchema = z
   .object({
     kind: z.literal("script.replace_range"),
@@ -45,6 +95,10 @@ export const scriptReplaceRangeSchema = z
 
 export const changeOperationSchema = z.discriminatedUnion("kind", [
   createNodeOperationSchema,
+  sceneSetPropertySchema,
+  sceneAttachScriptSchema,
+  resourceReplaceReferenceSchema,
+  inputActionAddKeySchema,
   scriptReplaceRangeSchema,
 ]);
 
@@ -82,8 +136,41 @@ export const scriptChangeDiffSchema = z.object({
   after: z.string(),
 });
 
+export const resourceReferenceDiffSchema = z.object({
+  kind: z.literal("resource.replace_reference"),
+  target: z.string().min(1),
+  summary: z.string().min(1),
+  matchCount: z.number().int().positive(),
+});
+
+export const inputActionDiffSchema = z.object({
+  kind: z.literal("project.input_action.add_key"),
+  target: z.string().min(1),
+  summary: z.string().min(1),
+});
+
+export const scenePropertyDiffSchema = z.object({
+  kind: z.literal("scene.set_property"),
+  target: z.string().min(1),
+  summary: z.string().min(1),
+  property: z.string().min(1),
+  before: z.unknown(),
+  after: z.unknown(),
+});
+
+export const sceneAttachScriptDiffSchema = z.object({
+  kind: z.literal("scene.attach_script"),
+  target: z.string().min(1),
+  summary: z.string().min(1),
+  scriptPath: z.string().min(1),
+});
+
 export const changeDiffSchema = z.discriminatedUnion("kind", [
   sceneChangeDiffSchema,
+  scenePropertyDiffSchema,
+  sceneAttachScriptDiffSchema,
+  resourceReferenceDiffSchema,
+  inputActionDiffSchema,
   scriptChangeDiffSchema,
 ]);
 

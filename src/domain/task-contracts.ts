@@ -80,6 +80,21 @@ export const taskStepStatusSchema = z.enum([
   "cancelled",
 ]);
 
+export const taskTimelineEventSchema = z.object({
+  eventId: z.string().min(1),
+  stepId: taskStepIdSchema.nullable(),
+  operationId: z.string().nullable(),
+  status: z.enum(["running", "succeeded", "failed", "paused", "resumed", "cancelled"]),
+  at: z.string().min(1),
+  result: z.unknown().optional(),
+  error: z
+    .object({
+      code: z.string(),
+      message: z.string(),
+    })
+    .optional(),
+});
+
 export const taskLeaseSchema = z.object({
   leaseId: z.string().min(1),
   ownerId: z.string().min(1),
@@ -122,6 +137,7 @@ export const taskStepStateSchema = z.object({
   attempts: z.number().int().nonnegative(),
   startedAt: z.string().nullable(),
   finishedAt: z.string().nullable(),
+  operationId: z.string().nullable(),
   result: z.unknown().optional(),
   error: z
     .object({
@@ -143,6 +159,7 @@ export const taskStateSchema = z.object({
   updatedAt: z.string().min(1),
   lease: taskLeaseSchema.nullable().default(null),
   recoverable: z.boolean().default(true),
+  timeline: z.array(taskTimelineEventSchema).default([]),
 });
 
 export type TaskStepDecl = z.infer<typeof taskStepDeclSchema>;
@@ -155,3 +172,4 @@ export type TaskIdInput = z.infer<typeof taskIdInputSchema>;
 export type TaskLeaseInput = z.infer<typeof taskLeaseInputSchema>;
 export type AcquireTaskLeaseInput = z.infer<typeof acquireTaskLeaseInputSchema>;
 export type TaskLease = z.infer<typeof taskLeaseSchema>;
+export type TaskTimelineEvent = z.infer<typeof taskTimelineEventSchema>;

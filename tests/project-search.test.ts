@@ -8,6 +8,8 @@ import { LocalProjectSearchService } from "../src/application/project-search-ser
 import { LocalProjectService } from "../src/application/project-service.js";
 import { DomainError, ERROR_CODES } from "../src/domain/errors.js";
 import type {
+  InputActionSnapshot,
+  ResourceSnapshot,
   ScriptSnapshot,
   SearchProjectReport,
   SearchProjectRequest,
@@ -181,6 +183,14 @@ class SearchBridgeStub implements GodotBridge {
   async readScript(_projectRoot: string, scriptPath: string): Promise<ScriptSnapshot> {
     return { path: scriptPath, revision: "test", content: "" };
   }
+
+  async readResource(_projectRoot: string, resourcePath: string): Promise<ResourceSnapshot> {
+    return { path: resourcePath, revision: "test", content: "" };
+  }
+
+  async readInputAction(_projectRoot: string, actionName: string): Promise<InputActionSnapshot> {
+    return { actionName, revision: "test", exists: false, deadzone: null, events: [] };
+  }
 }
 
 describe("ProjectIndexCache", () => {
@@ -266,6 +276,14 @@ class OverviewBridgeStub implements GodotBridge {
 
   async readScript(_projectRoot: string, scriptPath: string): Promise<ScriptSnapshot> {
     return { path: scriptPath, revision: "test", content: "" };
+  }
+
+  async readResource(_projectRoot: string, resourcePath: string): Promise<ResourceSnapshot> {
+    return { path: resourcePath, revision: "test", content: "" };
+  }
+
+  async readInputAction(_projectRoot: string, actionName: string): Promise<InputActionSnapshot> {
+    return { actionName, revision: "test", exists: false, deadzone: null, events: [] };
   }
 }
 

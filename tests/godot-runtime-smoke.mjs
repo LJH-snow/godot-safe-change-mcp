@@ -117,10 +117,27 @@ try {
     "utf8",
   );
 
-  godotProcess = spawn(godotBinary, ["--editor", "--headless", "--path", fixtureRoot, "--scene", "res://main.tscn", "--quit-after", "0"], {
+  godotProcess = spawn(
+    godotBinary,
+    [
+      "--editor",
+      "--headless",
+      "--display-driver",
+      "headless",
+      "--audio-driver",
+      "Dummy",
+      "--path",
+      fixtureRoot,
+      "--scene",
+      "res://main.tscn",
+      "--quit-after",
+      "0",
+    ],
+    {
     cwd: fixtureRoot,
     stdio: ["ignore", "pipe", "pipe"],
-  });
+    },
+  );
   capture(godotProcess, godotOutputRef);
   mcpProcess = spawn(process.platform === "win32" ? "npm.cmd" : "npm", ["run", "dev", "--", "--no-open", "--host", "127.0.0.1", "--port", "3100"], {
     cwd: repositoryRoot,
@@ -166,6 +183,114 @@ try {
   }));
   assert.equal(sceneRollback.status, "rolled_back");
 
+  const propertyPlan = structured(await request("tools/call", {
+    name: "preview_scene_change",
+    arguments: {
+      projectRoot: fixtureRoot,
+      reason: "CI node property apply and rollback smoke test.",
+      operation: { kind: "scene.set_property", nodePath: ".", property: "position", value: { x: 12, y: 8 } },
+    },
+  }));
+  structured(await request("tools/call", {
+    name: "confirm_scene_change",
+    arguments: { projectRoot: fixtureRoot, planId: propertyPlan.planId, expectedRevision: propertyPlan.expectedRevision },
+  }));
+  const propertyApply = structured(await request("tools/call", {
+    name: "apply_scene_change",
+    arguments: { projectRoot: fixtureRoot, planId: propertyPlan.planId },
+  }));
+  assert.equal(propertyApply.status, "applied");
+  const propertyRollback = structured(await request("tools/call", {
+    name: "rollback_scene_change",
+    arguments: { projectRoot: fixtureRoot, planId: propertyPlan.planId },
+  }));
+  assert.equal(propertyRollback.status, "rolled_back");
+
+  const resourceFile = path.join(fixtureRoot, "resources/theme.tres");
+  const originalResource = await readFile(resourceFile, "utf8");
+  const resourcePlan = structured(await request("tools/call", {
+    name: "preview_scene_change",
+    arguments: {
+      projectRoot: fixtureRoot,
+      reason: "CI resource reference apply and rollback smoke test.",
+      operation: {
+        kind: "resource.replace_reference",
+        resourcePath: "res://resources/theme.tres",
+        from: "res://resources/old_theme.tres",
+        to: "res://resources/new_theme.tres",
+      },
+    },
+  }));
+  structured(await request("tools/call", {
+    name: "confirm_scene_change",
+    arguments: { projectRoot: fixtureRoot, planId: resourcePlan.planId, expectedRevision: resourcePlan.expectedRevision },
+  }));
+  const resourceApply = structured(await request("tools/call", {
+    name: "apply_scene_change",
+    arguments: { projectRoot: fixtureRoot, planId: resourcePlan.planId },
+  }));
+  assert.equal(resourceApply.status, "applied");
+  assert.notEqual(await readFile(resourceFile, "utf8"), originalResource);
+  const resourceRollback = structured(await request("tools/call", {
+    name: "rollback_scene_change",
+    arguments: { projectRoot: fixtureRoot, planId: resourcePlan.planId },
+  }));
+  assert.equal(resourceRollback.status, "rolled_back");
+  assert.equal(await readFile(resourceFile, "utf8"), originalResource);
+
+  const projectSettingsFile = path.join(fixtureRoot, "project.godot");
+  const inputPlan = structured(await request("tools/call", {
+    name: "preview_scene_change",
+    arguments: {
+      projectRoot: fixtureRoot,
+      reason: "CI input action apply and rollback smoke test.",
+      operation: { kind: "project.input_action.add_key", actionName: "jump", physicalKeycode: 32, deadzone: 0.2 },
+    },
+  }));
+  assert.ok(inputPlan.expectedFileRevision);
+  structured(await request("tools/call", {
+    name: "confirm_scene_change",
+    arguments: { projectRoot: fixtureRoot, planId: inputPlan.planId, expectedRevision: inputPlan.expectedRevision },
+  }));
+  const inputApply = structured(await request("tools/call", {
+    name: "apply_scene_change",
+    arguments: { projectRoot: fixtureRoot, planId: inputPlan.planId },
+  }));
+  assert.equal(inputApply.status, "applied");
+  assert.ok(inputApply.fileRevision);
+  const changedProjectSettings = await readFile(projectSettingsFile, "utf8");
+  assert.match(changedProjectSettings, /\[input\][\s\S]*\njump=/);
+  const inputRollback = structured(await request("tools/call", {
+    name: "rollback_scene_change",
+    arguments: { projectRoot: fixtureRoot, planId: inputPlan.planId },
+  }));
+  assert.equal(inputRollback.status, "rolled_back");
+  const restoredProjectSettings = await readFile(projectSettingsFile, "utf8");
+  assert.doesNotMatch(restoredProjectSettings, /\njump=\{/);
+
+  const attachPlan = structured(await request("tools/call", {
+    name: "preview_scene_change",
+    arguments: {
+      projectRoot: fixtureRoot,
+      reason: "CI attach existing script apply and rollback smoke test.",
+      operation: { kind: "scene.attach_script", nodePath: ".", scriptPath: "res://diagnostic_scene.gd" },
+    },
+  }));
+  structured(await request("tools/call", {
+    name: "confirm_scene_change",
+    arguments: { projectRoot: fixtureRoot, planId: attachPlan.planId, expectedRevision: attachPlan.expectedRevision },
+  }));
+  const attachApply = structured(await request("tools/call", {
+    name: "apply_scene_change",
+    arguments: { projectRoot: fixtureRoot, planId: attachPlan.planId },
+  }));
+  assert.equal(attachApply.status, "applied");
+  const attachRollback = structured(await request("tools/call", {
+    name: "rollback_scene_change",
+    arguments: { projectRoot: fixtureRoot, planId: attachPlan.planId },
+  }));
+  assert.equal(attachRollback.status, "rolled_back");
+
   const scriptPlan = structured(await request("tools/call", {
     name: "preview_scene_change",
     arguments: {
@@ -193,7 +318,7 @@ try {
 
   const diagnostics = structured(await request("tools/call", {
     name: "run_current_scene",
-    arguments: { projectRoot: fixtureRoot, timeoutMs: 5000 },
+    arguments: { projectRoot: fixtureRoot, timeoutMs: 15000 },
   }));
   assert.equal(diagnostics.status, "stopped");
   assert.ok(diagnostics.warnings.some((warning) => warning.source === "res://diagnostic_scene.gd"));
