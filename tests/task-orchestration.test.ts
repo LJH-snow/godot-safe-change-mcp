@@ -466,4 +466,36 @@ describe("TaskCoordinator", () => {
     assert.equal(released.lease, null);
     assert.equal(released.recoverable, true);
   });
+
+  test("heartbeats an explicit task lease and records lease timeline events", async () => {
+    const { projectRoot, taskCoordinator } = harness;
+    const task = await taskCoordinator.createTask({
+      projectRoot,
+      title: "Heartbeat lease",
+      steps: [{ kind: "run_current_scene", stepId: "run-heartbeat" }],
+    });
+
+    const acquired = await taskCoordinator.acquireTaskLease({
+      projectRoot,
+      taskId: task.taskId,
+      ttlMs: 1000,
+    });
+    const acquiredExpiresAt = Date.parse(acquired.lease!.expiresAt);
+
+    await new Promise((resolve) => setTimeout(resolve, 700));
+
+    const renewedStatus = await taskCoordinator.getTask({ projectRoot, taskId: task.taskId });
+    assert.ok(Date.parse(renewedStatus.lease!.expiresAt) > acquiredExpiresAt);
+    assert.ok(renewedStatus.timeline.some((event) => String(event.status) === "lease_acquired"));
+    assert.ok(renewedStatus.timeline.some((event) => String(event.status) === "lease_renewed"));
+
+    const released = await taskCoordinator.releaseTaskLease({
+      projectRoot,
+      taskId: task.taskId,
+      leaseId: renewedStatus.lease!.leaseId,
+    });
+    assert.equal(released.lease, null);
+    assert.equal(released.recoverable, true);
+    assert.ok(released.timeline.some((event) => String(event.status) === "lease_released"));
+  });
 });

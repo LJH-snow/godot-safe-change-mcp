@@ -40,6 +40,12 @@
 - TaskState 增加 task step operationId 和 timeline 事件，覆盖 running、succeeded、failed 以及 pause/resume/cancel 状态事件。
 - 重启恢复测试保持通过，task_status 可同时返回 lease owner、expiresAt、recoverable 和 timeline。
 
+## 2026-09-30 task lease heartbeat
+
+- TaskCoordinator 为显式和多步骤任务 lease 启动 TTL/3 heartbeat，自动调用 lease store renew 并持久化新的 expiresAt。
+- heartbeat 停止、续租失败和任务释放不会留下活动定时器；timeline 增加 lease_acquired、lease_renewed、lease_released、lease_reclaimed 事件。
+- 自动化回归通过：58/58 tests、typecheck、build。
+
 ## 2026-09-30 input action persistence
 
 - 新增只读 `/v1/input-actions/read`，返回 action 是否存在、deadzone、受限 key event 摘要和 `project.godot` revision。
