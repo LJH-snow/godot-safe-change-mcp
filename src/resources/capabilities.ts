@@ -11,6 +11,7 @@ const capabilities = {
       "POST /v1/context",
       "POST /v1/changes/apply",
       "POST /v1/changes/rollback",
+      "POST /v1/search",
       "POST /v1/run/current",
       "POST /v1/run/status",
     ],
@@ -18,7 +19,9 @@ const capabilities = {
   tools: [
     "project_overview",
     "search_project",
+    "operation_history",
     "editor_context",
+    "preview_diagnostic_repair",
     "preview_scene_change",
     "confirm_scene_change",
     "apply_scene_change",

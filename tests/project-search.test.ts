@@ -7,7 +7,11 @@ import { searchProjectIndex, ProjectIndexCache, countProjectFiles } from "../src
 import { LocalProjectSearchService } from "../src/application/project-search-service.js";
 import { LocalProjectService } from "../src/application/project-service.js";
 import { DomainError, ERROR_CODES } from "../src/domain/errors.js";
-import type { SearchProjectReport, SearchProjectRequest } from "../src/domain/contracts.js";
+import type {
+  ScriptSnapshot,
+  SearchProjectReport,
+  SearchProjectRequest,
+} from "../src/domain/contracts.js";
 import type { GodotBridge } from "../src/infrastructure/godot-bridge.js";
 
 const SCENE_MAIN = [
@@ -169,6 +173,10 @@ class SearchBridgeStub implements GodotBridge {
   async runCurrentScene(): Promise<never> {
     throw new Error("not used");
   }
+
+  async readScript(_projectRoot: string, scriptPath: string): Promise<ScriptSnapshot> {
+    return { path: scriptPath, revision: "test", content: "" };
+  }
 }
 
 describe("ProjectIndexCache", () => {
@@ -246,6 +254,10 @@ class OverviewBridgeStub implements GodotBridge {
 
   async runCurrentScene(): Promise<never> {
     throw new Error("not used");
+  }
+
+  async readScript(_projectRoot: string, scriptPath: string): Promise<ScriptSnapshot> {
+    return { path: scriptPath, revision: "test", content: "" };
   }
 }
 

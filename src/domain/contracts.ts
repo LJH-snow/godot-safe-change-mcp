@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { ChangeOperation } from "./change-contracts.js";
+import { createNodeOperationSchema, type ChangeOperation } from "./change-contracts.js";
 
 export const projectSectionSchema = z.enum([
   "scenes",
@@ -53,11 +53,18 @@ export const projectOverviewSchema = z.object({
   notes: z.array(z.string()),
 });
 
+export const diagnosticRepairHintSchema = createNodeOperationSchema.extend({
+  reason: z.string().min(1).max(500),
+});
+
 export const diagnosticEntrySchema = z.object({
   message: z.string(),
   source: z.string().optional(),
   line: z.number().int().nonnegative().optional(),
   column: z.number().int().nonnegative().optional(),
+  nodePath: z.string().optional(),
+  operationId: z.string().optional(),
+  repairHint: diagnosticRepairHintSchema.optional(),
 });
 
 export const diagnosticsSchema = z.object({
@@ -101,7 +108,17 @@ export const editorContextSchema = z.object({
 });
 
 export type DiagnosticEntry = z.infer<typeof diagnosticEntrySchema>;
+export type DiagnosticRepairHint = z.infer<typeof diagnosticRepairHintSchema>;
 export type Diagnostics = z.infer<typeof diagnosticsSchema>;
+
+export const previewRepairFromDiagnosticInputSchema = z.object({
+  projectRoot: z.string().min(1),
+  diagnostic: diagnosticEntrySchema,
+});
+
+export type PreviewRepairFromDiagnosticInput = z.infer<
+  typeof previewRepairFromDiagnosticInputSchema
+>;
 export type EditorRunState = z.infer<typeof editorRunStateSchema>;
 export type SceneNode = z.infer<typeof sceneNodeSchema>;
 export type EditorContext = z.infer<typeof editorContextSchema>;
@@ -168,15 +185,25 @@ export type SearchProjectRequest = Omit<SearchProjectInput, "projectRoot">;
 export type SearchResult = z.infer<typeof searchResultSchema>;
 export type SearchProjectReport = z.infer<typeof searchProjectReportSchema>;
 
+export const scriptSnapshotSchema = z.object({
+  path: z.string().min(1),
+  revision: z.string().min(1),
+  content: z.string(),
+});
+
+export type ScriptSnapshot = z.infer<typeof scriptSnapshotSchema>;
+
 export interface ApplyChangeRequest {
   planId: string;
   expectedRevision: string;
+  expectedFileRevision?: string;
   operations: ChangeOperation[];
 }
 
 export interface RollbackRequest {
   planId: string;
   expectedRevision: string;
+  expectedFileRevision?: string;
 }
 
 export const changeReportSchema = z.object({
@@ -186,6 +213,7 @@ export const changeReportSchema = z.object({
   revision: z.string().min(1),
   operationCount: z.number().int().nonnegative(),
   undoLabel: z.string().min(1),
+  fileRevision: z.string().optional(),
 });
 
 export type ChangeReport = z.infer<typeof changeReportSchema>;
@@ -196,6 +224,7 @@ export const rollbackReportSchema = z.object({
   status: z.literal("rolled_back"),
   revision: z.string().min(1),
   undoLabel: z.string().min(1),
+  fileRevision: z.string().optional(),
 });
 
 export type RollbackReport = z.infer<typeof rollbackReportSchema>;
@@ -218,3 +247,41 @@ export const runDiagnosticsSchema = z.object({
 });
 
 export type RunDiagnostics = z.infer<typeof runDiagnosticsSchema>;
+
+export const operationKindSchema = z.enum(["preview", "confirm", "apply", "rollback", "run"]);
+export const operationStatusSchema = z.enum(["running", "succeeded", "failed"]);
+
+export const operationAuditEntrySchema = z.object({
+  operationId: z.string().min(1),
+  kind: operationKindSchema,
+  status: operationStatusSchema,
+  projectRoot: z.string().min(1),
+  planId: z.string().nullable(),
+  startedAt: z.string().min(1),
+  finishedAt: z.string().nullable(),
+  input: z.unknown(),
+  output: z.unknown().optional(),
+  error: z
+    .object({
+      code: z.string(),
+      message: z.string(),
+      details: z.unknown().optional(),
+    })
+    .optional(),
+});
+
+export const operationHistoryInputSchema = z.object({
+  projectRoot: z.string().min(1),
+  limit: z.number().int().min(1).max(100).optional(),
+});
+
+export const operationHistoryReportSchema = z.object({
+  schemaVersion: z.literal("0.1"),
+  projectRoot: z.string().min(1),
+  operations: z.array(operationAuditEntrySchema),
+});
+
+export type OperationKind = z.infer<typeof operationKindSchema>;
+export type OperationAuditEntry = z.infer<typeof operationAuditEntrySchema>;
+export type OperationHistoryInput = z.infer<typeof operationHistoryInputSchema>;
+export type OperationHistoryReport = z.infer<typeof operationHistoryReportSchema>;

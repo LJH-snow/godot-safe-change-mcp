@@ -13,6 +13,8 @@ import {
   searchProjectReportSchema,
   type SearchProjectReport,
   type SearchProjectRequest,
+  scriptSnapshotSchema,
+  type ScriptSnapshot,
 } from "../domain/contracts.js";
 import { ERROR_CODES, DomainError, type ErrorCode } from "../domain/errors.js";
 import type { GodotBridge } from "./godot-bridge.js";
@@ -89,6 +91,17 @@ export class HttpGodotBridge implements GodotBridge {
       throw this.protocolError("The bridge returned an invalid search report.", parsed.error);
     }
     return parsed.data.report;
+  }
+
+  async readScript(projectRoot: string, scriptPath: string): Promise<ScriptSnapshot> {
+    const payload = await this.post("/v1/scripts/read", { projectRoot, scriptPath });
+    const parsed = z
+      .object({ ok: z.literal(true), snapshot: scriptSnapshotSchema })
+      .safeParse(payload);
+    if (!parsed.success) {
+      throw this.protocolError("The bridge returned an invalid script snapshot.", parsed.error);
+    }
+    return parsed.data.snapshot;
   }
 
   async runCurrentScene(projectRoot: string, timeoutMs: number): Promise<RunDiagnostics> {

@@ -110,6 +110,31 @@
 - [x] 只有 planId 已应用且当前 revision 未变化时，才允许插件调用 Godot UndoRedo.undo。
 - [x] 增加 MCP rollback 工具、fake bridge/HTTP/fixture 测试和文档。
 
+## Phase 7 — 搜索与场景上下文
+
+状态：complete
+
+- [x] 增加只读 project index，搜索场景、节点、脚本、资源、signal 和 input。
+- [x] 增加 MCP search_project 工具和 editor bridge 搜索路由。
+- [x] 返回完整当前场景树、选中节点和有限安全属性。
+- [x] 通过 Godot 4.7.2 runtime 验证 node、script、scene、resource 搜索。
+
+## Phase 8 — 诊断关联与操作审计
+
+状态：complete
+
+- [x] 将诊断关联到节点路径、脚本行和最近变更。
+- [x] 为 preview、confirm、apply、rollback、run 生成 operation ID 和审计记录。
+- [x] 支持查询最近操作及其验证证据。
+
+## Phase 9 — 安全脚本修改
+
+状态：complete
+
+- [x] 增加只读 script.replace_range preview、文件 revision 和行级 diff。
+- [x] 通过临时文件和原子替换 apply 脚本修改。
+- [x] 为脚本修改增加 revision 守卫、回滚报告和真实 Godot fixture 验收。
+
 ## 完成定义
 
 只有在验收标准全部满足、自动化检查通过，并且真实或 fixture Godot 链路有可复现证据后，才将所有阶段标记为 `complete`。

@@ -23,6 +23,10 @@ var run_scene_path := ""
 var run_started_at := 0
 var last_applied_plan_id := ""
 var last_applied_revision := ""
+var last_applied_kind := ""
+var last_script_path := ""
+var last_script_original_content := ""
+var last_script_applied_revision := ""
 var diagnostics := {
     "output": [],
     "warnings": [],
@@ -77,6 +81,8 @@ func handle_bridge_request(method: String, path: String, body: Variant) -> Dicti
             return _rollback_change(body)
         "/v1/search":
             return _search_project(body)
+        "/v1/scripts/read":
+            return _read_script(body)
         "/v1/run/current":
             return _run_current_scene()
         "/v1/run/status":
@@ -90,12 +96,66 @@ func record_debugger_message(data: Array) -> void:
     var severity := String(data[0]).to_lower()
     var message := String(data[1])
     var entry := {"message": message}
+    if data.size() > 2 and String(data[2]) != "":
+        entry["source"] = String(data[2])
+    if data.size() > 3 and int(data[3]) >= 0:
+        entry["line"] = int(data[3])
+    if data.size() > 4 and String(data[4]) != "":
+        entry["nodePath"] = String(data[4])
+    if data.size() > 5 and typeof(data[5]) == TYPE_DICTIONARY:
+        var repair_hint := _safe_repair_hint(data[5])
+        if not repair_hint.is_empty():
+            entry["repairHint"] = repair_hint
     if severity == "error":
         diagnostics["errors"].append(entry)
     elif severity == "warning":
         diagnostics["warnings"].append(entry)
     else:
         diagnostics["output"].append(message)
+
+func _safe_repair_hint(value: Dictionary) -> Dictionary:
+    var node_type := String(value.get("nodeType", ""))
+    var parent_path := String(value.get("parentPath", ""))
+    var node_name := String(value.get("nodeName", ""))
+    var reason := String(value.get("reason", ""))
+    if String(value.get("kind", "")) != "scene.create_node":
+        return {}
+    if not ALLOWED_NODE_TYPES.has(node_type) or parent_path == "" or parent_path.begins_with("/"):
+        return {}
+    var name_regex := RegEx.new()
+    name_regex.compile("^[A-Za-z_][A-Za-z0-9_]*$")
+    if name_regex.search(node_name) == null or reason == "":
+        return {}
+    return {
+        "kind": "scene.create_node",
+        "parentPath": parent_path,
+        "nodeName": node_name,
+        "nodeType": node_type,
+        "reason": reason,
+    }
+
+func _read_script(body: Variant) -> Dictionary:
+    if typeof(body) != TYPE_DICTIONARY:
+        return _failure("VALIDATION_FAILED", "The script read request body must be a JSON object.")
+    var request_body: Dictionary = body
+    var script_path := String(request_body.get("scriptPath", ""))
+    if not _is_safe_script_path(script_path):
+        return _failure("UNSAFE_OPERATION", "Only project-relative .gd scripts can be read.")
+    if not FileAccess.file_exists(script_path):
+        return _failure("PROJECT_NOT_FOUND", "The requested script does not exist.", 404, {"scriptPath": script_path})
+
+    var file := FileAccess.open(script_path, FileAccess.READ)
+    if file == null:
+        return _failure("OPERATION_REJECTED", "Godot could not read the requested script.", 409)
+    var content := file.get_as_text()
+    return _success("snapshot", {
+        "path": script_path,
+        "revision": str(content.hash()),
+        "content": content,
+    })
+
+func _is_safe_script_path(script_path: String) -> bool:
+    return script_path.begins_with("res://") and script_path.ends_with(".gd") and not script_path.contains("..")
 
 func _create_dock() -> void:
     dock = PanelContainer.new()
@@ -252,7 +312,7 @@ func _search_scene_nodes(scene_root: Node, node: Node, query: String, results: A
     if results.size() >= max_results:
         return
     var context := _node_context(scene_root, node)
-    var matches := _field_matches(query, [context["name"], context["type"], context["path"]])
+    var matches := _field_matches(query, [context["path"], context["name"], context["type"]])
     if not matches.is_empty():
         results.append({
             "kind": "node",
@@ -330,8 +390,12 @@ func _apply_change(body: Variant) -> Dictionary:
     if typeof(operations) != TYPE_ARRAY or operations.size() != 1:
         return _failure("UNSAFE_OPERATION", "Exactly one bounded scene operation is supported.")
     var operation: Variant = operations[0]
-    if typeof(operation) != TYPE_DICTIONARY or String(operation.get("kind", "")) != "scene.create_node":
-        return _failure("UNSAFE_OPERATION", "Only scene.create_node is enabled.")
+    if typeof(operation) != TYPE_DICTIONARY:
+        return _failure("UNSAFE_OPERATION", "The operation must be a bounded object.")
+    if String(operation.get("kind", "")) == "script.replace_range":
+        return _apply_script_change(request_body, scene_root, scene_path)
+    if String(operation.get("kind", "")) != "scene.create_node":
+        return _failure("UNSAFE_OPERATION", "Only bounded scene.create_node and script.replace_range are enabled.")
 
     var create_result := _apply_create_node(scene_root, operation)
     if not create_result.is_empty():
@@ -340,6 +404,10 @@ func _apply_change(body: Variant) -> Dictionary:
     var applied_revision := _current_revision(scene_root, scene_path)
     last_applied_plan_id = String(request_body.get("planId", ""))
     last_applied_revision = applied_revision
+    last_applied_kind = "scene"
+    last_script_path = ""
+    last_script_original_content = ""
+    last_script_applied_revision = ""
     var report := {
         "schemaVersion": "0.2",
         "planId": String(request_body.get("planId", "")),
@@ -349,6 +417,87 @@ func _apply_change(body: Variant) -> Dictionary:
         "undoLabel": "Godot Safe Change: Add node",
     }
     return _success("report", report)
+
+func _apply_script_change(request_body: Dictionary, scene_root: Node, scene_path: String) -> Dictionary:
+    var operation: Dictionary = request_body["operations"][0]
+    var script_path := String(operation.get("scriptPath", ""))
+    if not _is_safe_script_path(script_path):
+        return _failure("UNSAFE_OPERATION", "Only project-relative .gd scripts can be modified.")
+
+    var snapshot_result := _read_script_snapshot(script_path)
+    if not snapshot_result.is_empty() and not snapshot_result.get("ok", false):
+        return snapshot_result
+    var snapshot: Dictionary = snapshot_result["snapshot"]
+    var expected_file_revision := String(request_body.get("expectedFileRevision", ""))
+    if expected_file_revision == "" or expected_file_revision != String(snapshot["revision"]):
+        return _failure(
+            "REVISION_CONFLICT",
+            "The script changed after the preview was created.",
+            409,
+            {"expectedFileRevision": expected_file_revision, "actualFileRevision": snapshot["revision"]},
+        )
+
+    var content := String(snapshot["content"])
+    var lines := content.split("\n")
+    var start_line := int(operation.get("startLine", 0))
+    var end_line := int(operation.get("endLine", 0))
+    if start_line < 1 or end_line < start_line or end_line > lines.size():
+        return _failure("VALIDATION_FAILED", "The script replacement range is outside the current file.")
+
+    var next_lines: Array = []
+    for line_index in range(start_line - 1):
+        next_lines.append(lines[line_index])
+    for replacement_line in String(operation.get("replacement", "")).split("\n"):
+        next_lines.append(replacement_line)
+    for line_index in range(end_line, lines.size()):
+        next_lines.append(lines[line_index])
+    var next_content := "\n".join(next_lines)
+    var plan_id := String(request_body.get("planId", ""))
+    var write_error := _atomic_replace_script(script_path, next_content, plan_id)
+    if not write_error.is_empty():
+        return write_error
+
+    var file_revision := str(next_content.hash())
+    last_applied_plan_id = plan_id
+    last_applied_revision = _current_revision(scene_root, scene_path)
+    last_applied_kind = "script"
+    last_script_path = script_path
+    last_script_original_content = content
+    last_script_applied_revision = file_revision
+    return _success("report", {
+        "schemaVersion": "0.2",
+        "planId": plan_id,
+        "status": "applied",
+        "revision": last_applied_revision,
+        "fileRevision": file_revision,
+        "operationCount": 1,
+        "undoLabel": "Godot Safe Change: Replace script range",
+    })
+
+func _read_script_snapshot(script_path: String) -> Dictionary:
+    if not FileAccess.file_exists(script_path):
+        return _failure("PROJECT_NOT_FOUND", "The requested script does not exist.", 404, {"scriptPath": script_path})
+    var file := FileAccess.open(script_path, FileAccess.READ)
+    if file == null:
+        return _failure("OPERATION_REJECTED", "Godot could not read the requested script.", 409)
+    var content := file.get_as_text()
+    return {"ok": true, "snapshot": {"path": script_path, "revision": str(content.hash()), "content": content}}
+
+func _atomic_replace_script(script_path: String, content: String, operation_id: String) -> Dictionary:
+    var temporary_path := script_path + ".safe-change-" + operation_id + ".tmp"
+    var temporary_file := FileAccess.open(temporary_path, FileAccess.WRITE)
+    if temporary_file == null:
+        return _failure("OPERATION_REJECTED", "Godot could not create the temporary script file.", 409)
+    temporary_file.store_string(content)
+    temporary_file.close()
+    var rename_error := DirAccess.rename_absolute(
+        ProjectSettings.globalize_path(temporary_path),
+        ProjectSettings.globalize_path(script_path),
+    )
+    if rename_error != OK:
+        DirAccess.remove_absolute(ProjectSettings.globalize_path(temporary_path))
+        return _failure("OPERATION_REJECTED", "Godot could not atomically replace the script.", 409, {"error": rename_error})
+    return {}
 
 func _rollback_change(body: Variant) -> Dictionary:
     var request_body: Dictionary = body
@@ -370,6 +519,9 @@ func _rollback_change(body: Variant) -> Dictionary:
             {"expectedRevision": last_applied_revision, "actualRevision": actual_revision},
         )
 
+    if last_applied_kind == "script":
+        return _rollback_script_change(request_body, scene_root, scene_path, plan_id)
+
     var undo_manager := get_undo_redo()
     var history_id := undo_manager.get_object_history_id(scene_root)
     var scene_undo_redo: UndoRedo = undo_manager.get_history_undo_redo(history_id)
@@ -379,12 +531,46 @@ func _rollback_change(body: Variant) -> Dictionary:
     var rollback_revision := _current_revision(scene_root, scene_path)
     last_applied_plan_id = ""
     last_applied_revision = ""
+    last_applied_kind = ""
     return _success("report", {
         "schemaVersion": "0.2",
         "planId": plan_id,
         "status": "rolled_back",
         "revision": rollback_revision,
         "undoLabel": "Godot Safe Change: Add node",
+    })
+
+func _rollback_script_change(request_body: Dictionary, scene_root: Node, scene_path: String, plan_id: String) -> Dictionary:
+    var expected_file_revision := String(request_body.get("expectedFileRevision", ""))
+    if expected_file_revision == "" or expected_file_revision != last_script_applied_revision:
+        return _failure("REVISION_CONFLICT", "The script revision does not match the applied plan.", 409)
+
+    var snapshot_result := _read_script_snapshot(last_script_path)
+    if snapshot_result.is_empty() or not snapshot_result.get("ok", false):
+        return snapshot_result
+    var current_snapshot: Dictionary = snapshot_result["snapshot"]
+    if String(current_snapshot["revision"]) != last_script_applied_revision:
+        return _failure("REVISION_CONFLICT", "The script changed after apply; refusing to overwrite it.", 409)
+
+    var write_error := _atomic_replace_script(last_script_path, last_script_original_content, plan_id + "-rollback")
+    if not write_error.is_empty():
+        return write_error
+
+    var rollback_revision := _current_revision(scene_root, scene_path)
+    var restored_file_revision := str(last_script_original_content.hash())
+    last_applied_plan_id = ""
+    last_applied_revision = ""
+    last_applied_kind = ""
+    last_script_path = ""
+    last_script_original_content = ""
+    last_script_applied_revision = ""
+    return _success("report", {
+        "schemaVersion": "0.2",
+        "planId": plan_id,
+        "status": "rolled_back",
+        "revision": rollback_revision,
+        "fileRevision": restored_file_revision,
+        "undoLabel": "Godot Safe Change: Restore script content",
     })
 
 func _apply_create_node(scene_root: Node, operation: Dictionary) -> Dictionary:

@@ -12,6 +12,7 @@ import {
 import {
   changeReportSchema,
   editorContextSchema,
+  previewRepairFromDiagnosticInputSchema,
   rollbackReportSchema,
   runCurrentSceneInputSchema,
   runDiagnosticsSchema,
@@ -63,6 +64,33 @@ export function registerPreviewSceneChangeTool(
     async (input: PreviewSceneChangeInput) => {
       try {
         const plan = await coordinator.previewSceneChange(input);
+        return {
+          content: [{ type: "text" as const, text: JSON.stringify(plan, null, 2) }],
+          structuredContent: plan,
+        };
+      } catch (error) {
+        return toolError(error);
+      }
+    },
+  );
+}
+
+export function registerPreviewDiagnosticRepairTool(
+  server: MCPServer,
+  coordinator: ChangeCoordinator,
+) {
+  return server.tool(
+    {
+      name: "preview_diagnostic_repair",
+      title: "Preview a diagnostic repair",
+      description: "Turn an explicit bounded diagnostic repair hint into a reviewable scene plan.",
+      inputSchema: previewRepairFromDiagnosticInputSchema,
+      outputSchema: changePlanSchema,
+      annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    },
+    async (input) => {
+      try {
+        const plan = await coordinator.previewRepairFromDiagnostic(input);
         return {
           content: [{ type: "text" as const, text: JSON.stringify(plan, null, 2) }],
           structuredContent: plan,

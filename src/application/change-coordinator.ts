@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import {
   applyChangeInputSchema,
   changePlanSchema,
@@ -11,10 +11,18 @@ import {
 } from "../domain/change-contracts.js";
 import type {
   ChangeReport,
+  DiagnosticEntry,
   EditorContext,
+  OperationAuditEntry,
+  OperationHistoryInput,
+  OperationHistoryReport,
+  OperationKind,
+  PreviewRepairFromDiagnosticInput,
   RollbackReport,
   RunDiagnostics,
 } from "../domain/contracts.js";
+import { previewRepairFromDiagnosticInputSchema } from "../domain/contracts.js";
+import { operationHistoryInputSchema } from "../domain/contracts.js";
 import { DomainError, ERROR_CODES } from "../domain/errors.js";
 import type { GodotBridge } from "../infrastructure/godot-bridge.js";
 import { normalizeProjectRoot } from "../infrastructure/project-root.js";
@@ -25,6 +33,7 @@ interface StoredPlan {
   plan: ChangePlan;
   state: PlanState;
   appliedRevision?: string;
+  appliedFileRevision?: string;
 }
 
 export interface ConfirmedChange {
@@ -40,6 +49,7 @@ export interface RunCurrentSceneInput {
 
 export class ChangeCoordinator {
   private readonly plans = new Map<string, StoredPlan>();
+  private readonly auditLog: OperationAuditEntry[] = [];
 
   constructor(private readonly bridge: GodotBridge) {}
 
@@ -48,6 +58,12 @@ export class ChangeCoordinator {
   }
 
   async previewSceneChange(input: PreviewSceneChangeInput): Promise<ChangePlan> {
+    return this.withAudit("preview", input.projectRoot, null, input, () =>
+      this.previewSceneChangeInternal(input),
+    );
+  }
+
+  private async previewSceneChangeInternal(input: PreviewSceneChangeInput): Promise<ChangePlan> {
     const parsedInput = previewSceneChangeInputSchema.parse(input);
     const projectRoot = await normalizeProjectRoot(parsedInput.projectRoot);
     const context = await this.requireConnectedContext(projectRoot);
@@ -68,33 +84,57 @@ export class ChangeCoordinator {
     });
     const planId = createHash("sha256").update(fingerprint).digest("hex").slice(0, 20);
     const operation = parsedInput.operation;
-    const target =
-      operation.parentPath === "."
-        ? scenePath + ":" + operation.nodeName
-        : scenePath + ":" + operation.parentPath + "/" + operation.nodeName;
+    let expectedFileRevision: string | null = null;
+    let diff;
+    if (operation.kind === "scene.create_node") {
+      const target =
+        operation.parentPath === "."
+          ? scenePath + ":" + operation.nodeName
+          : scenePath + ":" + operation.parentPath + "/" + operation.nodeName;
+      diff = {
+        kind: "scene.add_node" as const,
+        target,
+        summary:
+          "Create " +
+          operation.nodeType +
+          " " +
+          operation.nodeName +
+          " under " +
+          operation.parentPath +
+          " in " +
+          scenePath,
+      };
+    } else {
+      const snapshot = await this.bridge.readScript(projectRoot, operation.scriptPath);
+      const lines = snapshot.content.split("\n");
+      if (operation.endLine > lines.length) {
+        throw new DomainError(
+          ERROR_CODES.VALIDATION_FAILED,
+          "The script replacement range is outside the current file.",
+          { scriptPath: operation.scriptPath, lineCount: lines.length },
+        );
+      }
+      expectedFileRevision = snapshot.revision;
+      diff = {
+        kind: "script.replace_range" as const,
+        target: operation.scriptPath + ":" + operation.startLine + "-" + operation.endLine,
+        summary: "Replace lines " + operation.startLine + "-" + operation.endLine + " in " + operation.scriptPath,
+        startLine: operation.startLine,
+        endLine: operation.endLine,
+        before: lines.slice(operation.startLine - 1, operation.endLine).join("\n"),
+        after: operation.replacement,
+      };
+    }
     const plan = changePlanSchema.parse({
       schemaVersion: "0.2",
       planId,
       projectRoot,
       expectedRevision: context.revision,
+      expectedFileRevision,
       mode: "preview",
       reason: parsedInput.reason,
       operations: [operation],
-      diff: [
-        {
-          kind: "scene.add_node",
-          target,
-          summary:
-            "Create " +
-            operation.nodeType +
-            " " +
-            operation.nodeName +
-            " under " +
-            operation.parentPath +
-            " in " +
-            scenePath,
-        },
-      ],
+      diff: [diff],
     });
 
     this.plans.set(planId, { plan, state: "preview" });
@@ -102,6 +142,12 @@ export class ChangeCoordinator {
   }
 
   async confirmChange(input: ConfirmChangeInput): Promise<ConfirmedChange> {
+    return this.withAudit("confirm", input.projectRoot, input.planId, input, () =>
+      this.confirmChangeInternal(input),
+    );
+  }
+
+  private async confirmChangeInternal(input: ConfirmChangeInput): Promise<ConfirmedChange> {
     const parsedInput = confirmChangeInputSchema.parse(input);
     const storedPlan = await this.requirePlan(parsedInput.planId, parsedInput.projectRoot);
 
@@ -142,6 +188,12 @@ export class ChangeCoordinator {
   }
 
   async applyChange(input: ApplyChangeInput): Promise<ChangeReport> {
+    return this.withAudit("apply", input.projectRoot, input.planId, input, () =>
+      this.applyChangeInternal(input),
+    );
+  }
+
+  private async applyChangeInternal(input: ApplyChangeInput): Promise<ChangeReport> {
     const parsedInput = applyChangeInputSchema.parse(input);
     const storedPlan = await this.requirePlan(parsedInput.planId, parsedInput.projectRoot);
 
@@ -165,14 +217,22 @@ export class ChangeCoordinator {
     const report = await this.bridge.applyChange(storedPlan.plan.projectRoot, {
       planId: storedPlan.plan.planId,
       expectedRevision: storedPlan.plan.expectedRevision,
+      expectedFileRevision: storedPlan.plan.expectedFileRevision ?? undefined,
       operations: storedPlan.plan.operations,
     });
     storedPlan.state = "applied";
     storedPlan.appliedRevision = report.revision;
+    storedPlan.appliedFileRevision = report.fileRevision;
     return report;
   }
 
   async rollbackChange(input: ApplyChangeInput): Promise<RollbackReport> {
+    return this.withAudit("rollback", input.projectRoot, input.planId, input, () =>
+      this.rollbackChangeInternal(input),
+    );
+  }
+
+  private async rollbackChangeInternal(input: ApplyChangeInput): Promise<RollbackReport> {
     const parsedInput = applyChangeInputSchema.parse(input);
     const storedPlan = await this.requirePlan(parsedInput.planId, parsedInput.projectRoot);
 
@@ -204,19 +264,86 @@ export class ChangeCoordinator {
       );
     }
 
+    if (storedPlan.appliedFileRevision !== undefined) {
+      const operation = storedPlan.plan.operations[0];
+      if (operation.kind !== "script.replace_range") {
+        throw new DomainError(
+          ERROR_CODES.VALIDATION_FAILED,
+          "The applied file revision is only valid for script operations.",
+        );
+      }
+      const snapshot = await this.bridge.readScript(storedPlan.plan.projectRoot, operation.scriptPath);
+      if (snapshot.revision !== storedPlan.appliedFileRevision) {
+        throw new DomainError(
+          ERROR_CODES.REVISION_CONFLICT,
+          "The script changed after the plan was applied; refusing to overwrite it.",
+          {
+            expectedFileRevision: storedPlan.appliedFileRevision,
+            actualFileRevision: snapshot.revision,
+          },
+        );
+      }
+    }
+
     const report = await this.bridge.rollbackChange(storedPlan.plan.projectRoot, {
       planId: storedPlan.plan.planId,
       expectedRevision: storedPlan.appliedRevision,
+      expectedFileRevision: storedPlan.appliedFileRevision,
     });
     storedPlan.state = "rolled_back";
     return report;
   }
 
   async runCurrentScene(input: RunCurrentSceneInput): Promise<RunDiagnostics> {
+    return this.withAudit("run", input.projectRoot, null, input, () =>
+      this.runCurrentSceneInternal(input),
+    );
+  }
+
+  private async runCurrentSceneInternal(input: RunCurrentSceneInput): Promise<RunDiagnostics> {
     const projectRoot = await normalizeProjectRoot(input.projectRoot);
     const timeoutMs = Math.min(Math.max(input.timeoutMs ?? 10000, 100), 30000);
     await this.requireConnectedContext(projectRoot);
-    return this.bridge.runCurrentScene(projectRoot, timeoutMs);
+    const diagnostics = await this.bridge.runCurrentScene(projectRoot, timeoutMs);
+    return this.associateDiagnostics(projectRoot, diagnostics);
+  }
+
+  async previewRepairFromDiagnostic(
+    input: PreviewRepairFromDiagnosticInput,
+  ): Promise<ChangePlan> {
+    return this.withAudit("preview", input.projectRoot, null, input, async () => {
+      const parsedInput = previewRepairFromDiagnosticInputSchema.parse(input);
+      const repairHint = parsedInput.diagnostic.repairHint;
+      if (repairHint === undefined) {
+        throw new DomainError(
+          ERROR_CODES.OPERATION_REJECTED,
+          "The diagnostic does not contain a supported repair hint.",
+        );
+      }
+
+      return this.previewSceneChangeInternal({
+        projectRoot: parsedInput.projectRoot,
+        reason: repairHint.reason,
+        operation: {
+          kind: repairHint.kind,
+          parentPath: repairHint.parentPath,
+          nodeName: repairHint.nodeName,
+          nodeType: repairHint.nodeType,
+        },
+      });
+    });
+  }
+
+  async getOperationHistory(input: OperationHistoryInput): Promise<OperationHistoryReport> {
+    const parsedInput = operationHistoryInputSchema.parse(input);
+    const projectRoot = await normalizeProjectRoot(parsedInput.projectRoot);
+    return {
+      schemaVersion: "0.1",
+      projectRoot,
+      operations: this.auditLog
+        .filter((operation) => operation.projectRoot === projectRoot)
+        .slice(0, parsedInput.limit ?? 20),
+    };
   }
 
   private async requireConnectedContext(projectRoot: string): Promise<EditorContext> {
@@ -261,6 +388,85 @@ export class ChangeCoordinator {
           actualRevision: context.revision,
         },
       );
+    }
+
+    if (plan.expectedFileRevision !== null) {
+      const operation = plan.operations[0];
+      if (operation.kind !== "script.replace_range") {
+        throw new DomainError(
+          ERROR_CODES.VALIDATION_FAILED,
+          "The plan file revision is only valid for script operations.",
+        );
+      }
+      const snapshot = await this.bridge.readScript(plan.projectRoot, operation.scriptPath);
+      if (snapshot.revision !== plan.expectedFileRevision) {
+        throw new DomainError(
+          ERROR_CODES.REVISION_CONFLICT,
+          "The script changed after the plan was created.",
+          {
+            expectedFileRevision: plan.expectedFileRevision,
+            actualFileRevision: snapshot.revision,
+          },
+        );
+      }
+    }
+  }
+
+  private associateDiagnostics(projectRoot: string, diagnostics: RunDiagnostics): RunDiagnostics {
+    const recentMutation = this.auditLog.find(
+      (operation) =>
+        operation.projectRoot === projectRoot &&
+        operation.status === "succeeded" &&
+        (operation.kind === "apply" || operation.kind === "rollback"),
+    );
+    if (recentMutation === undefined) {
+      return diagnostics;
+    }
+
+    const attachOperation = (entry: DiagnosticEntry): DiagnosticEntry =>
+      entry.operationId === undefined
+        ? { ...entry, operationId: recentMutation.operationId }
+        : entry;
+    return {
+      ...diagnostics,
+      warnings: diagnostics.warnings.map(attachOperation),
+      errors: diagnostics.errors.map(attachOperation),
+    };
+  }
+
+  private async withAudit<T>(
+    kind: OperationKind,
+    projectRootInput: string,
+    planId: string | null,
+    input: unknown,
+    action: () => Promise<T>,
+  ): Promise<T> {
+    const entry: OperationAuditEntry = {
+      operationId: randomUUID(),
+      kind,
+      status: "running",
+      projectRoot: await normalizeProjectRoot(projectRootInput),
+      planId,
+      startedAt: new Date().toISOString(),
+      finishedAt: null,
+      input,
+    };
+    this.auditLog.unshift(entry);
+
+    try {
+      const output = await action();
+      entry.status = "succeeded";
+      entry.finishedAt = new Date().toISOString();
+      entry.output = output;
+      return output;
+    } catch (error) {
+      entry.status = "failed";
+      entry.finishedAt = new Date().toISOString();
+      entry.error =
+        error instanceof DomainError
+          ? { code: error.code, message: error.message, details: error.details }
+          : { code: "INTERNAL_ERROR", message: error instanceof Error ? error.message : String(error) };
+      throw error;
     }
   }
 }

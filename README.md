@@ -12,9 +12,12 @@
 
 - project_overview：读取项目 overview 和编辑器连接状态，并基于本地只读索引统计真实的场景、脚本、资源和设置文件数量（编辑器离线时同样可用）。
 - editor_context：读取当前项目、场景、选中节点、打开资源、运行状态和诊断。
+- preview_diagnostic_repair：仅根据诊断中明确的受限 repair hint 生成下一份 preview plan。
 - operation_history：查询最近的 preview、confirm、apply、rollback、run 操作及其输入、输出、revision 和错误证据。
 - search_project：统一的只读项目搜索，覆盖场景、节点、脚本、资源、信号连接和输入映射。场景/节点/脚本/资源优先由连接的 Godot 编辑器返回（编辑中场景的实时状态），编辑器离线时自动回退到本地只读索引；信号与输入结果始终来自本地索引。每条结果带 `source` 标记来源。
+- find_references：反向引用查找，回答“哪些场景/资源引用了这个脚本、贴图或资源”。支持按 res:// 路径或 uid:// 标识匹配，能解析 Godot 4.4+ 中省略路径、只写 uid 的引用（纯本地只读）。
 - preview_scene_change：生成一个受限 scene.create_node 变更的稳定计划和 diff。
+- preview_scene_change：也支持受限 script.replace_range preview，返回文件 revision 和行级 before/after diff；apply 使用临时文件原子替换，rollback 恢复原始内容。
 - confirm_scene_change：检查 expected revision 并确认计划。
 - apply_scene_change：只把已确认且 revision 未过期的计划交给 Godot UndoRedo。
 - rollback_scene_change：只回滚仍处于最新 revision 的已应用计划。

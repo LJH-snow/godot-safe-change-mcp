@@ -15,6 +15,7 @@ import type {
   RunDiagnostics,
   SearchProjectReport,
   SearchProjectRequest,
+  ScriptSnapshot,
 } from "../src/domain/contracts.js";
 import type { GodotBridge } from "../src/infrastructure/godot-bridge.js";
 import { HttpGodotBridge } from "../src/infrastructure/http-godot-bridge.js";
@@ -47,7 +48,21 @@ class FakeGodotBridge implements GodotBridge {
   applied: ApplyChangeRequest[] = [];
   rolledBack: RollbackRequest[] = [];
   searchCalls: SearchProjectRequest[] = [];
+  scriptSnapshot: ScriptSnapshot = {
+    path: "res://diagnostic_scene.gd",
+    revision: "script-revision-1",
+    content: "extends Node2D\n\nfunc _ready() -> void:\n    pass\n",
+  };
   runCalls = 0;
+  runDiagnosticsResult: RunDiagnostics = {
+    schemaVersion: "0.2",
+    runId: "run-1",
+    status: "stopped",
+    scenePath: "res://main.tscn",
+    output: ["scene started", "scene stopped"],
+    warnings: [],
+    errors: [],
+  };
 
   async getContext(): Promise<EditorContext> {
     return this.context;
@@ -68,15 +83,7 @@ class FakeGodotBridge implements GodotBridge {
 
   async runCurrentScene(): Promise<RunDiagnostics> {
     this.runCalls += 1;
-    return {
-      schemaVersion: "0.2",
-      runId: "run-1",
-      status: "stopped",
-      scenePath: "res://main.tscn",
-      output: ["scene started", "scene stopped"],
-      warnings: [],
-      errors: [],
-    };
+    return this.runDiagnosticsResult;
   }
 
   async rollbackChange(_projectRoot: string, request: RollbackRequest): Promise<RollbackReport> {
@@ -109,6 +116,10 @@ class FakeGodotBridge implements GodotBridge {
         },
       ],
     };
+  }
+
+  async readScript(_projectRoot: string, scriptPath: string): Promise<ScriptSnapshot> {
+    return { ...this.scriptSnapshot, path: scriptPath };
   }
 }
 
@@ -263,6 +274,124 @@ describe("ChangeCoordinator", () => {
     );
     assert.equal(bridge.rolledBack.length, 0);
   });
+
+  test("records operation IDs and evidence for the full change lifecycle", async () => {
+    const bridge = new FakeGodotBridge();
+    const coordinator = new ChangeCoordinator(bridge);
+    const plan = await coordinator.previewSceneChange({
+      projectRoot,
+      reason: "Audit a marker node lifecycle.",
+      operation: {
+        kind: "scene.create_node",
+        parentPath: ".",
+        nodeName: "AuditMarker",
+        nodeType: "Node2D",
+      },
+    });
+
+    await coordinator.confirmChange({
+      planId: plan.planId,
+      projectRoot,
+      expectedRevision: plan.expectedRevision,
+    });
+    await coordinator.applyChange({ planId: plan.planId, projectRoot });
+    await coordinator.rollbackChange({ planId: plan.planId, projectRoot });
+    await coordinator.runCurrentScene({ projectRoot, timeoutMs: 1000 });
+
+    const history = await coordinator.getOperationHistory({ projectRoot, limit: 10 });
+    assert.deepEqual(
+      history.operations.map((operation) => operation.kind),
+      ["run", "rollback", "apply", "confirm", "preview"],
+    );
+    assert.equal(new Set(history.operations.map((operation) => operation.operationId)).size, 5);
+    assert.equal(
+      (history.operations[1]?.output as { status?: string } | undefined)?.status,
+      "rolled_back",
+    );
+    assert.equal(
+      (history.operations[2]?.output as { status?: string } | undefined)?.status,
+      "applied",
+    );
+  });
+
+  test("associates diagnostics with the latest change and previews an explicit repair hint", async () => {
+    const bridge = new FakeGodotBridge();
+    const coordinator = new ChangeCoordinator(bridge);
+    const plan = await coordinator.previewSceneChange({
+      projectRoot,
+      reason: "Add a marker node before running the diagnostic fixture.",
+      operation: {
+        kind: "scene.create_node",
+        parentPath: ".",
+        nodeName: "DiagnosticMarker",
+        nodeType: "Node2D",
+      },
+    });
+
+    await coordinator.confirmChange({
+      planId: plan.planId,
+      projectRoot,
+      expectedRevision: plan.expectedRevision,
+    });
+    await coordinator.applyChange({ planId: plan.planId, projectRoot });
+    bridge.runDiagnosticsResult = {
+      schemaVersion: "0.2",
+      runId: "run-diagnostic",
+      status: "stopped",
+      scenePath: "res://main.tscn",
+      output: [],
+      warnings: [],
+      errors: [
+        {
+          message: "The diagnostic marker is missing.",
+          source: "res://diagnostic_scene.gd",
+          line: 7,
+          nodePath: ".",
+          repairHint: {
+            kind: "scene.create_node",
+            parentPath: ".",
+            nodeName: "RepairMarker",
+            nodeType: "Node2D",
+            reason: "Repair the missing diagnostic marker.",
+          },
+        },
+      ],
+    };
+
+    const diagnostics = await coordinator.runCurrentScene({ projectRoot, timeoutMs: 1000 });
+    assert.equal(diagnostics.errors[0]?.operationId !== undefined, true);
+    assert.equal(diagnostics.errors[0]?.source, "res://diagnostic_scene.gd");
+    assert.equal(diagnostics.errors[0]?.line, 7);
+
+    const repairPlan = await coordinator.previewRepairFromDiagnostic({
+      projectRoot,
+      diagnostic: diagnostics.errors[0]!,
+    });
+    assert.equal(repairPlan.operations[0]?.kind, "scene.create_node");
+    assert.equal(repairPlan.operations[0]?.nodeName, "RepairMarker");
+  });
+
+  test("previews a bounded script replacement without applying it", async () => {
+    const bridge = new FakeGodotBridge();
+    const coordinator = new ChangeCoordinator(bridge);
+
+    const plan = await coordinator.previewSceneChange({
+      projectRoot,
+      reason: "Update the fixture ready handler.",
+      operation: {
+        kind: "script.replace_range",
+        scriptPath: "res://diagnostic_scene.gd",
+        startLine: 1,
+        endLine: 1,
+        replacement: "extends Node2D\n",
+      },
+    });
+
+    assert.equal(plan.expectedFileRevision, "script-revision-1");
+    assert.equal(plan.operations[0]?.kind, "script.replace_range");
+    assert.match(plan.diff[0]?.summary ?? "", /diagnostic_scene.gd/);
+    assert.equal(bridge.applied.length, 0);
+  });
 });
 
 test("normalizes a symlinked project root before bridge requests", async () => {
@@ -359,6 +488,20 @@ describe("HttpGodotBridge", () => {
         return;
       }
 
+      if (request.url === "/v1/scripts/read" && request.method === "POST") {
+        response.end(
+          JSON.stringify({
+            ok: true,
+            snapshot: {
+              path: body.scriptPath,
+              revision: "script-revision-1",
+              content: "extends Node2D\\n\\nfunc _ready() -> void:\\n    pass\\n",
+            },
+          }),
+        );
+        return;
+      }
+
       if (request.url === "/v1/run/current" && request.method === "POST") {
         response.end(
           JSON.stringify({
@@ -441,6 +584,9 @@ describe("HttpGodotBridge", () => {
       maxResults: 10,
     });
     assert.equal(search.results[0]?.kind, "script");
+
+    const snapshot = await bridge.readScript(projectRoot, "res://diagnostic_scene.gd");
+    assert.equal(snapshot.revision, "script-revision-1");
   });
 
   test("waits for the run status endpoint before returning diagnostics", async () => {
@@ -465,8 +611,11 @@ test("the Godot plugin exposes only the bounded vertical-link routes", async () 
   assert.match(source, /\/v1\/changes\/apply/);
   assert.match(source, /\/v1\/changes\/rollback/);
   assert.match(source, /\/v1\/search/);
+  assert.match(source, /\/v1\/scripts\/read/);
+  assert.match(source, /FileAccess\.READ/);
   assert.match(source, /\/v1\/run\/current/);
   assert.match(source, /\.undo\(\)/);
   assert.match(source, /properties/);
-  assert.doesNotMatch(source, /execute_gdscript|OS\.execute|FileAccess/);
+  assert.doesNotMatch(source, /execute_gdscript|OS\.execute/);
+  assert.match(source, /_is_safe_script_path/);
 });

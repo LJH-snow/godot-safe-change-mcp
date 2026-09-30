@@ -171,7 +171,15 @@ npm run build
 
 2026-09-30 已增加并验证 rollback_scene_change：只允许回滚最新已应用计划，使用当前场景 history 的底层 UndoRedo，并拒绝 revision 已变化的回滚请求。
 
+2026-09-30 已增加并验证 search_project 和增强 editor_context：可搜索场景、节点、脚本、资源、signal/input，并返回当前场景树和安全属性。
+
+2026-09-30 已增加 operation_history：为 preview、confirm、apply、rollback、run 记录 operation ID、输入、输出、revision 和错误证据，并提供只读查询工具。
+
+2026-09-30 已完成诊断关联：Godot warning/error 可携带 source、line、NodePath 和受限 repair hint；MCP 会关联最近 mutation operation，并生成下一份 preview plan。
+
 当前刻意未开放任意 GDScript、shell、Python、文件写入、批量操作、脚本修改和项目设置修改。
+
+2026-09-30 已完成受限 script.replace_range：读取 .gd 快照、校验行范围和文件 revision，返回 before/after diff，并通过临时文件原子替换与原始内容 rollback。
 
 ## 7. 待决定问题
 

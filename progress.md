@@ -1,5 +1,38 @@
 # 进度记录
 
+## 2026-09-30 script apply verification
+
+- script.replace_range 已支持受限 .gd 路径、1-based 行范围、expectedFileRevision 和 before/after diff。
+- Godot 插件使用临时文件和 DirAccess.rename_absolute 原子替换；rollback 恢复原始内容并返回 fileRevision。
+- 真实 MCP + Godot 4.7.2 验证通过：文件 apply 后内容变化，rollback 后恢复原文；无任意 GDScript、shell 或不受限文件写入。
+
+## 2026-09-30 script preview
+
+- 增加受限 script.replace_range 操作，只允许 res:// 下的 .gd 文件和 1-based 行范围。
+- Godot EditorPlugin 新增只读 /v1/scripts/read，返回内容和文件 revision；MCP preview 返回 before/after 行级 diff。
+- 真实 Godot 4.7.2 + MCP 验证通过：diagnostic_scene.gd preview 返回 expectedFileRevision 356683845，未产生文件写入。
+- 原子 apply、revision-guarded rollback 留在下一轮，避免在未完成写入验证前扩大风险。
+
+## 2026-09-30 diagnostic repair verification
+
+- 诊断条目支持 source、line、NodePath、最近 mutation operationId 和受限 repairHint。
+- 新增 preview_diagnostic_repair，只接受明确的 scene.create_node hint，不猜测、不直接执行修复。
+- 真实 MCP + Godot 4.7.2 验证通过：warning 关联到 res://diagnostic_scene.gd:7 和 NodePath .，并生成 RepairMarker preview；operation_history 同时返回完整生命周期。
+
+## 2026-09-30 operation audit
+
+- 为 preview、confirm、apply、rollback、run 增加内存审计记录和 UUID operation ID。
+- 审计记录保存输入、输出、项目根、planId、状态、时间戳和稳定错误信息。
+- 新增只读 operation_history MCP 工具，支持按项目查询最近操作和验证证据。
+- 自动化回归通过：20/20 tests、typecheck、build；诊断到节点/脚本行的关联仍是下一阶段。
+
+## 2026-09-30 search/context verification
+
+- 中断前已存在并保留 project-index 实现，覆盖场景、节点、脚本、资源、signal、input、截断和符号链接安全。
+- 完成 GDScript EditorPlugin 场景树索引、选中节点安全属性和 /v1/search 路由。
+- 真实 MCP + Godot 4.7.2 验证通过：node Main、script diagnostic、scene main、resource theme 均返回结果。
+- editor_context 返回 connected、完整节点数量和属性结构；未增加任意脚本执行或写文件能力。
+
 ## 2026-09-30 rollback verification
 
 - 新增 rollback_scene_change、回滚契约、revision 守卫和结构化 rollback report。

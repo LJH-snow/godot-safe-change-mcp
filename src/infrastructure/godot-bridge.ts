@@ -9,6 +9,7 @@ import type {
   RunDiagnostics,
   SearchProjectReport,
   SearchProjectRequest,
+  ScriptSnapshot,
 } from "../domain/contracts.js";
 import { ERROR_CODES, DomainError } from "../domain/errors.js";
 
@@ -17,6 +18,7 @@ export interface GodotBridge {
   applyChange(projectRoot: string, request: ApplyChangeRequest): Promise<ChangeReport>;
   rollbackChange(projectRoot: string, request: RollbackRequest): Promise<RollbackReport>;
   searchProject(projectRoot: string, request: SearchProjectRequest): Promise<SearchProjectReport>;
+  readScript(projectRoot: string, scriptPath: string): Promise<ScriptSnapshot>;
   runCurrentScene(projectRoot: string, timeoutMs: number): Promise<RunDiagnostics>;
 }
 
@@ -58,6 +60,13 @@ export class PendingGodotBridge implements GodotBridge {
   }
 
   async searchProject(): Promise<SearchProjectReport> {
+    throw new DomainError(
+      ERROR_CODES.EDITOR_UNAVAILABLE,
+      "The Godot EditorPlugin bridge is not connected.",
+    );
+  }
+
+  async readScript(): Promise<ScriptSnapshot> {
     throw new DomainError(
       ERROR_CODES.EDITOR_UNAVAILABLE,
       "The Godot EditorPlugin bridge is not connected.",

@@ -25,8 +25,27 @@ export const createNodeOperationSchema = z
   })
   .strict();
 
+export const scriptReplaceRangeSchema = z
+  .object({
+    kind: z.literal("script.replace_range"),
+    scriptPath: z
+      .string()
+      .min(1)
+      .max(256)
+      .regex(/^res:\/\/[^\\0]+\.gd$/)
+      .refine((value) => !value.includes(".."), "scriptPath must not contain parent traversal."),
+    startLine: z.number().int().min(1),
+    endLine: z.number().int().min(1),
+    replacement: z.string().max(100000),
+  })
+  .strict()
+  .refine((value) => value.startLine <= value.endLine, {
+    message: "startLine must be less than or equal to endLine.",
+  });
+
 export const changeOperationSchema = z.discriminatedUnion("kind", [
   createNodeOperationSchema,
+  scriptReplaceRangeSchema,
 ]);
 
 export const previewSceneChangeInputSchema = z.object({
@@ -46,17 +65,33 @@ export const applyChangeInputSchema = z.object({
   planId: z.string().min(1),
 });
 
-export const changeDiffSchema = z.object({
+export const sceneChangeDiffSchema = z.object({
   kind: z.literal("scene.add_node"),
   target: z.string().min(1),
   summary: z.string().min(1),
 });
+
+export const scriptChangeDiffSchema = z.object({
+  kind: z.literal("script.replace_range"),
+  target: z.string().min(1),
+  summary: z.string().min(1),
+  startLine: z.number().int().min(1),
+  endLine: z.number().int().min(1),
+  before: z.string(),
+  after: z.string(),
+});
+
+export const changeDiffSchema = z.discriminatedUnion("kind", [
+  sceneChangeDiffSchema,
+  scriptChangeDiffSchema,
+]);
 
 export const changePlanSchema = z.object({
   schemaVersion: z.literal("0.2"),
   planId: z.string().min(1),
   projectRoot: z.string().min(1),
   expectedRevision: z.string().min(1),
+  expectedFileRevision: z.string().nullable(),
   mode: z.literal("preview"),
   reason: z.string().min(1),
   operations: z.array(changeOperationSchema).min(1),
