@@ -39,6 +39,90 @@ export interface LocalSearchOutcome {
   truncated: boolean;
 }
 
+interface CacheEntry {
+  files: IndexedFile[];
+  createdAt: number;
+}
+
+/**
+ * Process-wide TTL cache for the local project file walk. Repeated searches
+ * and overview requests within the TTL reuse the same walk result instead of
+ * rescanning the project directory.
+ */
+export class ProjectIndexCache {
+  private readonly entries = new Map<string, CacheEntry>();
+
+  constructor(
+    private readonly ttlMs = 30_000,
+    private readonly maxEntries = 8,
+  ) {}
+
+  async getOrScan(projectRoot: string): Promise<IndexedFile[]> {
+    const hit = this.entries.get(projectRoot);
+    if (hit !== undefined && Date.now() - hit.createdAt < this.ttlMs) {
+      return hit.files;
+    }
+    const files = await walkProjectRoot(projectRoot);
+    if (this.entries.size >= this.maxEntries) {
+      let oldestKey: string | null = null;
+      let oldestAt = Number.POSITIVE_INFINITY;
+      for (const [key, entry] of this.entries) {
+        if (entry.createdAt < oldestAt) {
+          oldestAt = entry.createdAt;
+          oldestKey = key;
+        }
+      }
+      if (oldestKey !== null) {
+        this.entries.delete(oldestKey);
+      }
+    }
+    this.entries.set(projectRoot, { files, createdAt: Date.now() });
+    return files;
+  }
+
+  invalidate(projectRoot?: string): void {
+    if (projectRoot === undefined) {
+      this.entries.clear();
+      return;
+    }
+    this.entries.delete(projectRoot);
+  }
+}
+
+/**
+ * Shared between the overview and search services so both benefit from the
+ * same cached walk of a project directory.
+ */
+export const sharedProjectIndexCache = new ProjectIndexCache();
+
+export interface ProjectFileCounts {
+  scenes: number;
+  scripts: number;
+  resources: number;
+  settings: number;
+}
+
+export async function countProjectFiles(
+  projectRoot: string,
+  cache: ProjectIndexCache = sharedProjectIndexCache,
+): Promise<ProjectFileCounts> {
+  const files = await cache.getOrScan(projectRoot);
+  const counts: ProjectFileCounts = { scenes: 0, scripts: 0, resources: 0, settings: 0 };
+  for (const file of files) {
+    if (file.extension === ".tscn" || file.extension === ".scn") {
+      counts.scenes += 1;
+    } else if (file.extension === ".gd" || file.extension === ".cs") {
+      counts.scripts += 1;
+    } else if (KIND_EXTENSIONS.resource?.has(file.extension)) {
+      counts.resources += 1;
+    }
+    if (file.relativePath === "project.godot") {
+      counts.settings = 1;
+    }
+  }
+  return counts;
+}
+
 /**
  * Local, read-only index of the project on disk. Used as the offline fallback
  * for editor-backed search and as the only source for signal and input kinds,
@@ -46,7 +130,7 @@ export interface LocalSearchOutcome {
  */
 export async function searchProjectIndex(
   projectRoot: string,
-  input: { query: string; kinds?: SearchProjectKind[]; maxResults?: number },
+  input: { query: string; kinds?: SearchProjectKind[]; maxResults?: number; cache?: ProjectIndexCache },
 ): Promise<LocalSearchOutcome> {
   const query = input.query.trim().toLowerCase();
   if (query.length === 0) {
@@ -77,7 +161,7 @@ export async function searchProjectIndex(
   }
 
   if (!isFull() && kinds.some((kind) => kind !== "input")) {
-    const files = await walkProjectRoot(projectRoot);
+    const files = await (input.cache?.getOrScan(projectRoot) ?? walkProjectRoot(projectRoot));
     for (const file of files) {
       if (isFull()) {
         break;
@@ -197,7 +281,13 @@ async function walkProjectRoot(projectRoot: string): Promise<IndexedFile[]> {
   const queue: string[] = [projectRoot];
   while (queue.length > 0) {
     const directory = queue.pop() as string;
-    const entries = await readdir(directory, { withFileTypes: true });
+    let entries;
+    try {
+      entries = await readdir(directory, { withFileTypes: true });
+    } catch {
+      // Unreadable directories are skipped rather than failing the whole scan.
+      continue;
+    }
     for (const entry of entries) {
       // Symlinks are skipped so the walk can never leave the project root.
       if (entry.isSymbolicLink()) {
@@ -218,7 +308,10 @@ async function walkProjectRoot(projectRoot: string): Promise<IndexedFile[]> {
       if (!isInsideRoot(projectRoot, absolutePath)) {
         continue;
       }
-      const fileStat = await stat(absolutePath);
+      const fileStat = await stat(absolutePath).catch(() => null);
+      if (fileStat === null) {
+        continue;
+      }
       files.push({
         relativePath: path.relative(projectRoot, absolutePath).split(path.sep).join("/"),
         absolutePath,

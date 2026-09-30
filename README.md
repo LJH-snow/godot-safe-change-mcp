@@ -10,8 +10,9 @@
 
 ## 已实现能力
 
-- project_overview：读取项目 overview 和编辑器连接状态。
+- project_overview：读取项目 overview 和编辑器连接状态，并基于本地只读索引统计真实的场景、脚本、资源和设置文件数量（编辑器离线时同样可用）。
 - editor_context：读取当前项目、场景、选中节点、打开资源、运行状态和诊断。
+- operation_history：查询最近的 preview、confirm、apply、rollback、run 操作及其输入、输出、revision 和错误证据。
 - search_project：统一的只读项目搜索，覆盖场景、节点、脚本、资源、信号连接和输入映射。场景/节点/脚本/资源优先由连接的 Godot 编辑器返回（编辑中场景的实时状态），编辑器离线时自动回退到本地只读索引；信号与输入结果始终来自本地索引。每条结果带 `source` 标记来源。
 - preview_scene_change：生成一个受限 scene.create_node 变更的稳定计划和 diff。
 - confirm_scene_change：检查 expected revision 并确认计划。

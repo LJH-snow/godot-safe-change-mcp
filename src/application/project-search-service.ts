@@ -7,7 +7,7 @@ import {
 } from "../domain/contracts.js";
 import { DomainError, ERROR_CODES } from "../domain/errors.js";
 import type { GodotBridge } from "../infrastructure/godot-bridge.js";
-import { searchProjectIndex } from "../infrastructure/project-index.js";
+import { searchProjectIndex, sharedProjectIndexCache } from "../infrastructure/project-index.js";
 import { normalizeProjectRoot } from "../infrastructure/project-root.js";
 
 export interface ProjectSearchService {
@@ -44,6 +44,7 @@ export class LocalProjectSearchService implements ProjectSearchService {
       query: parsedInput.query,
       kinds: localOnlyKinds,
       maxResults,
+      cache: sharedProjectIndexCache,
     });
 
     if (bridgeKinds.length === 0) {
@@ -91,6 +92,7 @@ export class LocalProjectSearchService implements ProjectSearchService {
         query: parsedInput.query,
         kinds,
         maxResults,
+        cache: sharedProjectIndexCache,
       });
       return {
         schemaVersion: "0.3",

@@ -10,7 +10,7 @@ The first safe vertical workflow is now fully connected:
 
 ## Implemented capabilities
 
-- project_overview: read the project overview and editor connection status.
+- project_overview: read the project overview and editor connection status, with real scene, script, resource and settings file counts from the local read-only index (also available while the editor is offline).
 - editor_context: read the current project, scene, selected nodes, open resources, run state and diagnostics.
 - search_project: unified read-only project search covering scenes, nodes, scripts, resources, signal connections and input actions. Scene, node, script and resource results come from the connected Godot editor when available (live state of the edited scene) and fall back to a local read-only index otherwise; signal and input results always come from the local index. Every result is tagged with its `source`.
 - preview_scene_change: produce a stable plan and diff for a restricted scene.create_node change.

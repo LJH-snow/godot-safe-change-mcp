@@ -3,8 +3,9 @@ import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { after, before, describe, test } from "node:test";
-import { searchProjectIndex } from "../src/infrastructure/project-index.js";
+import { searchProjectIndex, ProjectIndexCache, countProjectFiles } from "../src/infrastructure/project-index.js";
 import { LocalProjectSearchService } from "../src/application/project-search-service.js";
+import { LocalProjectService } from "../src/application/project-service.js";
 import { DomainError, ERROR_CODES } from "../src/domain/errors.js";
 import type { SearchProjectReport, SearchProjectRequest } from "../src/domain/contracts.js";
 import type { GodotBridge } from "../src/infrastructure/godot-bridge.js";
@@ -169,6 +170,97 @@ class SearchBridgeStub implements GodotBridge {
     throw new Error("not used");
   }
 }
+
+describe("ProjectIndexCache", () => {
+  test("reuses the walk result within the TTL and after invalidation rescans", async () => {
+    const cache = new ProjectIndexCache();
+    const first = await cache.getOrScan(fixtureRoot);
+    const second = await cache.getOrScan(fixtureRoot);
+    assert.equal(first, second);
+
+    cache.invalidate(fixtureRoot);
+    const third = await cache.getOrScan(fixtureRoot);
+    assert.notEqual(first, third);
+  });
+
+  test("expires entries after the TTL", async () => {
+    const cache = new ProjectIndexCache(5);
+    const first = await cache.getOrScan(fixtureRoot);
+    await new Promise((resolve) => setTimeout(resolve, 15));
+    const second = await cache.getOrScan(fixtureRoot);
+    assert.notEqual(first, second);
+  });
+
+  test("evicts the oldest entry beyond the capacity", async () => {
+    const cache = new ProjectIndexCache(60_000, 1);
+    const scenesOnly = await cache.getOrScan(path.join(fixtureRoot, "scenes"));
+    await cache.getOrScan(path.join(fixtureRoot, "scripts"));
+    const afterEviction = await cache.getOrScan(path.join(fixtureRoot, "scenes"));
+    assert.notEqual(scenesOnly, afterEviction);
+  });
+
+  test("feeds identical results to searches that pass the cache", async () => {
+    const cache = new ProjectIndexCache();
+    const uncached = await searchProjectIndex(fixtureRoot, { query: "pressed", kinds: ["signal"] });
+    const cached = await searchProjectIndex(fixtureRoot, {
+      query: "pressed",
+      kinds: ["signal"],
+      cache,
+    });
+    assert.deepEqual(cached.results, uncached.results);
+  });
+
+  test("counts real project files by kind", async () => {
+    const counts = await countProjectFiles(fixtureRoot, new ProjectIndexCache());
+    assert.deepEqual(counts, { scenes: 1, scripts: 1, resources: 1, settings: 1 });
+  });
+});
+
+class OverviewBridgeStub implements GodotBridge {
+  async getContext(projectRoot: string) {
+    return {
+      schemaVersion: "0.2" as const,
+      projectRoot,
+      connection: "disconnected" as const,
+      revision: null,
+      project: { name: "", path: projectRoot },
+      currentScene: { path: null, rootName: null, rootType: null, nodes: [] },
+      selection: [],
+      openResources: [],
+      run: { status: "idle" as const, scenePath: null, runId: null },
+      diagnostics: { output: [], warnings: [], errors: [] },
+    };
+  }
+
+  async applyChange(): Promise<never> {
+    throw new Error("not used");
+  }
+
+  async rollbackChange(): Promise<never> {
+    throw new Error("not used");
+  }
+
+  async searchProject(): Promise<never> {
+    throw new Error("not used");
+  }
+
+  async runCurrentScene(): Promise<never> {
+    throw new Error("not used");
+  }
+}
+
+describe("LocalProjectService.getOverview", () => {
+  test("reports real file counts from the local index while the editor is offline", async () => {
+    const service = new LocalProjectService(new OverviewBridgeStub());
+    const overview = await service.getOverview({ projectRoot: fixtureRoot });
+
+    assert.equal(overview.connection, "disconnected");
+    assert.deepEqual(overview.counts, { scenes: 1, scripts: 1, resources: 1, settings: 1 });
+    assert.ok(
+      overview.notes.some((note) => note.includes("local read-only index scan")),
+    );
+  });
+});
 
 describe("LocalProjectSearchService", () => {
   test("serves editor-backed kinds through the bridge and tags results", async () => {
