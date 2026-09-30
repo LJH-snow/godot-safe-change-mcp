@@ -15,8 +15,8 @@ export const nodeNameSchema = z
   .regex(/^[A-Za-z_][A-Za-z0-9_]*$/);
 
 const relativeNodePathPattern = /^(?:\.|[A-Za-z_][A-Za-z0-9_]*(?:\/[A-Za-z_][A-Za-z0-9_]*)*)$/;
-const projectRelativePathPattern = /^res:\/\/(?!\/)(?:[^\/\0]+\/)*[^\/\0]+$/;
-const resourceIdentifierPattern = /^(?:uid:\/\/[A-Za-z0-9_-]+|res:\/\/(?!\/)(?:[^\/\0]+\/)*[^\/\0]+)$/;
+const projectRelativePathPattern = /^res:\/\/(?!\/)(?:[^\/\\\0]+\/)*[^\/\\\0]+$/;
+const resourceIdentifierPattern = /^(?:uid:\/\/[A-Za-z0-9_-]+|res:\/\/(?!\/)(?:[^\/\\\0]+\/)*[^\/\\\0]+)$/;
 
 export const nodePathSchema = z
   .string()
@@ -30,7 +30,10 @@ const scriptPathSchema = z
   .max(256)
   .regex(projectRelativePathPattern, "scriptPath must be a project-relative path.")
   .regex(/\.gd$/, "scriptPath must target a GDScript file.")
-  .refine((value) => !value.includes(".."), "scriptPath must not contain parent traversal.");
+  .refine(
+    (value) => value.split("/").every((segment) => segment !== "." && segment !== ".."),
+    "scriptPath must not contain traversal segments.",
+  );
 
 const resourcePathSchema = z
   .string()
@@ -38,14 +41,20 @@ const resourcePathSchema = z
   .max(256)
   .regex(projectRelativePathPattern, "resourcePath must be a project-relative path.")
   .regex(/\.(tscn|tres|res)$/, "resourcePath must target a supported Godot resource.")
-  .refine((value) => !value.includes(".."), "resourcePath must not contain parent traversal.");
+  .refine(
+    (value) => value.split("/").every((segment) => segment !== "." && segment !== ".."),
+    "resourcePath must not contain traversal segments.",
+  );
 
 const resourceIdentifierSchema = z
   .string()
   .min(1)
   .max(300)
   .regex(resourceIdentifierPattern, "Resource references must use safe res:// or uid:// identifiers.")
-  .refine((value) => !value.includes(".."), "Resource references must not contain parent traversal.");
+  .refine(
+    (value) => value.startsWith("uid://") || value.split("/").every((segment) => segment !== "." && segment !== ".."),
+    "Resource references must not contain traversal segments.",
+  );
 
 const finiteNumberSchema = z.number().finite();
 const positionSchema = z

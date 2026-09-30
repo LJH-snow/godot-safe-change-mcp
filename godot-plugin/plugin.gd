@@ -140,7 +140,7 @@ func _safe_repair_hint(value: Dictionary) -> Dictionary:
     var reason := String(value.get("reason", ""))
     if String(value.get("kind", "")) != "scene.create_node":
         return {}
-    if not ALLOWED_NODE_TYPES.has(node_type) or parent_path == "" or parent_path.begins_with("/"):
+    if not ALLOWED_NODE_TYPES.has(node_type) or not _is_safe_node_path(parent_path):
         return {}
     var name_regex := RegEx.new()
     name_regex.compile("^[A-Za-z_][A-Za-z0-9_]*$")
@@ -201,6 +201,8 @@ func _is_safe_node_path(node_path: String) -> bool:
     return true
 
 func _is_safe_resource_identifier(identifier: String) -> bool:
+    if identifier.length() < 1 or identifier.length() > 300:
+        return false
     if identifier.begins_with("uid://"):
         var uid_regex := RegEx.new()
         uid_regex.compile("^uid://[A-Za-z0-9_-]+$")
@@ -398,6 +400,8 @@ func _scene_node(scene_root: Node, node_path: String) -> Node:
 
 func _safe_node_properties(node: Node) -> Dictionary:
     var properties := {}
+    var script_resource: Variant = node.get_script()
+    properties["scriptPath"] = String(script_resource.resource_path) if script_resource is Script and String(script_resource.resource_path) != "" else null
     if node is CanvasItem:
         properties["visible"] = node.visible
     if node is Node2D:
@@ -780,8 +784,8 @@ func _apply_resource_change(request_body: Dictionary, scene_root: Node, scene_pa
     var to_path := String(operation.get("to", ""))
     if not _is_safe_resource_path(resource_path):
         return _failure("UNSAFE_OPERATION", "Only project-relative scene/resource files can be modified.")
-    if not (from_path.begins_with("res://") or from_path.begins_with("uid://")) or not (to_path.begins_with("res://") or to_path.begins_with("uid://")):
-        return _failure("VALIDATION_FAILED", "Resource references must use res:// or uid:// identifiers.")
+    if not _is_safe_resource_identifier(from_path) or not _is_safe_resource_identifier(to_path):
+        return _failure("VALIDATION_FAILED", "Resource references must use safe res:// or uid:// identifiers.")
 
     var snapshot_result := _read_resource_snapshot(resource_path)
     if snapshot_result.is_empty() or not snapshot_result.get("ok", false):
@@ -800,15 +804,14 @@ func _apply_resource_change(request_body: Dictionary, scene_root: Node, scene_pa
         return write_error
 
     var file_revision := str(next_content.hash())
+    _clear_scene_action_state()
+    _clear_file_action_state()
     last_applied_plan_id = plan_id
     last_applied_revision = _current_revision(scene_root, scene_path)
     last_applied_kind = "resource"
     last_resource_path = resource_path
     last_resource_original_content = content
     last_resource_applied_revision = file_revision
-    last_script_path = ""
-    last_script_original_content = ""
-    last_script_applied_revision = ""
     return _success("report", {
         "schemaVersion": "0.2",
         "planId": plan_id,
@@ -822,9 +825,12 @@ func _apply_resource_change(request_body: Dictionary, scene_root: Node, scene_pa
 func _apply_input_action_change(request_body: Dictionary, scene_root: Node, scene_path: String) -> Dictionary:
     var operation: Dictionary = request_body["operations"][0]
     var action_name := String(operation.get("actionName", ""))
-    var physical_keycode := int(operation.get("physicalKeycode", 0))
-    if not _is_safe_input_action_name(action_name) or physical_keycode < 1:
+    var physical_keycode_value: Variant = operation.get("physicalKeycode")
+    if not _is_safe_input_action_name(action_name) or not _is_valid_integer(physical_keycode_value, 1.0, 10000.0):
         return _failure("VALIDATION_FAILED", "The input action name or physical keycode is invalid.")
+    var physical_keycode := int(physical_keycode_value)
+    if operation.has("deadzone") and not _is_valid_number(operation["deadzone"], 0.0, 1.0):
+        return _failure("VALIDATION_FAILED", "deadzone must be a finite number from 0 to 1.")
 
     var expected_file_revision := String(request_body.get("expectedFileRevision", ""))
     var actual_file_revision := _project_settings_revision()
@@ -855,7 +861,10 @@ func _apply_input_action_change(request_body: Dictionary, scene_root: Node, scen
     var key_event := InputEventKey.new()
     key_event.physical_keycode = physical_keycode
     key_event.pressed = true
-    var deadzone := float(operation.get("deadzone", next_setting.get("deadzone", 0.2)))
+    var deadzone_value: Variant = operation.get("deadzone", next_setting.get("deadzone", 0.2))
+    if not _is_valid_number(deadzone_value, 0.0, 1.0):
+        return _failure("VALIDATION_FAILED", "deadzone must be a finite number from 0 to 1.")
+    var deadzone := float(deadzone_value)
     next_setting["deadzone"] = deadzone
     existing_events.append(key_event)
     next_setting["events"] = existing_events
@@ -872,18 +881,14 @@ func _apply_input_action_change(request_body: Dictionary, scene_root: Node, scen
     var plan_id := String(request_body.get("planId", ""))
     var applied_revision := _current_revision(scene_root, scene_path)
     var applied_file_revision := _project_settings_revision()
+    _clear_scene_action_state()
+    _clear_file_action_state()
     last_applied_plan_id = plan_id
     last_applied_revision = applied_revision
     last_applied_kind = "input"
     last_input_action_name = action_name
     last_input_action_original_setting = original_setting
     last_input_action_applied_revision = applied_file_revision
-    last_script_path = ""
-    last_script_original_content = ""
-    last_script_applied_revision = ""
-    last_resource_path = ""
-    last_resource_original_content = ""
-    last_resource_applied_revision = ""
     return _success("report", {
         "schemaVersion": "0.2",
         "planId": plan_id,
@@ -1015,6 +1020,8 @@ func _apply_script_change(request_body: Dictionary, scene_root: Node, scene_path
         return write_error
 
     var file_revision := str(next_content.hash())
+    _clear_scene_action_state()
+    _clear_file_action_state()
     last_applied_plan_id = plan_id
     last_applied_revision = _current_revision(scene_root, scene_path)
     last_applied_kind = "script"
@@ -1158,12 +1165,7 @@ func _rollback_script_change(request_body: Dictionary, scene_root: Node, scene_p
 
     var rollback_revision := _current_revision(scene_root, scene_path)
     var restored_file_revision := str(last_script_original_content.hash())
-    last_applied_plan_id = ""
-    last_applied_revision = ""
-    last_applied_kind = ""
-    last_script_path = ""
-    last_script_original_content = ""
-    last_script_applied_revision = ""
+    _clear_applied_state()
     return _success("report", {
         "schemaVersion": "0.2",
         "planId": plan_id,
@@ -1191,12 +1193,7 @@ func _rollback_resource_change(request_body: Dictionary, scene_root: Node, scene
 
     var rollback_revision := _current_revision(scene_root, scene_path)
     var restored_file_revision := str(last_resource_original_content.hash())
-    last_applied_plan_id = ""
-    last_applied_revision = ""
-    last_applied_kind = ""
-    last_resource_path = ""
-    last_resource_original_content = ""
-    last_resource_applied_revision = ""
+    _clear_applied_state()
     return _success("report", {
         "schemaVersion": "0.2",
         "planId": plan_id,
@@ -1229,12 +1226,7 @@ func _rollback_input_action_change(request_body: Dictionary, scene_root: Node, s
 
     var rollback_revision := _current_revision(scene_root, scene_path)
     var restored_file_revision := _project_settings_revision()
-    last_applied_plan_id = ""
-    last_applied_revision = ""
-    last_applied_kind = ""
-    last_input_action_name = ""
-    last_input_action_original_setting = null
-    last_input_action_applied_revision = ""
+    _clear_applied_state()
     return _success("report", {
         "schemaVersion": "0.2",
         "planId": plan_id,
@@ -1248,8 +1240,8 @@ func _apply_create_node(scene_root: Node, operation: Dictionary) -> Dictionary:
     var parent_path := String(operation.get("parentPath", ""))
     var node_name := String(operation.get("nodeName", ""))
     var node_type := String(operation.get("nodeType", ""))
-    if parent_path == "" or parent_path.begins_with("/"):
-        return _failure("VALIDATION_FAILED", "parentPath must be a relative NodePath.")
+    if not _is_safe_node_path(parent_path):
+        return _failure("VALIDATION_FAILED", "parentPath must be a safe relative NodePath.")
     if not ALLOWED_NODE_TYPES.has(node_type):
         return _failure("UNSAFE_OPERATION", "The requested node type is not allowlisted.")
 
@@ -1344,9 +1336,7 @@ func _run_specific_scene(body: Variant) -> Dictionary:
     return _success("diagnostics", _run_diagnostics_snapshot())
 
 func _is_safe_scene_path(scene_path: String) -> bool:
-    return scene_path.begins_with("res://") \
-        and scene_path.ends_with(".tscn") \
-        and not scene_path.contains("..")
+    return _is_safe_project_path(scene_path) and scene_path.ends_with(".tscn")
 
 func _run_status_response(body: Variant) -> Dictionary:
     var requested_run_id := String(body.get("runId", ""))
@@ -1382,9 +1372,15 @@ func _current_revision(scene_root: Node, scene_path: String) -> String:
     return str((scene_path + "|" + _scene_fingerprint(scene_root)).hash())
 
 func _scene_fingerprint(node: Node) -> String:
-    var fingerprint := String(node.name) + ":" + String(node.get_class())
+    return _scene_fingerprint_at(node, ".")
+
+func _scene_fingerprint_at(node: Node, node_path: String) -> String:
+    var script_resource: Variant = node.get_script()
+    var script_path := String(script_resource.resource_path) if script_resource is Script else ""
+    var fingerprint := node_path + ":" + String(node.name) + ":" + String(node.get_class()) + ":script=" + script_path
+    fingerprint += ":properties=" + JSON.stringify(_safe_node_properties(node))
     for child in node.get_children():
-        fingerprint += "[" + _scene_fingerprint(child) + "]"
+        fingerprint += "[" + _scene_fingerprint_at(child, node_path + "/" + String(child.name) if node_path != "." else String(child.name)) + "]"
     return fingerprint
 
 func _success(key: String, value: Variant) -> Dictionary:

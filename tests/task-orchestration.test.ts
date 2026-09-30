@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { after, before, describe, test } from "node:test";
+import { afterEach, beforeEach, describe, test } from "node:test";
 import { ChangeCoordinator } from "../src/application/change-coordinator.js";
 import { TaskCoordinator } from "../src/application/task-coordinator.js";
 import { DomainError, ERROR_CODES } from "../src/domain/errors.js";
@@ -159,11 +159,11 @@ async function createHarness(): Promise<Harness> {
 describe("TaskCoordinator", () => {
   let harness: Harness;
 
-  before(async () => {
+  beforeEach(async () => {
     harness = await createHarness();
   });
 
-  after(async () => {
+  afterEach(async () => {
     await rm(harness.projectRoot, { recursive: true, force: true });
   });
 
@@ -329,7 +329,7 @@ describe("TaskCoordinator", () => {
     const appliedBefore = bridge.applied.length;
     await firstCoordinator.advanceTask({ projectRoot, taskId: task.taskId });
 
-    const restoredCoordinator = new TaskCoordinator(changeCoordinator, store);
+    const restoredCoordinator = new TaskCoordinator(changeCoordinator, store, changeCoordinator.getProjectLeaseStore());
     const restored = await restoredCoordinator.getTask({ projectRoot, taskId: task.taskId });
     assert.equal(restored.taskId, task.taskId);
     assert.equal(restored.status, "active");

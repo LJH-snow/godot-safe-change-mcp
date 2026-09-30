@@ -60,6 +60,7 @@ export interface RunCurrentSceneInput {
 
 export class ChangeCoordinator {
   private readonly plans = new Map<string, StoredPlan>();
+  private readonly appliedPlanByProject = new Map<string, string>();
   private readonly auditLog: OperationAuditEntry[] = [];
 
   constructor(
@@ -324,6 +325,15 @@ export class ChangeCoordinator {
       );
     }
 
+    const appliedPlanId = this.appliedPlanByProject.get(storedPlan.plan.projectRoot);
+    if (appliedPlanId !== undefined && appliedPlanId !== storedPlan.plan.planId) {
+      throw new DomainError(
+        ERROR_CODES.PLAN_ALREADY_APPLIED,
+        "Another change plan is already applied for this project; roll it back before applying a new plan.",
+        { planId: appliedPlanId },
+      );
+    }
+
     await this.assertPlanRevision(storedPlan.plan);
     const report = await this.bridge.applyChange(storedPlan.plan.projectRoot, {
       planId: storedPlan.plan.planId,
@@ -334,6 +344,7 @@ export class ChangeCoordinator {
     storedPlan.state = "applied";
     storedPlan.appliedRevision = report.revision;
     storedPlan.appliedFileRevision = report.fileRevision;
+    this.appliedPlanByProject.set(storedPlan.plan.projectRoot, storedPlan.plan.planId);
     return report;
   }
 
@@ -417,6 +428,9 @@ export class ChangeCoordinator {
       expectedFileRevision: storedPlan.appliedFileRevision,
     });
     storedPlan.state = "rolled_back";
+    if (this.appliedPlanByProject.get(storedPlan.plan.projectRoot) === storedPlan.plan.planId) {
+      this.appliedPlanByProject.delete(storedPlan.plan.projectRoot);
+    }
     return report;
   }
 
