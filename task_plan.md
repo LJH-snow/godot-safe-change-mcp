@@ -187,7 +187,7 @@
 
 ## Phase 14 — 更多安全 Godot 操作
 
-状态：in_progress
+状态：complete
 
 - [x] 增加受限 scene.set_property，覆盖 visible、position、size、text、color，并通过 UndoRedo apply/rollback smoke。
 - [x] 增加输入动作的 preview/apply/rollback，使用 project.godot revision guard、重复键校验和回滚验证。
