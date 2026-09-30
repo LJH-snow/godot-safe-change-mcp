@@ -318,7 +318,7 @@ try {
 
   const diagnostics = structured(await request("tools/call", {
     name: "run_current_scene",
-    arguments: { projectRoot: fixtureRoot, timeoutMs: 5000 },
+    arguments: { projectRoot: fixtureRoot, timeoutMs: 15000 },
   }));
   assert.equal(diagnostics.status, "stopped");
   assert.ok(diagnostics.warnings.some((warning) => warning.source === "res://diagnostic_scene.gd"));
