@@ -41,7 +41,8 @@
     "start": "mcp-use start",
     "deploy": "mcp-use deploy",
     "prepare": "mcp-use build",
-    "prepublishOnly": "npm run typecheck && npm test",
+    "package:check": "npm run build && node scripts/package-smoke.mjs",
+    "prepublishOnly": "npm run typecheck && npm test && npm run package:check",
     "typecheck": "mcp-use typecheck",
     "test": "rm -rf .test-dist && tsc -p tsconfig.test.json && node --test .test-dist/tests/**/*.test.js"
   },

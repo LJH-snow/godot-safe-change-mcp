@@ -23,6 +23,7 @@ import type { GodotBridge } from "../src/infrastructure/godot-bridge.js";
 import { FileTaskStore } from "../src/infrastructure/task-store.js";
 import { InMemoryProjectLeaseStore, type ProjectLease } from "../src/infrastructure/project-lease-store.js";
 import { normalizeProjectRoot } from "../src/infrastructure/project-root.js";
+import { previewDiagnosticRepairStepDeclSchema, verifySceneStateStepDeclSchema } from "../src/domain/task-contracts.js";
 
 class RenewalFailureLeaseStore extends InMemoryProjectLeaseStore {
   failRenewal = true;
@@ -470,6 +471,392 @@ describe("TaskCoordinator", () => {
       (finished.steps[0]?.result as { scenePath?: string } | undefined)?.scenePath,
       "res://levels/main.tscn",
     );
+  });
+
+  test("verifies diagnostics from a referenced run step within configured thresholds", async () => {
+    const { projectRoot, taskCoordinator, bridge } = harness;
+    bridge.runDiagnosticsResult = {
+      ...bridge.runDiagnosticsResult,
+      warnings: [{ message: "Expected visual warning", source: "res://main.tscn" }],
+    };
+    const task = await taskCoordinator.createTask({
+      projectRoot,
+      title: "Verify run diagnostics",
+      steps: [
+        { kind: "run_current_scene", stepId: "run-main" },
+        { kind: "verify_diagnostics", stepId: "verify-run", runStepId: "run-main", maxErrors: 0, maxWarnings: 1 },
+      ],
+    });
+
+    const afterRun = await taskCoordinator.advanceTask({ projectRoot, taskId: task.taskId });
+    assert.equal(afterRun.status, "active");
+    const completed = await taskCoordinator.advanceTask({ projectRoot, taskId: task.taskId });
+
+    assert.equal(completed.status, "completed");
+    assert.equal(completed.steps[1]?.status, "succeeded");
+    assert.deepEqual(completed.steps[1]?.result, {
+      passed: true,
+      runStepId: "run-main",
+      runId: "run-1",
+      scenePath: "res://main.tscn",
+      status: "stopped",
+      errorCount: 0,
+      warningCount: 1,
+      maxErrors: 0,
+      maxWarnings: 1,
+    });
+    const verificationEvent = completed.timeline.find((event) => event.stepId === "verify-run" && event.status === "succeeded");
+    assert.equal(verificationEvent?.operationId, completed.steps[1]?.operationId);
+  });
+
+  test("fails diagnostics verification with run output and threshold evidence", async () => {
+    const { projectRoot, taskCoordinator, bridge } = harness;
+    bridge.runDiagnosticsResult = {
+      ...bridge.runDiagnosticsResult,
+      status: "failed",
+      errors: [{ message: "Runtime failure", source: "res://main.gd", line: 12 }],
+      warnings: [{ message: "Runtime warning", source: "res://main.gd", line: 7 }],
+    };
+    const task = await taskCoordinator.createTask({
+      projectRoot,
+      title: "Reject failed run diagnostics",
+      steps: [
+        { kind: "run_current_scene", stepId: "run-main" },
+        { kind: "verify_diagnostics", stepId: "verify-run", runStepId: "run-main", maxErrors: 0, maxWarnings: 0 },
+      ],
+    });
+    await taskCoordinator.advanceTask({ projectRoot, taskId: task.taskId });
+    const failed = await taskCoordinator.advanceTask({ projectRoot, taskId: task.taskId });
+
+    assert.equal(failed.status, "failed");
+    assert.equal(failed.steps[1]?.error?.code, ERROR_CODES.TASK_VERIFICATION_FAILED);
+    assert.deepEqual(failed.steps[1]?.error?.details, {
+      runStepId: "run-main",
+      runId: "run-1",
+      scenePath: "res://main.tscn",
+      status: "failed",
+      errorCount: 1,
+      warningCount: 1,
+      maxErrors: 0,
+      maxWarnings: 0,
+      errors: [{ message: "Runtime failure", source: "res://main.gd", line: 12 }],
+      warnings: [{ message: "Runtime warning", source: "res://main.gd", line: 7 }],
+    });
+    const failedEvent = failed.timeline.find((event) => event.stepId === "verify-run" && event.status === "failed");
+    assert.equal(failedEvent?.operationId, failed.steps[1]?.operationId);
+    assert.deepEqual(failedEvent?.error?.details, failed.steps[1]?.error?.details);
+  });
+
+  test("requires verify_diagnostics to reference an earlier run step", async () => {
+    const { projectRoot, taskCoordinator } = harness;
+    await assert.rejects(() => taskCoordinator.createTask({
+      projectRoot,
+      title: "Reject a forward run reference",
+      steps: [
+        { kind: "verify_diagnostics", stepId: "verify-run", runStepId: "run-main" },
+        { kind: "run_current_scene", stepId: "run-main" },
+      ],
+    }));
+    await assert.rejects(() => taskCoordinator.createTask({
+      projectRoot,
+      title: "Reject a non-run reference",
+      steps: [
+        { kind: "apply_plan", stepId: "apply-plan", planId: "plan-1", expectedRevision: "revision-1" },
+        { kind: "verify_diagnostics", stepId: "verify-run", runStepId: "apply-plan" },
+      ],
+    }));
+    await assert.rejects(() => taskCoordinator.createTask({
+      projectRoot,
+      title: "Reject an ambiguous run reference",
+      steps: [
+        { kind: "run_current_scene", stepId: "run-main" },
+        { kind: "run_scene", stepId: "run-main", scenePath: "res://levels/other.tscn" },
+        { kind: "verify_diagnostics", stepId: "verify-run", runStepId: "run-main" },
+      ],
+    }));
+  });
+
+  test("pauses for a diagnostic repair preview and applies only after confirmation", async () => {
+    const { projectRoot, taskCoordinator, changeCoordinator, bridge } = harness;
+    bridge.runDiagnosticsResult = {
+      ...bridge.runDiagnosticsResult,
+      runId: "run-before-repair",
+      warnings: [{
+        message: "A safe repair is available.",
+        source: "res://main.gd",
+        line: 12,
+        repairHint: {
+          kind: "scene.create_node",
+          parentPath: ".",
+          nodeName: "RepairMarker",
+          nodeType: "Node2D",
+          reason: "Add a marker requested by the diagnostic.",
+        },
+      }],
+    };
+    const task = await taskCoordinator.createTask({
+      projectRoot,
+      title: "Preview and confirm a diagnostic repair",
+      steps: [
+        { kind: "run_current_scene", stepId: "run-before" },
+        { kind: "preview_diagnostic_repair", stepId: "preview-repair", runStepId: "run-before", diagnosticKind: "warning", diagnosticIndex: 0 },
+        { kind: "apply_diagnostic_repair", stepId: "apply-repair", previewStepId: "preview-repair" },
+        { kind: "run_current_scene", stepId: "run-after" },
+        { kind: "verify_diagnostics", stepId: "verify-after", runStepId: "run-after" },
+      ],
+    });
+
+    const afterRun = await taskCoordinator.advanceTask({ projectRoot, taskId: task.taskId });
+    assert.equal(afterRun.status, "active");
+    const previewed = await taskCoordinator.advanceTask({ projectRoot, taskId: task.taskId });
+    assert.equal(previewed.status, "paused");
+    assert.equal(previewed.nextStepId, "apply-repair");
+    assert.equal(bridge.applied.length, 0);
+    const previewResult = previewed.steps[1]?.result as {
+      runId: string;
+      diagnosticKind: string;
+      diagnosticIndex: number;
+      diagnostic: { source?: string; line?: number };
+      plan: { planId: string; expectedRevision: string; operations: Array<{ kind: string }> };
+    };
+    assert.equal(previewResult.runId, "run-before-repair");
+    assert.equal(previewResult.diagnosticKind, "warning");
+    assert.equal(previewResult.diagnosticIndex, 0);
+    assert.equal(previewResult.diagnostic.source, "res://main.gd");
+    assert.equal(previewResult.diagnostic.line, 12);
+    assert.equal(previewResult.plan.operations[0]?.kind, "scene.create_node");
+    assert.ok(previewResult.plan.planId);
+    assert.ok(previewed.timeline.some((event) => event.status === "paused" && event.operationId === previewed.steps[1]?.operationId));
+
+    await taskCoordinator.resumeTask({ projectRoot, taskId: task.taskId });
+    const unconfirmedApply = await taskCoordinator.advanceTask({ projectRoot, taskId: task.taskId });
+    assert.equal(unconfirmedApply.status, "failed");
+    assert.equal(unconfirmedApply.steps[2]?.error?.code, ERROR_CODES.CONFIRMATION_REQUIRED);
+    assert.equal(bridge.applied.length, 0);
+
+    await changeCoordinator.confirmChange({
+      projectRoot,
+      planId: previewResult.plan.planId,
+      expectedRevision: previewResult.plan.expectedRevision,
+    });
+    const afterConfirmedApply = await taskCoordinator.advanceTask({ projectRoot, taskId: task.taskId });
+    assert.equal(afterConfirmedApply.status, "active");
+    assert.equal(afterConfirmedApply.steps[2]?.status, "succeeded");
+    assert.equal(bridge.applied[0]?.operations[0]?.kind, "scene.create_node");
+
+    bridge.runDiagnosticsResult = {
+      ...bridge.runDiagnosticsResult,
+      runId: "run-after-repair",
+      warnings: [],
+      errors: [],
+    };
+    const afterRepairRun = await taskCoordinator.advanceTask({ projectRoot, taskId: task.taskId });
+    assert.equal(afterRepairRun.steps[3]?.status, "succeeded");
+    const completed = await taskCoordinator.advanceTask({ projectRoot, taskId: task.taskId });
+    assert.equal(completed.status, "completed");
+    assert.equal(completed.steps[4]?.result && (completed.steps[4]?.result as { passed?: boolean }).passed, true);
+  });
+
+  test("uses a bounded task repair hint when the run diagnostic has none", async () => {
+    const { projectRoot, taskCoordinator, bridge } = harness;
+    bridge.runDiagnosticsResult = {
+      ...bridge.runDiagnosticsResult,
+      runId: "run-without-hint",
+      warnings: [{ message: "The warning has no server-generated repair hint." }],
+    };
+    const repairHint = {
+      kind: "scene.create_node",
+      parentPath: ".",
+      nodeName: "ExplicitRepairMarker",
+      nodeType: "Node2D",
+      reason: "Create the bounded node requested for this warning.",
+    };
+    const previewStep = {
+      kind: "preview_diagnostic_repair",
+      stepId: "preview-repair",
+      runStepId: "run-before",
+      diagnosticKind: "warning",
+      diagnosticIndex: 0,
+      repairHint,
+    } as never;
+    assert.equal(previewDiagnosticRepairStepDeclSchema.safeParse(previewStep).success, true);
+    const task = await taskCoordinator.createTask({
+      projectRoot,
+      title: "Use an explicit safe repair hint",
+      steps: [
+        { kind: "run_current_scene", stepId: "run-before" },
+        previewStep,
+      ],
+    });
+    await taskCoordinator.advanceTask({ projectRoot, taskId: task.taskId });
+    const previewed = await taskCoordinator.advanceTask({ projectRoot, taskId: task.taskId });
+
+    assert.equal(previewed.status, "paused");
+    assert.equal(bridge.applied.length, 0);
+    const result = previewed.steps[1]?.result as { repairHint?: unknown; plan?: { operations: Array<{ kind: string }> } } | undefined;
+    assert.deepEqual(result?.repairHint, repairHint);
+    assert.equal(result?.plan?.operations[0]?.kind, "scene.create_node");
+  });
+
+  test("fails repair preview when the referenced diagnostic has no explicit repair hint", async () => {
+    const { projectRoot, taskCoordinator, bridge } = harness;
+    bridge.runDiagnosticsResult = {
+      ...bridge.runDiagnosticsResult,
+      warnings: [{ message: "No safe repair was supplied." }],
+    };
+    const task = await taskCoordinator.createTask({
+      projectRoot,
+      title: "Do not guess a diagnostic repair",
+      steps: [
+        { kind: "run_current_scene", stepId: "run-before" },
+        { kind: "preview_diagnostic_repair", stepId: "preview-repair", runStepId: "run-before", diagnosticKind: "warning", diagnosticIndex: 0 },
+      ],
+    });
+    await taskCoordinator.advanceTask({ projectRoot, taskId: task.taskId });
+    const failed = await taskCoordinator.advanceTask({ projectRoot, taskId: task.taskId });
+
+    assert.equal(failed.status, "failed");
+    assert.equal(failed.steps[1]?.error?.code, ERROR_CODES.TASK_VERIFICATION_FAILED);
+    assert.equal((failed.steps[1]?.error?.details as { reason?: string } | undefined)?.reason, "missing_repair_hint");
+    assert.equal(bridge.applied.length, 0);
+  });
+
+  test("requires repair steps to reference an earlier compatible step", async () => {
+    const { projectRoot, taskCoordinator } = harness;
+    await assert.rejects(() => taskCoordinator.createTask({
+      projectRoot,
+      title: "Reject forward repair references",
+      steps: [
+        { kind: "preview_diagnostic_repair", stepId: "preview-repair", runStepId: "run-after", diagnosticKind: "error", diagnosticIndex: 0 },
+        { kind: "run_current_scene", stepId: "run-after" },
+      ],
+    }));
+    await assert.rejects(() => taskCoordinator.createTask({
+      projectRoot,
+      title: "Reject apply without repair preview",
+      steps: [{ kind: "apply_diagnostic_repair", stepId: "apply-repair", previewStepId: "preview-missing" }],
+    }));
+  });
+
+  test("verifies a scene node and allowlisted properties with revision evidence", async () => {
+    const { projectRoot, taskCoordinator, bridge } = harness;
+    bridge.context.currentScene.nodes = [{
+      path: "HUD/Title",
+      name: "Title",
+      type: "Label",
+      properties: { visible: true, text: "Ready", position: { x: 10, y: 20 } },
+    }];
+    const task = await taskCoordinator.createTask({
+      projectRoot,
+      title: "Verify a scene node",
+      steps: [{
+        kind: "verify_scene_state",
+        stepId: "verify-title",
+        nodePath: "HUD/Title",
+        expectedProperties: [
+          { property: "visible", expected: true },
+          { property: "text", expected: "Ready" },
+          { property: "position", expected: { x: 10.000001, y: 20 } },
+        ],
+      }],
+    });
+
+    const completed = await taskCoordinator.advanceTask({ projectRoot, taskId: task.taskId });
+
+    assert.equal(completed.status, "completed");
+    assert.equal(completed.steps[0]?.status, "succeeded");
+    assert.deepEqual(completed.steps[0]?.result, {
+      passed: true,
+      scenePath: "res://main.tscn",
+      nodePath: "HUD/Title",
+      revision: "revision-1",
+      properties: [
+        { property: "visible", expected: true, actual: true },
+        { property: "text", expected: "Ready", actual: "Ready" },
+        { property: "position", expected: { x: 10.000001, y: 20 }, actual: { x: 10, y: 20 } },
+      ],
+    });
+    const succeededEvent = completed.timeline.find((event) => event.stepId === "verify-title" && event.status === "succeeded");
+    assert.equal(succeededEvent?.operationId, completed.steps[0]?.operationId);
+  });
+
+  test("fails scene verification with structured evidence when the node is missing", async () => {
+    const { projectRoot, taskCoordinator } = harness;
+    const task = await taskCoordinator.createTask({
+      projectRoot,
+      title: "Reject a missing scene node",
+      steps: [{ kind: "verify_scene_state", stepId: "verify-missing", nodePath: "Missing" }],
+    });
+
+    const failed = await taskCoordinator.advanceTask({ projectRoot, taskId: task.taskId });
+
+    assert.equal(failed.status, "failed");
+    assert.equal(failed.steps[0]?.status, "failed");
+    assert.equal(failed.steps[0]?.error?.code, ERROR_CODES.TASK_VERIFICATION_FAILED);
+    assert.deepEqual(failed.steps[0]?.error?.details, {
+      nodePath: "Missing",
+      expectedExists: true,
+      actualExists: false,
+      scenePath: "res://main.tscn",
+      revision: "revision-1",
+    });
+    const failedEvent = failed.timeline.find((event) => event.stepId === "verify-missing" && event.status === "failed");
+    assert.equal(failedEvent?.operationId, failed.steps[0]?.operationId);
+    assert.equal(failedEvent?.error?.code, ERROR_CODES.TASK_VERIFICATION_FAILED);
+    assert.deepEqual(failedEvent?.error?.details, failed.steps[0]?.error?.details);
+  });
+
+  test("fails scene verification with the expected and actual property values", async () => {
+    const { projectRoot, taskCoordinator, bridge } = harness;
+    bridge.context.currentScene.nodes = [{
+      path: "HUD/Title",
+      name: "Title",
+      type: "Label",
+      properties: { text: "Actual" },
+    }];
+    const task = await taskCoordinator.createTask({
+      projectRoot,
+      title: "Reject a mismatched property",
+      steps: [{
+        kind: "verify_scene_state",
+        stepId: "verify-text",
+        nodePath: "HUD/Title",
+        expectedProperties: [
+          { property: "text", expected: "Expected" },
+          { property: "visible", expected: true },
+        ],
+      }],
+    });
+
+    const failed = await taskCoordinator.advanceTask({ projectRoot, taskId: task.taskId });
+
+    assert.equal(failed.status, "failed");
+    assert.equal(failed.steps[0]?.error?.code, ERROR_CODES.TASK_VERIFICATION_FAILED);
+    assert.deepEqual(failed.steps[0]?.error?.details, {
+      nodePath: "HUD/Title",
+      scenePath: "res://main.tscn",
+      revision: "revision-1",
+      mismatches: [
+        { property: "text", expected: "Expected", actual: "Actual", actualPresent: true },
+        { property: "visible", expected: true, actual: null, actualPresent: false },
+      ],
+    });
+  });
+
+  test("rejects unsafe node paths and unallowlisted properties in verification steps", async () => {
+    const { projectRoot, taskCoordinator } = harness;
+    await assert.rejects(() => taskCoordinator.createTask({
+      projectRoot,
+      title: "Reject unsafe verification input",
+      steps: [{ kind: "verify_scene_state", stepId: "verify-unsafe-path", nodePath: "../Canvas" }],
+    }));
+    const invalidPropertyStep = verifySceneStateStepDeclSchema.safeParse({
+      kind: "verify_scene_state",
+      stepId: "verify-unsafe-property",
+      nodePath: ".",
+      expectedProperties: [{ property: "script", expected: "res://unsafe.gd" }],
+    });
+    assert.equal(invalidPropertyStep.success, false);
   });
 
   test("rejects unknown tasks and stops retries after the attempt limit", async () => {

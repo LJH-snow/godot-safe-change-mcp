@@ -200,3 +200,36 @@
 - 已补齐能力资源、README、插件说明、测试边界、Godot fixture 和 UTF-8 安全的字节缓冲解析。
 - 最终回归通过：npm test 7/7、npm run typecheck、npm run build；真实 MCP HTTP 端点也验证了工具/资源清单和 EDITOR_UNAVAILABLE 错误路径。
 - 当前完成边界：本机没有 Godot 4.x CLI，尚未实际加载 EditorPlugin、执行 UndoRedo 或运行 fixture；这些步骤已写入 tests/README.md，需在安装 Godot 的环境验收。
+
+## 2026-10-01 task-level scene verification
+
+- 已确认真实 Godot task smoke 已覆盖显式 lease、apply_plan、run_current_scene 和 operationId timeline。
+- 新增目标：提供只读 verify_scene_state task step，核对节点存在和受限属性值，为任务“完成”增加实际结果断言。
+- 已先写 success、missing-node、property-mismatch、unsafe NodePath 和不支持属性测试；红灯定位到缺失的 step kind、error code 和 error details。
+- 已实现只读 context 验收、1e-5 浮点容差和结构化 expected/actual mismatch 证据；72 项自动化测试和 Godot 4.7.2 task smoke 已通过。
+- Godot task smoke 现覆盖 lease-held `apply_plan → run_current_scene → verify_scene_state`，确认通过后完成并写入 operationId-filtered timeline。
+- 最终本地检查通过：`npm test` 72/72、`npm run typecheck`、`npm run build` 和 `git diff --check`。
+
+## 2026-10-01 task-level diagnostics verification
+
+- 新增测试覆盖 warning threshold pass、failed run/diagnostics mismatch 和前序 runStepId 约束。
+- 首轮 `npm test` 红灯定位为任务 union 缺少 `verify_diagnostics`，符合预期。
+- 已完成 diagnostics schema、唯一前序 runStepId 验证、阈值比较和结构化失败证据；75 项单测、typecheck、build、diff-check 与真实 Godot 4.7.2 四步 task smoke 全部通过。
+
+## 2026-10-01 task-level diagnostic repair preview
+
+- 已实现 task-level repair preview：从前序 run 的诊断和诊断内/step-level 有限 `scene.create_node` repairHint 生成 plan，记录 runId 与 diagnostic，预览后暂停。
+- 用户必须显式确认 plan；`apply_diagnostic_repair` 只应用任务内预览，随后可重跑并验证 diagnostics。未执行任意 GDScript 或 shell。
+- 本地 79 项测试、typecheck、build、diff-check 和 Godot 4.7.2 repair workflow smoke 均通过；推送后等待双版本 CI。
+
+## 2026-10-01 task-store concurrency regression
+
+- GitHub Actions run `36821699283` failed `heartbeats an explicit task lease and records lease timeline events` with `ENOENT` renaming the shared task temp file.
+- Added a deterministic 32-writer `FileTaskStore.save` regression; it reproduced the same `ENOENT` locally.
+- Replaced the shared temp path with per-save UUID paths and serialized same-target saves; 80 tests, typecheck/build, diff-check and Godot 4.7.2 runtime smoke all pass.
+
+## 2026-10-01 release package boundary
+
+- Added `npm run package:check` and a CI package job. It builds, packs and validates the tarball metadata, bundled MCP entry and Godot plugin files in a temporary consumer.
+- Local npm `EALLOWSCRIPTS` is handled by a tarball extraction fallback; GitHub Actions uses the real consumer install path.
+- CI run `36835756490` exposed npm pack JSON polluted by the package prepare log; package smoke now parses the trailing JSON manifest.

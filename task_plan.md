@@ -93,6 +93,19 @@
 | `mcp-apps-builder` 的 Cindy 根路径不存在 | 1 | 使用项目内 `.agents/skills/mcp-apps-builder/SKILL.md`；该项目技能提供本仓库专用约束。 |
 | `apply_patch` 首次补丁缺少空行前缀 | 1 | 修正补丁格式后重新提交；本次失败没有写入文件。 |
 | `rg` 依赖声明检索正则未闭合 | 1 | 改用不含括号的简单模式；基线 typecheck 仍已通过。 |
+| `verify_scene_state` 红灯导致 task kind、错误码和结构化 details 的 TypeScript 检查失败 | 1 | 符合预期；在实现中添加对应契约和失败证据类型。 |
+| `expectedProperties.default([])` 让 Zod 推断的 task 输入类型变成必填 | 1 | task step 输入改为 optional，持久化 TaskStepState 保留空数组默认值；非法 assertion 用 schema safeParse 验证。 |
+| TaskCoordinator 多段补丁因错误处理上下文不匹配而失败 | 1 | 重读文件当前状态后拆为更小补丁应用。 |
+| scene verification 文档补丁把任务阶段行定位到错误文件 | 1 | 该行在 task_plan.md；按实际文档位置拆分更新。 |
+| `verify_diagnostics` 测试红灯因 task union 尚未包含新 step kind | 1 | 符合预期；新增诊断验收契约并实现前序 run step 校验。 |
+| 重复 run stepId 未被诊断引用校验发现 | 1 | 要求 runStepId 唯一匹配一个前序 run step，并在执行时再次检查持久化 task state。 |
+| TaskCoordinator repair 方法补丁部分落盘形成重复定义 | 1 | 检查当前 diff 后移除重复实现，只保留一组唯一引用校验方法。 |
+| task repair smoke 大补丁的后续上下文未匹配 | 1 | 重读当前 fixture 流程后确认补丁已有部分写入，只保留已落盘测试并补齐缺项。 |
+| task repair preview 首次未接受 step 级 repairHint | 1 | 仅允许 schema 验证的 scene.create_node hint；缺少 hint 时显式失败。 |
+| GitHub CI heartbeat test exposed ENOENT while renaming a shared task temp file | 1 | Reproduced with parallel FileTaskStore saves; serialized same-target writes and added unique temp paths. |
+| Local npm package consumer was blocked by EALLOWSCRIPTS | 1 | Package smoke uses real npm install when permitted and tarball extraction with source dependency resolution as a safe local fallback. |
+| GitHub package job failed because npm prepare logs preceded pack JSON | 1 | Parse the final JSON array from npm pack output while retaining real install in CI and local fallback behavior. |
+| Package manifest parser selected a nested files array | 1 | Match the outer manifest prefix instead of the last array start. |
 
 ## 本轮状态
 
@@ -161,7 +174,7 @@
 
 状态：complete
 
-- [x] 增加受限任务状态机：active/paused/completed/failed/cancelled，步骤只允许 apply_plan、rollback_plan、run_current_scene 和 run_scene 四种受限操作。
+- [x] 增加受限任务状态机：active/paused/completed/failed/cancelled，步骤支持 apply_plan、rollback_plan、run_current_scene、run_scene、verify_scene_state、verify_diagnostics 和确认门控的 diagnostic-repair preview/apply。
 - [x] 任务状态以 JSON 文件持久化到 `<projectRoot>/.godot-safe-change/tasks/`，重启后可查询与继续；崩溃遗留的 running 步骤可重试。
 - [x] 支持 pause/resume/cancel 和失败重试（每步最多 3 次），所有步骤复用既有 preview/confirm/apply/rollback/run 守卫与审计。
 - [x] 新增 create/get/advance/pause/resume/cancel 六个 MCP 工具与契约测试。
@@ -198,6 +211,49 @@
 - [x] 增加输入动作按键添加/移除的 preview/apply/rollback，使用 project.godot revision guard、重复/歧义键校验和回滚验证。
 - [x] 增加资源引用 snapshot/preview diff、revision guard、原子 apply 和 rollback。
 - [x] 增加挂载已有脚本的 preview/apply/rollback。
+
+## Phase 15 — task-level scene verification
+
+状态：`complete`
+
+- [x] 新增只读 `verify_scene_state` task step，验证一个安全 NodePath 是否存在，并可断言有限白名单属性。
+- [x] 成功结果保存 revision、实际节点属性和 task step operationId 作为证据。
+- [x] 验证失败时 task step 标记 failed，返回稳定错误码与结构化 mismatch 证据。
+- [x] 增加契约/TaskCoordinator 单元测试和真实 Godot smoke；确认不执行脚本、不写项目。
+
+## Phase 16 — task-level diagnostics verification
+
+状态：`complete`
+
+- [x] 新增 `verify_diagnostics` step，显式引用前序 run_current_scene/run_scene 结果。
+- [x] 按 maxErrors/maxWarnings 和 stopped 状态验证运行结果，返回 counts、runId 和诊断证据。
+- [x] 无前序 run、失败状态或阈值超限时让 task step 失败并记录 TASK_VERIFICATION_FAILED。
+- [x] 增加单元测试、真实 Godot MCP smoke 和文档，并确认不执行脚本、不写项目。
+
+## Phase 17 — task-level diagnostic repair preview
+
+状态：`complete`
+
+- [x] 从前序 run 的诊断和诊断内或 task step 提供的 allowlisted repairHint 生成受限预览计划，并在 task timeline 关联 run ID、diagnostic 和 plan。
+- [x] 预览后暂停任务等待审查；apply step 只能引用本任务的修复预览且不能代替用户确认。
+- [x] 用户通过既有 confirm 工具确认后，任务可应用修复、重跑并重新验证 diagnostics。
+- [x] 增加单测和真实 Godot task smoke，确认没有任意代码执行或未确认写入。
+
+## Phase 18 — concurrent task-store persistence
+
+状态：`complete`
+
+- [x] Reproduce concurrent heartbeat/state saves for one task and preserve last-write ordering.
+- [x] Serialize same-target atomic saves and use unique temporary paths with cleanup.
+- [x] Verify the full test suite, typecheck/build and Godot runtime smoke before pushing.
+
+## Phase 19 — release package boundary
+
+状态：`complete`
+
+- [x] 增加 `npm run package:check`，验证 tarball 元数据、发布入口、MCP bundle 和 Godot 插件文件。
+- [x] 将 package boundary check 接入 GitHub Actions 和 `prepublishOnly`。
+- [x] 本地 package smoke、完整测试、typecheck、build 和 Godot runtime smoke 通过。
 
 ## 完成定义
 

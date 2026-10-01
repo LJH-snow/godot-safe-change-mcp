@@ -651,6 +651,8 @@ try {
       steps: [
         { kind: "apply_plan", stepId: "apply-marker", planId: taskPlan.planId, expectedRevision: taskPlan.expectedRevision },
         { kind: "run_current_scene", stepId: "run-current", timeoutMs: 15000 },
+        { kind: "verify_scene_state", stepId: "verify-marker", nodePath: "TaskMarker", expectedProperties: [{ property: "visible", expected: true }] },
+        { kind: "verify_diagnostics", stepId: "verify-diagnostics", runStepId: "run-current", maxErrors: 0, maxWarnings: 100 },
       ],
     },
   }));
@@ -679,9 +681,39 @@ try {
     name: "advance_task",
     arguments: { projectRoot: fixtureRoot, taskId: task.taskId },
   }));
-  assert.equal(afterTaskRun.status, "completed");
+  assert.equal(afterTaskRun.status, "active");
   assert.equal(afterTaskRun.steps[1]?.status, "succeeded");
   assert.equal(afterTaskRun.steps[1]?.result?.status, "stopped");
+  const afterTaskVerification = structured(await request("tools/call", {
+    name: "advance_task",
+    arguments: { projectRoot: fixtureRoot, taskId: task.taskId },
+  }));
+  assert.equal(afterTaskVerification.status, "active");
+  assert.equal(afterTaskVerification.steps[2]?.status, "succeeded");
+  assert.equal(afterTaskVerification.steps[2]?.result?.passed, true);
+  assert.equal(afterTaskVerification.steps[2]?.result?.properties[0]?.actual, true);
+  const verifyStepOperationId = afterTaskVerification.steps[2]?.operationId;
+  const verifyStepTimeline = structured(await request("tools/call", {
+    name: "task_timeline",
+    arguments: { projectRoot: fixtureRoot, taskId: task.taskId, stepId: "verify-marker", operationId: verifyStepOperationId },
+  }));
+  assert.deepEqual(verifyStepTimeline.events.map((event) => event.status), ["running", "succeeded"]);
+  const afterDiagnosticsVerification = structured(await request("tools/call", {
+    name: "advance_task",
+    arguments: { projectRoot: fixtureRoot, taskId: task.taskId },
+  }));
+  assert.equal(afterDiagnosticsVerification.status, "completed");
+  assert.equal(afterDiagnosticsVerification.steps[3]?.status, "succeeded");
+  assert.equal(afterDiagnosticsVerification.steps[3]?.result?.passed, true);
+  assert.equal(afterDiagnosticsVerification.steps[3]?.result?.status, "stopped");
+  assert.equal(afterDiagnosticsVerification.steps[3]?.result?.errorCount, 0);
+  assert.ok(afterDiagnosticsVerification.steps[3]?.result?.warningCount <= 100);
+  const diagnosticsStepOperationId = afterDiagnosticsVerification.steps[3]?.operationId;
+  const diagnosticsStepTimeline = structured(await request("tools/call", {
+    name: "task_timeline",
+    arguments: { projectRoot: fixtureRoot, taskId: task.taskId, stepId: "verify-diagnostics", operationId: diagnosticsStepOperationId },
+  }));
+  assert.deepEqual(diagnosticsStepTimeline.events.map((event) => event.status), ["running", "succeeded"]);
   const completedTask = structured(await request("tools/call", {
     name: "task_status",
     arguments: { projectRoot: fixtureRoot, taskId: task.taskId },
@@ -691,7 +723,128 @@ try {
   assert.ok(completedTask.timeline.some((event) => event.status === "lease_acquired"));
   assert.ok(completedTask.timeline.some((event) => event.status === "lease_released"));
   assert.ok(sceneNode(await readEditorContext(fixtureRoot), "TaskMarker"));
-  stage("task lease, apply, run and timeline complete");
+  stage("task lease, apply, run, scene verify, diagnostics verify and timeline complete");
+  const taskPlanRollback = structured(await request("tools/call", {
+    name: "rollback_scene_change",
+    arguments: { projectRoot: fixtureRoot, planId: taskPlan.planId },
+  }));
+  assert.equal(taskPlanRollback.status, "rolled_back");
+  assert.equal(sceneNode(await readEditorContext(fixtureRoot), "TaskMarker"), undefined);
+
+  const missingNodeTask = structured(await request("tools/call", {
+    name: "create_task",
+    arguments: {
+      projectRoot: fixtureRoot,
+      title: "Godot task verification failure smoke",
+      steps: [{ kind: "verify_scene_state", stepId: "verify-missing", nodePath: "MissingTaskNode" }],
+    },
+  }));
+  const failedVerificationTask = structured(await request("tools/call", {
+    name: "advance_task",
+    arguments: { projectRoot: fixtureRoot, taskId: missingNodeTask.taskId },
+  }));
+  assert.equal(failedVerificationTask.status, "failed");
+  const failedVerificationStep = failedVerificationTask.steps[0];
+  assert.equal(failedVerificationStep?.error?.code, "TASK_VERIFICATION_FAILED");
+  assert.equal(failedVerificationStep?.error?.details?.nodePath, "MissingTaskNode");
+  assert.equal(failedVerificationStep?.error?.details?.actualExists, false);
+  const failedVerificationTimeline = structured(await request("tools/call", {
+    name: "task_timeline",
+    arguments: {
+      projectRoot: fixtureRoot,
+      taskId: missingNodeTask.taskId,
+      stepId: "verify-missing",
+      operationId: failedVerificationStep?.operationId,
+    },
+  }));
+  assert.deepEqual(failedVerificationTimeline.events.map((event) => event.status), ["running", "failed"]);
+  assert.deepEqual(failedVerificationTimeline.events[1]?.error?.details, failedVerificationStep?.error?.details);
+  stage("task verification failure evidence complete");
+
+  const repairTask = structured(await request("tools/call", {
+    name: "create_task",
+    arguments: {
+      projectRoot: fixtureRoot,
+      title: "Preview, approve and verify a diagnostic repair",
+      steps: [
+        { kind: "run_scene", stepId: "run-before-repair", scenePath: "res://main.tscn", timeoutMs: 15000 },
+        {
+          kind: "preview_diagnostic_repair",
+          stepId: "preview-repair",
+          runStepId: "run-before-repair",
+          diagnosticKind: "warning",
+          diagnosticIndex: 0,
+          repairHint: {
+            kind: "scene.create_node",
+            parentPath: ".",
+            nodeName: "TaskRepairMarker",
+            nodeType: "Node2D",
+            reason: "Add the explicitly approved task repair marker.",
+          },
+        },
+        { kind: "apply_diagnostic_repair", stepId: "apply-repair", previewStepId: "preview-repair" },
+        { kind: "run_current_scene", stepId: "run-after-repair", timeoutMs: 15000 },
+        { kind: "verify_diagnostics", stepId: "verify-after-repair", runStepId: "run-after-repair", maxErrors: 0, maxWarnings: 100 },
+      ],
+    },
+  }));
+  const afterRepairSourceRun = structured(await request("tools/call", {
+    name: "advance_task",
+    arguments: { projectRoot: fixtureRoot, taskId: repairTask.taskId },
+  }));
+  assert.equal(afterRepairSourceRun.status, "active");
+  const repairPreviewTask = structured(await request("tools/call", {
+    name: "advance_task",
+    arguments: { projectRoot: fixtureRoot, taskId: repairTask.taskId },
+  }));
+  assert.equal(repairPreviewTask.status, "paused");
+  assert.equal(repairPreviewTask.nextStepId, "apply-repair");
+  assert.equal(sceneNode(await readEditorContext(fixtureRoot), "TaskRepairMarker"), undefined);
+  const repairPreviewResult = repairPreviewTask.steps[1]?.result;
+  assert.ok(repairPreviewResult.plan.planId);
+  assert.equal(repairPreviewResult.runStepId, "run-before-repair");
+  assert.equal(repairPreviewResult.diagnostic.message.length > 0, true);
+  assert.equal(repairPreviewResult.repairHint.nodeName, "TaskRepairMarker");
+  const repairPlan = repairPreviewResult.plan;
+  structured(await request("tools/call", {
+    name: "confirm_scene_change",
+    arguments: { projectRoot: fixtureRoot, planId: repairPlan.planId, expectedRevision: repairPlan.expectedRevision },
+  }));
+  const resumedRepairTask = structured(await request("tools/call", {
+    name: "resume_task",
+    arguments: { projectRoot: fixtureRoot, taskId: repairTask.taskId },
+  }));
+  assert.equal(resumedRepairTask.status, "active");
+  const appliedRepairTask = structured(await request("tools/call", {
+    name: "advance_task",
+    arguments: { projectRoot: fixtureRoot, taskId: repairTask.taskId },
+  }));
+  assert.equal(appliedRepairTask.steps[2]?.status, "succeeded");
+  assert.equal(appliedRepairTask.steps[2]?.result?.planId, repairPlan.planId);
+  assert.ok(sceneNode(await readEditorContext(fixtureRoot), "TaskRepairMarker"));
+  const rerunRepairTask = structured(await request("tools/call", {
+    name: "advance_task",
+    arguments: { projectRoot: fixtureRoot, taskId: repairTask.taskId },
+  }));
+  assert.equal(rerunRepairTask.steps[3]?.status, "succeeded");
+  const verifiedRepairTask = structured(await request("tools/call", {
+    name: "advance_task",
+    arguments: { projectRoot: fixtureRoot, taskId: repairTask.taskId },
+  }));
+  assert.equal(verifiedRepairTask.status, "completed");
+  assert.equal(verifiedRepairTask.steps[4]?.result?.passed, true);
+  const repairPreviewTimeline = structured(await request("tools/call", {
+    name: "task_timeline",
+    arguments: { projectRoot: fixtureRoot, taskId: repairTask.taskId, stepId: "preview-repair" },
+  }));
+  assert.ok(repairPreviewTimeline.events.some((event) => event.status === "paused"));
+  const repairRollback = structured(await request("tools/call", {
+    name: "rollback_scene_change",
+    arguments: { projectRoot: fixtureRoot, planId: repairPlan.planId },
+  }));
+  assert.equal(repairRollback.status, "rolled_back");
+  assert.equal(sceneNode(await readEditorContext(fixtureRoot), "TaskRepairMarker"), undefined);
+  stage("task diagnostic repair preview, confirmation, apply and verification complete");
 
   const diagnostics = structured(await request("tools/call", {
     name: "run_scene",

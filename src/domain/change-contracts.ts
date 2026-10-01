@@ -140,6 +140,14 @@ export const sceneSetPropertySchema = z.discriminatedUnion("property", [
   sceneSetColorPropertySchema,
 ]);
 
+export const scenePropertyAssertionSchema = z.discriminatedUnion("property", [
+  z.object({ property: z.literal("visible"), expected: z.boolean() }).strict(),
+  z.object({ property: z.literal("position"), expected: positionSchema }).strict(),
+  z.object({ property: z.literal("size"), expected: sizeSchema }).strict(),
+  z.object({ property: z.literal("text"), expected: z.string().max(10000) }).strict(),
+  z.object({ property: z.literal("color"), expected: colorSchema }).strict(),
+]);
+
 export const sceneAttachScriptSchema = z
   .object({
     kind: z.literal("scene.attach_script"),
