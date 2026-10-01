@@ -272,10 +272,12 @@ describe("ChangeCoordinator", () => {
     assert.deepEqual(diff.deletedNodes.map((node) => node.path), ["Canvas", "Canvas/Title"]);
     assert.match(plan.diff[0]?.summary ?? "", /Canvas/);
     assert.equal(bridge.applied.length, 0);
-    await assert.rejects(
-      () => coordinator.confirmChange({ projectRoot, planId: plan.planId, expectedRevision: plan.expectedRevision }),
-      (error: unknown) => error instanceof DomainError && error.code === ERROR_CODES.OPERATION_REJECTED,
-    );
+    await coordinator.confirmChange({ projectRoot, planId: plan.planId, expectedRevision: plan.expectedRevision });
+    const applied = await coordinator.applyChange({ projectRoot, planId: plan.planId });
+    assert.equal(applied.status, "applied");
+    assert.equal(bridge.applied[0]?.operations[0]?.kind, "scene.delete_node");
+    const rolledBack = await coordinator.rollbackChange({ projectRoot, planId: plan.planId });
+    assert.equal(rolledBack.status, "rolled_back");
 
     await assert.rejects(
       () =>

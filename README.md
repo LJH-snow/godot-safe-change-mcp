@@ -18,7 +18,7 @@
 - search_project：统一的只读项目搜索，覆盖场景、节点、脚本、资源、信号连接和输入映射。场景/节点/脚本/资源优先由连接的 Godot 编辑器返回（编辑中场景的实时状态），编辑器离线时自动回退到本地只读索引；信号与输入结果始终来自本地索引。每条结果带 `source` 标记来源。
 - find_references：反向引用查找，回答“哪些场景、资源或脚本引用了这个脚本、贴图或资源”。支持场景/资源 ext_resource、GDScript `preload()` / `load()`，可按 res:// 路径或 uid:// 标识匹配，能解析 Godot 4.4+ 中省略路径、只写 uid 的引用（纯本地只读）。
 - preview_scene_change：生成受限 scene.create_node、scene.delete_node、scene.set_property、scene.attach_script、resource.replace_reference、project.input_action.add_key/remove_key/replace_key 或 script.replace_range 计划和 diff。
-- scene.delete_node：当前仅提供 preview；只接受当前场景内的安全相对 NodePath，拒绝根节点和不存在节点，并返回待删除子树快照，apply 将在后续单独加固。
+- scene.delete_node：只允许删除当前场景内由当前场景拥有的非根节点；preview 返回完整待删除子树快照，apply/rollback 通过 Godot UndoRedo 保持原父级和节点顺序。
 - scene.set_property：仅允许 visible、position、size、text、color，并绑定节点类型、严格对象字段、finite 数值范围和当前属性快照。
 - scene.attach_script：仅允许给当前场景节点挂载项目内现有 `.gd` 脚本，不执行或修改脚本内容。
 - resource.replace_reference / project.input_action.add_key/remove_key/replace_key：分别通过文件 revision 或 project.godot revision guard 执行受限替换/设置保存，并支持安全 rollback；按键删除和替换只接受唯一匹配的 InputEventKey，替换会保留原修饰键。
@@ -33,7 +33,7 @@
 - task_status：只读返回任务状态、lease owner、expiresAt 和可恢复状态。
 - task_timeline：只读查询完整任务时间线，可按 stepId、operationId、事件类型和 ISO 时间范围过滤。
 
-当前只支持在当前场景内创建一个 allowlist 中的节点类型：Node、Node2D、Control、Label、ColorRect；场景属性修改、脚本挂载和 delete preview 只针对当前场景内的相对 NodePath 和 allowlisted 属性。
+当前只支持在当前场景内创建一个 allowlist 中的节点类型：Node、Node2D、Control、Label、ColorRect；场景属性修改、脚本挂载和节点删除只针对当前场景内的相对 NodePath 和 allowlisted 属性。
 
 ## 本地运行
 

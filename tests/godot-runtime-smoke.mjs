@@ -344,6 +344,9 @@ try {
   assert.equal(directInvalidChange.body.error.code, "VALIDATION_FAILED");
   const directInvalidOperations = [
     { operation: { kind: "scene.create_node", parentPath: ".", nodeName: "UnsafeType", nodeType: "Object" }, errorCode: "UNSAFE_OPERATION" },
+    { operation: { kind: "scene.delete_node", nodePath: "." }, errorCode: "UNSAFE_OPERATION" },
+    { operation: { kind: "scene.delete_node", nodePath: "../Canvas" }, errorCode: "VALIDATION_FAILED" },
+    { operation: { kind: "scene.delete_node", nodePath: "Canvas/Missing" }, errorCode: "VALIDATION_FAILED" },
     { operation: { kind: "scene.set_property", nodePath: ".", property: "script", value: null }, errorCode: "UNSAFE_OPERATION" },
     { operation: { kind: "scene.attach_script", nodePath: ".", scriptPath: "res://../outside.gd" }, errorCode: "UNSAFE_OPERATION" },
     { operation: { kind: "resource.replace_reference", resourcePath: "res://../outside.tres", from: "res://old.tres", to: "res://new.tres" }, errorCode: "UNSAFE_OPERATION" },
@@ -425,6 +428,55 @@ try {
   assert.equal(sceneRollback.status, "rolled_back");
   assert.equal(sceneNode(await readEditorContext(fixtureRoot), "CiMarker"), undefined);
   stage("scene create rollback complete");
+
+  const beforeDeleteContext = await readEditorContext(fixtureRoot);
+  const directChildrenBeforeDelete = beforeDeleteContext.currentScene.nodes
+    .filter((node) => node.path !== "." && !node.path.includes("/"))
+    .map((node) => node.path);
+  const canvasSubtreeBefore = beforeDeleteContext.currentScene.nodes
+    .filter((node) => node.path === "Canvas" || node.path.startsWith("Canvas/"))
+    .map(({ path: nodePath, name, type, properties }) => ({ path: nodePath, name, type, properties }));
+  assert.deepEqual(canvasSubtreeBefore.map((node) => node.path), ["Canvas", "Canvas/Title", "Canvas/ColorPanel"]);
+  const deleteNodePlan = structured(await request("tools/call", {
+    name: "preview_scene_change",
+    arguments: {
+      projectRoot: fixtureRoot,
+      reason: "CI scene subtree deletion apply and rollback smoke test.",
+      operation: { kind: "scene.delete_node", nodePath: "Canvas" },
+    },
+  }));
+  assert.deepEqual(deleteNodePlan.diff[0]?.deletedNodes.map((node) => node.path), canvasSubtreeBefore.map((node) => node.path));
+  structured(await request("tools/call", {
+    name: "confirm_scene_change",
+    arguments: { projectRoot: fixtureRoot, planId: deleteNodePlan.planId, expectedRevision: deleteNodePlan.expectedRevision },
+  }));
+  const deleteNodeApply = structured(await request("tools/call", {
+    name: "apply_scene_change",
+    arguments: { projectRoot: fixtureRoot, planId: deleteNodePlan.planId },
+  }));
+  assert.equal(deleteNodeApply.status, "applied");
+  assert.equal(deleteNodeApply.undoLabel, "Godot Safe Change: Delete node");
+  const afterDeleteContext = await readEditorContext(fixtureRoot);
+  assert.equal(afterDeleteContext.currentScene.nodes.some((node) => node.path === "Canvas" || node.path.startsWith("Canvas/")), false);
+  assert.deepEqual(
+    afterDeleteContext.currentScene.nodes.filter((node) => node.path !== "." && !node.path.includes("/")).map((node) => node.path),
+    directChildrenBeforeDelete.filter((nodePath) => nodePath !== "Canvas"),
+  );
+  const deleteNodeRollback = structured(await request("tools/call", {
+    name: "rollback_scene_change",
+    arguments: { projectRoot: fixtureRoot, planId: deleteNodePlan.planId },
+  }));
+  assert.equal(deleteNodeRollback.status, "rolled_back");
+  const afterDeleteRollback = await readEditorContext(fixtureRoot);
+  const restoredCanvasSubtree = afterDeleteRollback.currentScene.nodes
+    .filter((node) => node.path === "Canvas" || node.path.startsWith("Canvas/"))
+    .map(({ path: nodePath, name, type, properties }) => ({ path: nodePath, name, type, properties }));
+  assert.deepEqual(restoredCanvasSubtree, canvasSubtreeBefore);
+  assert.deepEqual(
+    afterDeleteRollback.currentScene.nodes.filter((node) => node.path !== "." && !node.path.includes("/")).map((node) => node.path),
+    directChildrenBeforeDelete,
+  );
+  stage("scene subtree delete apply and rollback complete");
 
   await roundTripSceneProperty(fixtureRoot, ".", "visible", false);
   await roundTripSceneProperty(fixtureRoot, ".", "position", { x: 12, y: 8 });

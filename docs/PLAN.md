@@ -225,7 +225,7 @@ npm run build
 
 2026-10-01 已补真实桥接写入边界：第二进程持有 task lease 时，第一进程的 scene apply 返回 PROJECT_BUSY 且场景不变；TTL 接管后 apply/rollback 均成功。
 
-2026-10-01 已新增 preview-only scene.delete_node：校验安全相对 NodePath、拒绝场景根和不存在节点，并在 diff 中返回待删除子树快照；尚未开放 apply。
+2026-10-01 已完成 scene.delete_node preview/apply/rollback：校验安全相对 NodePath、拒绝场景根、不存在或非当前场景拥有的节点；UndoRedo 保留被删节点并按原父级和 child index 恢复，真实 Godot smoke 覆盖子树属性与 sibling 顺序。
 
 ## 7. 待决定问题
 

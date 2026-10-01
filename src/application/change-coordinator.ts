@@ -367,14 +367,6 @@ export class ChangeCoordinator {
     const parsedInput = confirmChangeInputSchema.parse(input);
     const storedPlan = await this.requirePlan(parsedInput.planId, parsedInput.projectRoot);
 
-    if (storedPlan.plan.operations.some((operation) => operation.kind === "scene.delete_node")) {
-      throw new DomainError(
-        ERROR_CODES.OPERATION_REJECTED,
-        "scene.delete_node is preview-only until its UndoRedo apply and rollback path is enabled.",
-        { planId: parsedInput.planId },
-      );
-    }
-
     if (storedPlan.state === "applied") {
       throw new DomainError(
         ERROR_CODES.PLAN_ALREADY_APPLIED,

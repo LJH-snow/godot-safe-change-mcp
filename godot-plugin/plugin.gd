@@ -593,6 +593,14 @@ func _validate_change_request(request_body: Dictionary) -> Dictionary:
             return _failure("VALIDATION_FAILED", "nodeName contains unsupported characters.")
         if not ALLOWED_NODE_TYPES.has(String(operation["nodeType"])):
             return _failure("UNSAFE_OPERATION", "The requested node type is not allowlisted.")
+    elif kind == "scene.delete_node":
+        if not _has_exact_keys(operation, ["kind", "nodePath"]):
+            return _failure("VALIDATION_FAILED", "scene.delete_node contains unsupported or missing fields.")
+        var node_path := String(operation["nodePath"])
+        if not _is_safe_node_path(node_path):
+            return _failure("VALIDATION_FAILED", "nodePath must be a safe relative NodePath.")
+        if node_path == ".":
+            return _failure("UNSAFE_OPERATION", "The current scene root cannot be deleted.")
     elif kind == "scene.set_property":
         if not _has_exact_keys(operation, ["kind", "nodePath", "property", "value"]):
             return _failure("VALIDATION_FAILED", "scene.set_property contains unsupported or missing fields.")
@@ -702,25 +710,33 @@ func _apply_change(body: Variant) -> Dictionary:
         return _apply_resource_change(request_body, scene_root, scene_path)
     if String(operation.get("kind", "")) in ["project.input_action.add_key", "project.input_action.remove_key", "project.input_action.replace_key"]:
         return _apply_input_action_change(request_body, scene_root, scene_path)
-    if String(operation.get("kind", "")) != "scene.create_node":
+    var operation_kind := String(operation.get("kind", ""))
+    var action_label := ""
+    if operation_kind == "scene.delete_node":
+        var delete_result := _apply_delete_node(scene_root, operation)
+        if not delete_result.is_empty():
+            return delete_result
+        action_label = "Godot Safe Change: Delete node"
+    elif operation_kind == "scene.create_node":
+        var create_result := _apply_create_node(scene_root, operation)
+        if not create_result.is_empty():
+            return create_result
+        action_label = "Godot Safe Change: Add node"
+    else:
         return _failure("UNSAFE_OPERATION", "Only the bounded safe change operations are enabled.")
-
-    var create_result := _apply_create_node(scene_root, operation)
-    if not create_result.is_empty():
-        return create_result
 
     var applied_revision := _current_revision(scene_root, scene_path)
     last_applied_plan_id = String(request_body.get("planId", ""))
     last_applied_revision = applied_revision
     _clear_file_action_state()
-    _record_scene_action(scene_root, scene_path, "scene.create_node", "Godot Safe Change: Add node")
+    _record_scene_action(scene_root, scene_path, operation_kind, action_label)
     var report := {
         "schemaVersion": "0.2",
         "planId": String(request_body.get("planId", "")),
         "status": "applied",
         "revision": applied_revision,
         "operationCount": 1,
-        "undoLabel": "Godot Safe Change: Add node",
+        "undoLabel": last_applied_undo_label,
     }
     return _success("report", report)
 
@@ -1347,6 +1363,37 @@ func _apply_create_node(scene_root: Node, operation: Dictionary) -> Dictionary:
     undo_redo.commit_action()
     EditorInterface.mark_scene_as_unsaved()
     return {}
+
+func _apply_delete_node(scene_root: Node, operation: Dictionary) -> Dictionary:
+    var node_path := String(operation.get("nodePath", ""))
+    if not _is_safe_node_path(node_path) or node_path == ".":
+        return _failure("UNSAFE_OPERATION", "Only a safe non-root scene node can be deleted.")
+    var node := _scene_node(scene_root, node_path)
+    if node == null:
+        return _failure("VALIDATION_FAILED", "The requested scene node does not exist.")
+    if node.owner != scene_root:
+        return _failure("UNSAFE_OPERATION", "Only nodes owned by the current scene can be deleted.")
+    var parent := node.get_parent()
+    if parent == null:
+        return _failure("UNSAFE_OPERATION", "The requested scene node has no parent in the current scene.")
+    var child_index := node.get_index()
+    var undo_redo := get_undo_redo()
+    undo_redo.create_action("Godot Safe Change: Delete node")
+    undo_redo.add_do_method(Callable(parent, "remove_child").bind(node))
+    undo_redo.add_undo_method(Callable(self, "_restore_deleted_node").bind(parent, node, child_index, scene_root))
+    undo_redo.add_undo_reference(node)
+    undo_redo.commit_action()
+    EditorInterface.mark_scene_as_unsaved()
+    return {}
+
+func _restore_deleted_node(parent: Node, node: Node, child_index: int, scene_root: Node) -> void:
+    if not is_instance_valid(parent) or not is_instance_valid(node) or not is_instance_valid(scene_root):
+        return
+    if node.get_parent() != null:
+        return
+    parent.add_child(node)
+    parent.move_child(node, mini(child_index, parent.get_child_count() - 1))
+    node.owner = scene_root
 
 func _set_node_owner(node: Node, scene_root: Node) -> void:
     if not is_instance_valid(node) or not is_instance_valid(scene_root):

@@ -15,7 +15,7 @@ The first safe vertical workflow is now fully connected:
 - search_project: unified read-only project search covering scenes, nodes, scripts, resources, signal connections and input actions. Scene, node, script and resource results come from the connected Godot editor when available (live state of the edited scene) and fall back to a local read-only index otherwise; signal and input results always come from the local index. Every result is tagged with its `source`.
 - find_references: reverse reference lookup answering "which scenes, resources or scripts reference this script, texture or resource". It scans scene/resource ext_resource entries and GDScript `preload()` / `load()` calls, matches by res:// path or uid:// identifier, and resolves uid-only references where Godot 4.4+ omits the path (purely local and read-only).
 - preview_scene_change: produce a plan and diff for restricted scene.create_node, scene.delete_node, scene.set_property, scene.attach_script, resource.replace_reference, project.input_action.add_key/remove_key/replace_key or script.replace_range operations.
-- scene.delete_node: preview-only for now; it accepts only a safe relative NodePath in the current scene, rejects the root and missing nodes, and returns a subtree snapshot. Apply will be added separately after further safety hardening.
+- scene.delete_node: delete only a non-root node owned by the current scene; preview returns the complete subtree snapshot and apply/rollback use Godot UndoRedo while restoring the original parent and child order.
 - scene.set_property: allow only visible, position, size, text and color with node-type checks, exact object keys, finite numeric ranges and a current property snapshot.
 - scene.attach_script: attach only an existing project-local `.gd` script to a node in the current scene; it never executes or edits the script.
 - resource.replace_reference / project.input_action.add_key/remove_key/replace_key: use file or project.godot revision guards, bounded writes and safe rollback; key removal/replacement requires exactly one matching physical InputEventKey and replacement preserves modifiers.
@@ -28,7 +28,7 @@ The first safe vertical workflow is now fully connected:
 - create_task / get_task / advance_task / pause_task / resume_task / cancel_task: compose bounded apply, rollback, run, scene/diagnostic verification and diagnostic-repair preview/apply steps into an auditable task with leases, pause/resume/cancel, retry and restart recovery. Every task must use unique `stepId` values. Repair apply requires a separate confirm_scene_change call.
 - acquire_task_lease / renew_task_lease / release_task_lease / task_status / task_timeline: coordinate multi-window ownership, heartbeat recovery and filtered evidence timelines; atomic file acquisition keeps a single owner across concurrent MCP processes.
 
-The current scene can create only allowlisted node types—Node, Node2D, Control, Label and ColorRect—and property/script/delete-preview operations accept only safe relative NodePaths and allowlisted properties.
+The current scene can create only allowlisted node types—Node, Node2D, Control, Label and ColorRect—and property/script/delete operations accept only safe relative NodePaths and allowlisted properties.
 
 ## Running locally
 
