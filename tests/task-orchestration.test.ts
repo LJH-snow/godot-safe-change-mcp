@@ -25,8 +25,13 @@ import { InMemoryProjectLeaseStore, type ProjectLease } from "../src/infrastruct
 import { normalizeProjectRoot } from "../src/infrastructure/project-root.js";
 
 class RenewalFailureLeaseStore extends InMemoryProjectLeaseStore {
+  failRenewal = true;
+
   async renew(_lease: ProjectLease, _ttlMs: number): Promise<ProjectLease> {
-    throw new DomainError(ERROR_CODES.LEASE_EXPIRED, "The test lease renewal failed.");
+    if (this.failRenewal) {
+      throw new DomainError(ERROR_CODES.OPERATION_REJECTED, "The test lease renewal temporarily failed.");
+    }
+    return super.renew(_lease, _ttlMs);
   }
 }
 
@@ -69,6 +74,7 @@ class FakeGodotBridge implements GodotBridge {
     warnings: [],
     errors: [],
   };
+  runDelayMs = 0;
 
   constructor(private readonly projectRoot: string) {
     this.context = createContext(projectRoot);
@@ -97,6 +103,9 @@ class FakeGodotBridge implements GodotBridge {
   }
 
   async runCurrentScene(): Promise<RunDiagnostics> {
+    if (this.runDelayMs > 0) {
+      await new Promise((resolve) => setTimeout(resolve, this.runDelayMs));
+    }
     return this.runDiagnosticsResult;
   }
 
@@ -528,7 +537,20 @@ describe("TaskCoordinator", () => {
     const report = await taskCoordinator.getTaskTimeline({
       projectRoot,
       taskId: task.taskId,
-      eventTypes: ["lease_acquired", "lease_released"],
+      eventTypes: [
+        "running",
+        "succeeded",
+        "failed",
+        "paused",
+        "resumed",
+        "cancelled",
+        "lease_acquired",
+        "lease_renewed",
+        "lease_renew_failed",
+        "lease_recovered",
+        "lease_released",
+        "lease_reclaimed",
+      ],
       from,
       to,
       limit: 1,
@@ -540,6 +562,18 @@ describe("TaskCoordinator", () => {
     assert.equal(report.truncated, true);
     assert.ok(["lease_acquired", "lease_released"].includes(String(report.events[0]?.status)));
     assert.equal(released.lease, null);
+
+    await taskCoordinator.advanceTask({ projectRoot, taskId: task.taskId });
+    const stepEvents = await taskCoordinator.getTaskTimeline({
+      projectRoot,
+      taskId: task.taskId,
+      stepId: "timeline-step",
+      eventTypes: ["running", "succeeded"],
+      from,
+      to: new Date(Date.now() + 1000).toISOString(),
+    });
+    assert.equal(stepEvents.total, 2);
+    assert.ok(stepEvents.events.every((event) => event.stepId === "timeline-step"));
   });
 
   test("records heartbeat renewal failure and marks the task recoverable", async () => {
@@ -564,10 +598,122 @@ describe("TaskCoordinator", () => {
 
       const recovered = await taskCoordinator.getTask({ projectRoot, taskId: task.taskId });
       assert.equal(recovered.recoverable, true);
+      assert.equal(recovered.status, "paused");
       assert.ok(recovered.timeline.some((event) => String(event.status) === "lease_renew_failed"));
+      assert.ok(recovered.timeline.some((event) => String(event.status) === "paused"));
       assert.equal(recovered.lease?.leaseId, acquired.lease?.leaseId);
+
+      leaseStore.failRenewal = false;
+      const resumed = await taskCoordinator.resumeTask({ projectRoot, taskId: task.taskId });
+      assert.equal(resumed.status, "active");
+      assert.equal(resumed.recoverable, false);
+      assert.ok(resumed.timeline.some((event) => String(event.status) === "lease_recovered"));
     } finally {
       await rm(projectRoot, { recursive: true, force: true });
     }
+  });
+
+  test("keeps a task paused when its heartbeat fails during a running step", async () => {
+    const { projectRoot } = harness;
+    const bridge = new FakeGodotBridge(projectRoot);
+    bridge.runDelayMs = 650;
+    const leaseStore = new RenewalFailureLeaseStore();
+    const changeCoordinator = new ChangeCoordinator(bridge, undefined, leaseStore);
+    const coordinator = new TaskCoordinator(changeCoordinator, new FileTaskStore(), leaseStore);
+    const task = await coordinator.createTask({
+      projectRoot,
+      title: "Pause during lost lease",
+      steps: [{ kind: "run_current_scene", stepId: "run-lost-heartbeat" }],
+    });
+    await coordinator.acquireTaskLease({ projectRoot, taskId: task.taskId, ttlMs: 1000 });
+
+    const advanced = await coordinator.advanceTask({ projectRoot, taskId: task.taskId });
+
+    assert.equal(advanced.status, "paused");
+    assert.equal(advanced.steps[0]?.status, "succeeded");
+    assert.equal(advanced.nextStepId, null);
+    assert.equal(advanced.recoverable, true);
+    assert.ok(advanced.timeline.some((event) => event.status === "lease_renew_failed"));
+  });
+
+  test("records previous owner, new owner and expiry reason when a task lease is reclaimed", async () => {
+    const { projectRoot, changeCoordinator, taskCoordinator } = harness;
+    const leaseStore = changeCoordinator.getProjectLeaseStore() as InMemoryProjectLeaseStore;
+    const task = await taskCoordinator.createTask({
+      projectRoot,
+      title: "Lease takeover timeline",
+      steps: [{ kind: "run_current_scene", stepId: "run-takeover" }],
+    });
+    const acquired = await taskCoordinator.acquireTaskLease({
+      projectRoot,
+      taskId: task.taskId,
+      ttlMs: 1000,
+    });
+    const previousOwnerId = acquired.lease!.ownerId;
+    const normalizedProjectRoot = await normalizeProjectRoot(projectRoot);
+    await leaseStore.renew(
+      {
+        leaseId: acquired.lease!.leaseId,
+        projectRoot: normalizedProjectRoot,
+        ownerId: previousOwnerId,
+        acquiredAt: acquired.lease!.acquiredAt,
+        expiresAt: acquired.lease!.expiresAt,
+      },
+      1,
+    );
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    await assert.rejects(
+      () => taskCoordinator.renewTaskLease({
+        projectRoot,
+        taskId: task.taskId,
+        leaseId: acquired.lease!.leaseId,
+      }),
+      (error: unknown) => error instanceof DomainError && error.code === ERROR_CODES.LEASE_EXPIRED,
+    );
+
+    const recoveryCoordinator = new TaskCoordinator(changeCoordinator, new FileTaskStore(), leaseStore);
+    await recoveryCoordinator.resumeTask({ projectRoot, taskId: task.taskId });
+    const completed = await recoveryCoordinator.advanceTask({ projectRoot, taskId: task.taskId });
+    assert.equal(completed.status, "completed");
+    const reclaimed = completed.timeline.find((event) => event.status === "lease_reclaimed");
+    assert.ok(reclaimed);
+    assert.equal((reclaimed.result as { previousOwnerId?: string }).previousOwnerId, previousOwnerId);
+    assert.notEqual((reclaimed.result as { ownerId?: string }).ownerId, previousOwnerId);
+    assert.equal((reclaimed.result as { reason?: string }).reason, "lease_expired");
+  });
+
+  test("reclaims an expired lease already held in the same coordinator", async () => {
+    const { projectRoot, changeCoordinator, taskCoordinator } = harness;
+    const leaseStore = changeCoordinator.getProjectLeaseStore() as InMemoryProjectLeaseStore;
+    const task = await taskCoordinator.createTask({
+      projectRoot,
+      title: "Same coordinator lease recovery",
+      steps: [{ kind: "run_current_scene", stepId: "run-same-owner-recovery" }],
+    });
+    const acquired = await taskCoordinator.acquireTaskLease({
+      projectRoot,
+      taskId: task.taskId,
+      ttlMs: 10000,
+    });
+    const normalizedProjectRoot = await normalizeProjectRoot(projectRoot);
+    await leaseStore.renew(
+      {
+        leaseId: acquired.lease!.leaseId,
+        projectRoot: normalizedProjectRoot,
+        ownerId: acquired.lease!.ownerId,
+        acquiredAt: acquired.lease!.acquiredAt,
+        expiresAt: acquired.lease!.expiresAt,
+      },
+      1,
+    );
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    const completed = await taskCoordinator.advanceTask({ projectRoot, taskId: task.taskId });
+
+    assert.equal(completed.status, "completed");
+    const reclaimed = completed.timeline.find((event) => event.status === "lease_reclaimed");
+    assert.ok(reclaimed);
+    assert.equal((reclaimed.result as { reason?: string }).reason, "lease_expired");
+    assert.equal((reclaimed.result as { previousOwnerId?: string }).previousOwnerId, acquired.lease!.ownerId);
   });
 });

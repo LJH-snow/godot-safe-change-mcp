@@ -154,6 +154,8 @@
 - [x] 支持 acquire_task_lease、renew_task_lease、release_task_lease 和 task_status。
 - [x] 任务步骤可复用显式 leaseId，lease owner、expiresAt 和 recoverable 状态持久化可见。
 - [x] 显式任务 lease 在持有期间按 TTL/3 自动 heartbeat 续租，并记录 acquire、renew、release、reclaim timeline 事件。
+- [x] heartbeat 续租失败自动暂停任务并保留可恢复状态；接管事件记录 previousOwnerId、ownerId 和到期/丢失/替换原因。
+- [x] 原 owner 在 lease 仍有效时可恢复同一 lease 并记录 lease_recovered；本地缓存 lease 到期时也会正确回收。
 
 ## Phase 11 — 多步骤开发任务
 

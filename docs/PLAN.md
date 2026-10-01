@@ -185,7 +185,7 @@ npm run build
 
 2026-09-30 已增加项目级短租约：apply/rollback 自动获取用户状态目录中的原子 lease，支持 owner/过期校验，并在并发窗口写入时返回 PROJECT_BUSY。
 
-2026-09-30 已完成 task-level lease heartbeat：任务持有 lease 期间按 TTL/3 自动续租，续租失败会停止 heartbeat、记录 lease_renew_failed 并标记任务可恢复；timeline 记录 lease_acquired、lease_renewed、lease_renew_failed、lease_released 和 lease_reclaimed。
+2026-10-01 已完成 task lease 恢复加固：heartbeat 续租失败会停止 heartbeat、记录 `lease_renew_failed` 并自动暂停任务；原 owner 若 lease 仍有效，可恢复同一 lease 并记录 `lease_recovered`。接管 timeline 保存前任 owner、新 owner 和 `lease_expired` / `lease_missing` / `lease_replaced` 原因；步骤执行期间续租失败时，完成或失败回包不会覆盖 paused 状态。
 
 2026-09-30 已完成 Godot headless CI smoke：固定 Godot 4.7.2，覆盖 search、context、scene/script/input action apply/rollback、diagnostics 和 operation_history；Linux workflow 使用 `xvfb-run`、阶段日志、硬超时和 smoke artifact，远程 Actions run `36741526625` 已通过。
 

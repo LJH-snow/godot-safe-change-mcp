@@ -44,6 +44,7 @@ interface LeaseHeartbeat {
 export class TaskCoordinator {
   private readonly tasks = new Map<string, TaskState>();
   private readonly taskLeases = new Map<string, ProjectLease>();
+  private readonly taskLeaseTtls = new Map<string, number>();
   private readonly leaseHeartbeats = new Map<string, LeaseHeartbeat>();
   private readonly explicitLeaseTaskIds = new Set<string>();
   private readonly ownerId = "task-coordinator-" + process.pid + "-" + randomUUID();
@@ -207,6 +208,7 @@ export class TaskCoordinator {
         result: step.result,
       });
     } catch (error) {
+      const pausedForRecovery = this.isTaskPausedForRecovery(task.taskId);
       step.status = "failed";
       step.finishedAt = new Date().toISOString();
       step.error =
@@ -216,7 +218,9 @@ export class TaskCoordinator {
               code: "INTERNAL_ERROR",
               message: error instanceof Error ? error.message : String(error),
             };
-      task.status = "failed";
+      if (!pausedForRecovery) {
+        task.status = "failed";
+      }
       task.nextStepId = step.stepId;
       task.updatedAt = step.finishedAt;
       this.appendTimeline(task, {
@@ -230,10 +234,12 @@ export class TaskCoordinator {
       return structuredClone(task);
     }
 
-    task.status = "active";
+    if (!this.isTaskPausedForRecovery(task.taskId)) {
+      task.status = "active";
+    }
     const next = this.findNextStep(task);
     task.nextStepId = next?.stepId ?? null;
-    if (next === undefined) {
+    if (next === undefined && !this.isTaskPausedForRecovery(task.taskId)) {
       task.status = "completed";
     }
     task.updatedAt = new Date().toISOString();
@@ -304,6 +310,7 @@ export class TaskCoordinator {
         acquiredAt: task.lease?.acquiredAt ?? new Date().toISOString(),
         expiresAt: task.lease?.expiresAt ?? new Date().toISOString(),
       });
+      this.taskLeaseTtls.set(task.taskId, parsedInput.ttlMs ?? DEFAULT_TASK_LEASE_TTL_MS);
     }
     await this.renewHeldTaskLease(task.taskId, parsedInput.ttlMs ?? DEFAULT_TASK_LEASE_TTL_MS);
     return structuredClone(this.tasks.get(task.taskId) ?? task);
@@ -327,6 +334,7 @@ export class TaskCoordinator {
         acquiredAt: task.lease?.acquiredAt ?? new Date().toISOString(),
         expiresAt: task.lease?.expiresAt ?? new Date().toISOString(),
       });
+      this.taskLeaseTtls.set(task.taskId, parsedInput.ttlMs ?? DEFAULT_TASK_LEASE_TTL_MS);
     }
     await this.releaseHeldTaskLease(task.taskId);
     return structuredClone(this.tasks.get(task.taskId) ?? task);
@@ -439,46 +447,112 @@ export class TaskCoordinator {
     projectRoot: string,
     ttlMs = DEFAULT_TASK_LEASE_TTL_MS,
   ): Promise<ProjectLease> {
+    let reclaimReason: "lease_expired" | "lease_missing" | "lease_replaced" | null = null;
+    const previousLease = task.lease;
     const existingLease = this.taskLeases.get(task.taskId);
     if (existingLease !== undefined) {
-      await this.leaseStore.assert(projectRoot, existingLease.leaseId);
-      this.startLeaseHeartbeat(task, existingLease, ttlMs);
-      return existingLease;
-    }
-    let reclaimed = false;
-    if (task.lease !== null) {
       try {
-        await this.leaseStore.assert(projectRoot, task.lease.leaseId);
-        throw new DomainError(ERROR_CODES.PROJECT_BUSY, "The task is leased by another coordinator.", {
-          taskId: task.taskId,
-          ownerId: task.lease.ownerId,
-          expiresAt: task.lease.expiresAt,
-        });
+        await this.leaseStore.assert(projectRoot, existingLease.leaseId);
+        const heartbeatTtlMs =
+          this.taskLeaseTtls.get(task.taskId) ?? this.leaseHeartbeats.get(task.taskId)?.ttlMs ?? ttlMs;
+        if (task.status === "paused" && task.recoverable) {
+          await this.renewHeldTaskLease(task.taskId, heartbeatTtlMs);
+          const recoveredLease = this.taskLeases.get(task.taskId);
+          if (recoveredLease === undefined) {
+            throw new DomainError(ERROR_CODES.LEASE_NOT_FOUND, "The task lease was lost during recovery.");
+          }
+          task.updatedAt = new Date().toISOString();
+          this.appendTimeline(task, {
+            stepId: null,
+            operationId: null,
+            status: "lease_recovered",
+            at: task.updatedAt,
+            result: {
+              leaseId: recoveredLease.leaseId,
+              previousOwnerId: recoveredLease.ownerId,
+              ownerId: recoveredLease.ownerId,
+              reason: "same_owner_resume",
+            },
+          });
+          await this.store.save(task.projectRoot, task);
+          return recoveredLease;
+        }
+        if (task.recoverable) {
+          task.lease = this.taskLeaseState(existingLease);
+          task.recoverable = false;
+          task.updatedAt = new Date().toISOString();
+          await this.store.save(task.projectRoot, task);
+        }
+        this.startLeaseHeartbeat(task, existingLease, heartbeatTtlMs);
+        return existingLease;
       } catch (error) {
-        if (
-          !(error instanceof DomainError) ||
-          (error.code !== ERROR_CODES.LEASE_EXPIRED && error.code !== ERROR_CODES.LEASE_NOT_FOUND)
-        ) {
+        reclaimReason = this.taskLeaseReclaimReason(error);
+        if (reclaimReason === null) {
           throw error;
         }
-        reclaimed = true;
+        if (this.taskLeases.get(task.taskId)?.leaseId === existingLease.leaseId) {
+          this.taskLeases.delete(task.taskId);
+          this.taskLeaseTtls.delete(task.taskId);
+        }
+        this.stopLeaseHeartbeat(task.taskId);
+      }
+    }
+    if (reclaimReason === null && previousLease !== null) {
+      try {
+        await this.leaseStore.assert(projectRoot, previousLease.leaseId);
+        throw new DomainError(ERROR_CODES.PROJECT_BUSY, "The task is leased by another coordinator.", {
+          taskId: task.taskId,
+          ownerId: previousLease.ownerId,
+          expiresAt: previousLease.expiresAt,
+        });
+      } catch (error) {
+        reclaimReason = this.taskLeaseReclaimReason(error);
+        if (reclaimReason === null) {
+          throw error;
+        }
       }
     }
     const lease = await this.leaseStore.acquire(projectRoot, this.ownerId + ":" + task.taskId, ttlMs);
     this.taskLeases.set(task.taskId, lease);
+    this.taskLeaseTtls.set(task.taskId, ttlMs);
     task.lease = this.taskLeaseState(lease);
     task.recoverable = false;
     task.updatedAt = new Date().toISOString();
     this.appendTimeline(task, {
       stepId: null,
       operationId: null,
-      status: reclaimed ? "lease_reclaimed" : "lease_acquired",
+      status: reclaimReason === null ? "lease_acquired" : "lease_reclaimed",
       at: task.updatedAt,
-      result: { leaseId: lease.leaseId, ownerId: lease.ownerId, expiresAt: lease.expiresAt },
+      result: {
+        leaseId: lease.leaseId,
+        ownerId: lease.ownerId,
+        expiresAt: lease.expiresAt,
+        ...(reclaimReason === null
+          ? {}
+          : { previousOwnerId: previousLease?.ownerId ?? null, reason: reclaimReason }),
+      },
     });
     await this.store.save(task.projectRoot, task);
     this.startLeaseHeartbeat(task, lease, ttlMs);
     return lease;
+  }
+
+  private taskLeaseReclaimReason(
+    error: unknown,
+  ): "lease_expired" | "lease_missing" | "lease_replaced" | null {
+    if (!(error instanceof DomainError)) {
+      return null;
+    }
+    if (error.code === ERROR_CODES.LEASE_EXPIRED) {
+      return "lease_expired";
+    }
+    if (error.code === ERROR_CODES.LEASE_NOT_FOUND) {
+      return "lease_missing";
+    }
+    if (error.code === ERROR_CODES.LEASE_INVALID) {
+      return "lease_replaced";
+    }
+    return null;
   }
 
   private async releaseHeldTaskLease(taskId: string): Promise<void> {
@@ -488,6 +562,7 @@ export class TaskCoordinator {
     }
     this.stopLeaseHeartbeat(taskId);
     this.taskLeases.delete(taskId);
+    this.taskLeaseTtls.delete(taskId);
     await this.leaseStore.release(lease).catch(() => undefined);
     const task = this.tasks.get(taskId);
     if (task !== undefined) {
@@ -543,6 +618,7 @@ export class TaskCoordinator {
       }
       const renewed = await this.leaseStore.renew(lease, ttlMs);
       this.taskLeases.set(taskId, renewed);
+      this.taskLeaseTtls.set(taskId, ttlMs);
       task.lease = this.taskLeaseState(renewed);
       task.recoverable = false;
       task.updatedAt = new Date().toISOString();
@@ -556,25 +632,51 @@ export class TaskCoordinator {
       await this.store.save(task.projectRoot, task);
       if (heartbeat !== undefined) {
         heartbeat.leaseId = renewed.leaseId;
-      } else {
-        this.startLeaseHeartbeat(task, renewed, ttlMs);
       }
+      this.startLeaseHeartbeat(task, renewed, ttlMs);
     } catch (error) {
       this.stopLeaseHeartbeat(taskId);
+      const failedLease = this.taskLeases.get(taskId);
+      if (failedLease !== undefined && (heartbeat === undefined || failedLease.leaseId === heartbeat.leaseId)) {
+        let leaseStillValid = false;
+        try {
+          await this.leaseStore.assert(failedLease.projectRoot, failedLease.leaseId);
+          leaseStillValid = true;
+        } catch {
+        }
+        if (!leaseStillValid) {
+          this.taskLeases.delete(taskId);
+          this.taskLeaseTtls.delete(taskId);
+        }
+      }
       const task = this.tasks.get(taskId);
       if (task !== undefined) {
         task.recoverable = true;
+        const shouldPause = task.status === "active";
+        if (shouldPause) {
+          task.status = "paused";
+        }
         task.updatedAt = new Date().toISOString();
+        const renewalError =
+          error instanceof DomainError
+            ? { code: error.code, message: error.message }
+            : { code: "INTERNAL_ERROR", message: error instanceof Error ? error.message : String(error) };
         this.appendTimeline(task, {
           stepId: null,
           operationId: null,
           status: "lease_renew_failed",
           at: task.updatedAt,
-          error:
-            error instanceof DomainError
-              ? { code: error.code, message: error.message }
-              : { code: "INTERNAL_ERROR", message: error instanceof Error ? error.message : String(error) },
+          error: renewalError,
         });
+        if (shouldPause) {
+          this.appendTimeline(task, {
+            stepId: null,
+            operationId: null,
+            status: "paused",
+            at: task.updatedAt,
+            error: renewalError,
+          });
+        }
         await this.store.save(task.projectRoot, task).catch(() => undefined);
       }
       throw error;
@@ -597,6 +699,11 @@ export class TaskCoordinator {
   private refreshTaskRecoverability(task: TaskState): void {
     task.recoverable =
       task.recoverable || task.lease === null || Date.parse(task.lease.expiresAt) <= Date.now();
+  }
+
+  private isTaskPausedForRecovery(taskId: string): boolean {
+    const task = this.tasks.get(taskId);
+    return task?.status === "paused" && task.recoverable;
   }
 
   private findNextStep(task: TaskState): TaskStepState | undefined {

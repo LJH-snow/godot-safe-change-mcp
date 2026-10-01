@@ -46,6 +46,14 @@
 - heartbeat 停止、续租失败和任务释放不会留下活动定时器；timeline 增加 lease_acquired、lease_renewed、lease_renew_failed、lease_released、lease_reclaimed 事件。
 - 自动化回归通过：60/60 tests、typecheck、build。
 
+## 2026-10-01 task lease recovery
+
+- Heartbeat 续租失败自动将 active task 转为 paused，保留 recoverable=true，并记录 lease_renew_failed/paused 错误证据。
+- 修复同一 coordinator 持有的过期 lease 无法接管问题；reclaim 事件现在包含 previousOwnerId、ownerId 和 lease_expired、lease_missing 或 lease_replaced 原因。
+- lease 仍有效的 transient renew failure 可由原 owner resume；成功续租后记录 lease_recovered，并保留原 TTL heartbeat 周期。
+- 步骤执行期间 lease 失败时，后续步骤成功/失败处理保留 paused 状态；短 TTL 不会被 advance_task 重置为默认 heartbeat TTL。
+- 本地目标回归通过：63/63 tests；typecheck/build 正在进行本轮最终验证。
+
 ## 2026-09-30 task timeline query
 
 - 新增只读 `task_timeline` MCP 工具，支持 `stepId`、`eventTypes`、ISO `from/to` 和 `limit` 过滤。
