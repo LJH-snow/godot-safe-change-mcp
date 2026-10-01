@@ -146,6 +146,26 @@ async function expectToolError(name, argumentsValue, pattern = null) {
   );
 }
 
+async function assertDirectInputKeyReplacementRejected(actionName, fromPhysicalKeycode, toPhysicalKeycode, expectedStatus, expectedCode, expectedFileRevision = null) {
+  const projectRoot = fixtureRoot;
+  const editorContext = await readEditorContext(projectRoot);
+  const bridgeProjectRoot = editorContext.projectRoot;
+  const before = await bridgeRequest("/v1/input-actions/read", { projectRoot: bridgeProjectRoot, actionName });
+  assert.equal(before.body.ok, true, JSON.stringify(before.body));
+  const response = await bridgeRequest("/v1/changes/apply", {
+    projectRoot: bridgeProjectRoot,
+    planId: "direct-input-replace-" + actionName,
+    expectedRevision: editorContext.revision,
+    expectedFileRevision: expectedFileRevision ?? before.body.snapshot.revision,
+    operations: [{ kind: "project.input_action.replace_key", actionName, fromPhysicalKeycode, toPhysicalKeycode }],
+  });
+  assert.equal(response.status, expectedStatus, JSON.stringify(response.body));
+  assert.equal(response.body.ok, false);
+  assert.equal(response.body.error.code, expectedCode);
+  const after = await bridgeRequest("/v1/input-actions/read", { projectRoot: bridgeProjectRoot, actionName });
+  assert.deepEqual(after.body.snapshot, before.body.snapshot);
+}
+
 async function roundTripSceneProperty(projectRoot, nodePath, property, value) {
   const beforeContext = await readEditorContext(projectRoot);
   const beforeNode = sceneNode(beforeContext, nodePath);
@@ -267,6 +287,11 @@ try {
   assert.equal(directInvalidChange.status, 400);
   assert.equal(directInvalidChange.body.ok, false);
   assert.equal(directInvalidChange.body.error.code, "VALIDATION_FAILED");
+  await assertDirectInputKeyReplacementRejected("remove_binding", 74, 74, 400, "VALIDATION_FAILED");
+  await assertDirectInputKeyReplacementRejected("logical_binding", 74, 75, 409, "OPERATION_REJECTED");
+  await assertDirectInputKeyReplacementRejected("duplicate_binding", 74, 75, 409, "OPERATION_REJECTED");
+  await assertDirectInputKeyReplacementRejected("occupied_binding", 74, 75, 400, "VALIDATION_FAILED");
+  await assertDirectInputKeyReplacementRejected("remove_binding", 74, 75, 409, "REVISION_CONFLICT", "stale-settings-revision");
 
   const nodeSearch = structured(await request("tools/call", {
     name: "search_project",
@@ -476,6 +501,11 @@ try {
   assert.deepEqual(replacementAfter.body.snapshot.events.map((event) => event.physicalKeycode), [75]);
   assert.equal(replacementAfter.body.snapshot.deadzone, 0.35);
   assert.match(await readFile(path.join(fixtureRoot, "project.godot"), "utf8"), /shift_pressed[" ]*[:=][ ]*true/);
+  const appliedProjectSettings = await readFile(path.join(fixtureRoot, "project.godot"), "utf8");
+  await writeFile(path.join(fixtureRoot, "project.godot"), appliedProjectSettings + "\n; external edit after input action apply\n", "utf8");
+  await expectToolError("rollback_scene_change", { projectRoot: fixtureRoot, planId: replaceKeyPlan.planId }, /REVISION_CONFLICT/);
+  assert.match(await readFile(path.join(fixtureRoot, "project.godot"), "utf8"), /external edit after input action apply/);
+  await writeFile(path.join(fixtureRoot, "project.godot"), appliedProjectSettings, "utf8");
   const replaceKeyRollback = structured(await request("tools/call", {
     name: "rollback_scene_change",
     arguments: { projectRoot: fixtureRoot, planId: replaceKeyPlan.planId },
@@ -487,6 +517,7 @@ try {
   });
   assert.deepEqual(replacementRestored.body.snapshot.events.map((event) => event.physicalKeycode), [74]);
   assert.equal(replacementRestored.body.snapshot.deadzone, 0.35);
+  assert.match(await readFile(path.join(fixtureRoot, "project.godot"), "utf8"), /shift_pressed[" ]*[:=][ ]*true/);
   stage("input action replacement rollback complete");
 
   const attachBefore = await readEditorContext(fixtureRoot);

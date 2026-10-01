@@ -11,7 +11,7 @@ Automated coverage currently includes:
 - diagnostics: source/line/NodePath association and preview generation from explicit repair hints;
 - script and resource changes: bounded .gd/resource replacement, temporary-file atomic apply, file revision guard, user-edit conflict and rollback;
 - scene changes: UndoRedo-backed create, property and script-attachment operations with rollback history/version/action guards;
-- input actions: bounded ProjectSettings key addition/removal, duplicate/ambiguous-key rejection, settings revision guard and rollback;
+- input actions: bounded ProjectSettings key addition/removal/replacement for physical keys, direct-plugin rejection of equal, logical, duplicate and occupied keys, settings revision guard and rollback after external edits;
 - multi-step tasks: bounded task state machine with apply/rollback/run steps, pause/resume/cancel transitions, explicit lease acquire/renew/release, retry budget, project-directory persistence and restart recovery;
 - HTTP bridge: loopback protocol envelopes, context/search/apply requests, current-scene and specified-scene run status polling;
 - plugin boundary: fixed TCPServer transport, independent request validation, context/apply/rollback/run/run-scene route markers, safe paths and forbidden-operation checks.
