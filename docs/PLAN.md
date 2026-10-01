@@ -221,6 +221,8 @@ npm run build
 
 2026-10-01 已增加真实多进程 lease 回归：独立 worker 进程验证并发 owner 稳定返回 `PROJECT_BUSY`，过期 lease 只允许一个进程接管，并在 owner 被 kill 后恢复 running task step，保留 `step_interrupted`、`lease_reclaimed` 和新旧 operation ID 证据。
 
+2026-10-01 已将多进程验收接入真实 Godot smoke：两个独立 MCP 进程共享同一 EditorPlugin 桥接和 state 目录，验证 lease 冲突、强制终止、TTL 接管，并由接管进程运行真实场景。
+
 ## 7. 待决定问题
 
 - 本地桥接使用 HTTP、WebSocket，还是两个都提供；

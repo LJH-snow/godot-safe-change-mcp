@@ -14,7 +14,7 @@ GODOT_BIN=/path/to/Godot node tests/godot-runtime-smoke.mjs
 git diff --check
 ~~~
 
-The Godot smoke must pass with a Godot 4.x editor. It covers context/search, preview/confirm/apply/rollback, diagnostics, task leases, task verification, diagnostic repair preview/apply, and operation evidence.
+The Godot smoke must pass with a Godot 4.x editor. It covers context/search, preview/confirm/apply/rollback, diagnostics, task leases, task verification, diagnostic repair preview/apply, operation evidence, and two MCP processes sharing one real EditorPlugin bridge.
 
 ## CI preflight
 

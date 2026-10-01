@@ -17,6 +17,7 @@ Automated coverage currently includes:
 - multi-step tasks: bounded task state machine with apply/rollback/run/verify/diagnostic-repair preview+apply steps, pause/resume/cancel transitions, explicit lease acquire/renew/release, retry budget, project-directory persistence and restart recovery; repair apply is gated by a separate confirmation;
 - HTTP bridge: loopback protocol envelopes, context/search/apply requests, current-scene and specified-scene run status polling;
 - plugin boundary: fixed TCPServer transport, independent validation of forged apply/rollback requests, unchanged project state after rejected payloads, context/apply/rollback/run/run-scene routes, safe paths and forbidden-operation checks.
+- real Godot integration: two MCP processes sharing one EditorPlugin bridge, lease contention, forced owner termination, TTL takeover and task execution through the real bridge.
 
 Run the automated suite with:
 

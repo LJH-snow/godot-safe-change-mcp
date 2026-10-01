@@ -82,7 +82,7 @@ When no Godot editor is connected, MCP tools return a stable EDITOR_UNAVAILABLE 
 ## Release preflight
 
 Run `npm run package:check` before publishing. It builds the server, creates a real npm tarball, installs it in a temporary consumer when permitted, and verifies the packaged MCP entry point and Godot plugin files. GitHub Actions repeats this package boundary check alongside Node tests and Godot 4.5.1/4.7.2 runtime smoke.
-For a local editor-backed release check, also run `GODOT_BIN=/path/to/Godot node tests/godot-runtime-smoke.mjs`. The workflow must finish the `check`, `npm package boundary`, `Godot 4.5.1 runtime`, and `Godot 4.7.2 runtime` jobs successfully. The package smoke uses an explicit release allowlist and rejects source, test, documentation, CI, script, and lock files.
+For a local editor-backed release check, also run `GODOT_BIN=/path/to/Godot node tests/godot-runtime-smoke.mjs`. The Godot smoke starts two MCP processes against the same real EditorPlugin bridge to verify lease contention and TTL takeover. The workflow must finish the `check`, `npm package boundary`, `Godot 4.5.1 runtime`, and `Godot 4.7.2 runtime` jobs successfully. The package smoke uses an explicit release allowlist and rejects source, test, documentation, CI, script, and lock files.
 
 ## Safety boundaries
 

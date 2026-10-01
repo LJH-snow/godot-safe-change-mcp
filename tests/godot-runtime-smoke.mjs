@@ -7,15 +7,19 @@ import { spawn } from "node:child_process";
 const repositoryRoot = process.cwd();
 const godotBinary = process.env.GODOT_BIN;
 const endpoint = "http://127.0.0.1:3100/mcp";
+const secondaryEndpoint = "http://127.0.0.1:3101/mcp";
 const bridgeEndpoint = "http://127.0.0.1:8765";
 const fixtureRoot = await mkdtemp(path.join(tmpdir(), "godot-safe-change-ci-"));
+const stateDirectory = path.join(fixtureRoot, ".mcp-state");
 const scriptPath = path.join(fixtureRoot, "diagnostic_scene.gd");
 let nextRequestId = 1;
 let nextDirectPlanId = 1;
 let godotProcess;
 let mcpProcess;
+let secondaryMcpProcess;
 const godotOutputRef = { value: "" };
 const mcpOutputRef = { value: "" };
+const secondaryMcpOutputRef = { value: "" };
 
 if (!godotBinary) {
   throw new Error("GODOT_BIN is required for the Godot runtime smoke test.");
@@ -75,8 +79,8 @@ async function stopProcess(processHandle) {
   }
 }
 
-async function request(method, params) {
-  const response = await fetch(endpoint, {
+async function requestAt(endpointValue, method, params) {
+  const response = await fetch(endpointValue, {
     method: "POST",
     headers: {
       "content-type": "application/json",
@@ -94,6 +98,10 @@ async function request(method, params) {
     throw new Error(JSON.stringify(envelope.error));
   }
   return envelope.result;
+}
+
+async function request(method, params) {
+  return requestAt(endpoint, method, params);
 }
 
 async function bridgeRequest(pathname, body, method = "POST") {
@@ -119,6 +127,18 @@ async function readEditorContext(projectRoot) {
   }));
 }
 
+async function waitForMcpEndpoint(endpointValue) {
+  for (let attempt = 0; attempt < 120; attempt += 1) {
+    try {
+      await requestAt(endpointValue, "tools/list", {});
+      return;
+    } catch {
+      await waitFor(250);
+    }
+  }
+  throw new Error("The secondary MCP process did not become available.");
+}
+
 function sceneNode(context, nodePath) {
   return context.currentScene.nodes.find((node) => node.path === nodePath);
 }
@@ -140,11 +160,15 @@ function assertValueClose(actual, expected, label) {
   assert.deepEqual(actual, expected, label);
 }
 
-async function expectToolError(name, argumentsValue, pattern = null) {
+async function expectToolErrorAt(endpointValue, name, argumentsValue, pattern = null) {
   await assert.rejects(
-    () => request("tools/call", { name, arguments: argumentsValue }).then(structured),
+    () => requestAt(endpointValue, "tools/call", { name, arguments: argumentsValue }).then(structured),
     (error) => pattern === null || pattern.test(error instanceof Error ? error.message : String(error)),
   );
+}
+
+async function expectToolError(name, argumentsValue, pattern = null) {
+  return expectToolErrorAt(endpoint, name, argumentsValue, pattern);
 }
 
 async function assertDirectChangeRejected(operation, expectedCode) {
@@ -283,13 +307,23 @@ try {
   );
   capture(godotProcess, godotOutputRef);
   stage("wait for editor bridge");
+  const mcpEnvironment = { ...process.env, GODOT_SAFE_CHANGE_STATE_DIR: stateDirectory };
   mcpProcess = spawn(process.platform === "win32" ? "npm.cmd" : "npm", ["run", "dev", "--", "--no-open", "--host", "127.0.0.1", "--port", "3100"], {
     cwd: repositoryRoot,
     stdio: ["ignore", "pipe", "pipe"],
     detached: process.platform !== "win32",
+    env: mcpEnvironment,
   });
   capture(mcpProcess, mcpOutputRef);
+  secondaryMcpProcess = spawn(process.platform === "win32" ? "npm.cmd" : "npm", ["run", "dev", "--", "--no-open", "--host", "127.0.0.1", "--port", "3101"], {
+    cwd: repositoryRoot,
+    stdio: ["ignore", "pipe", "pipe"],
+    detached: process.platform !== "win32",
+    env: mcpEnvironment,
+  });
+  capture(secondaryMcpProcess, secondaryMcpOutputRef);
   const context = await waitForEditor(fixtureRoot, godotOutputRef);
+  await waitForMcpEndpoint(secondaryEndpoint);
   assert.equal(context.connection, "connected");
   assert.ok(context.currentScene.nodes.length > 0);
   stage("validate direct plugin input");
@@ -731,6 +765,62 @@ try {
   assert.equal(taskPlanRollback.status, "rolled_back");
   assert.equal(sceneNode(await readEditorContext(fixtureRoot), "TaskMarker"), undefined);
 
+  stage("real bridge multi-process lease recovery");
+  const crossProcessTask = structured(await requestAt(secondaryEndpoint, "tools/call", {
+    name: "create_task",
+    arguments: {
+      projectRoot: fixtureRoot,
+      title: "Real bridge multi-process lease smoke",
+      steps: [{ kind: "run_current_scene", stepId: "cross-process-run", timeoutMs: 30000 }],
+    },
+  }));
+  const secondaryLease = structured(await requestAt(secondaryEndpoint, "tools/call", {
+    name: "acquire_task_lease",
+    arguments: { projectRoot: fixtureRoot, taskId: crossProcessTask.taskId, ttlMs: 1000 },
+  }));
+  assert.ok(secondaryLease.lease?.leaseId);
+  assert.ok(secondaryLease.lease?.ownerId);
+  await expectToolErrorAt(
+    endpoint,
+    "acquire_task_lease",
+    { projectRoot: fixtureRoot, taskId: crossProcessTask.taskId, ttlMs: 1000 },
+    /PROJECT_BUSY/,
+  );
+  const busyStatus = structured(await request("tools/call", {
+    name: "task_status",
+    arguments: { projectRoot: fixtureRoot, taskId: crossProcessTask.taskId },
+  }));
+  assert.equal(busyStatus.lease?.leaseId, secondaryLease.lease.leaseId);
+  assert.equal(busyStatus.lease?.ownerId, secondaryLease.lease.ownerId);
+  signalProcess(secondaryMcpProcess, "SIGKILL");
+  await waitForExit(secondaryMcpProcess);
+  await waitFor(1250);
+
+  const reclaimedCrossProcessTask = structured(await request("tools/call", {
+    name: "acquire_task_lease",
+    arguments: { projectRoot: fixtureRoot, taskId: crossProcessTask.taskId, ttlMs: 2000 },
+  }));
+  const reclaimedEvent = reclaimedCrossProcessTask.timeline.find((event) => event.status === "lease_reclaimed");
+  assert.ok(reclaimedEvent);
+  assert.equal(reclaimedEvent.result?.reason, "lease_expired");
+  assert.equal(reclaimedEvent.result?.previousOwnerId, secondaryLease.lease.ownerId);
+  assert.notEqual(reclaimedEvent.result?.ownerId, secondaryLease.lease.ownerId);
+  const recoveredCrossProcessTask = structured(await request("tools/call", {
+    name: "advance_task",
+    arguments: { projectRoot: fixtureRoot, taskId: crossProcessTask.taskId },
+  }));
+  assert.equal(recoveredCrossProcessTask.status, "completed");
+  assert.equal(recoveredCrossProcessTask.steps[0]?.status, "succeeded");
+  const recoveredOperationId = recoveredCrossProcessTask.steps[0]?.operationId;
+  assert.match(recoveredOperationId ?? "", /^taskop_[A-Za-z0-9]+$/);
+  const recoveredTimeline = structured(await request("tools/call", {
+    name: "task_timeline",
+    arguments: { projectRoot: fixtureRoot, taskId: crossProcessTask.taskId, stepId: "cross-process-run", operationId: recoveredOperationId },
+  }));
+  assert.deepEqual(recoveredTimeline.events.map((event) => event.status), ["running", "succeeded"]);
+  assert.equal(recoveredTimeline.events[1]?.operationId, recoveredOperationId);
+  stage("real bridge multi-process lease recovery complete");
+
   const missingNodeTask = structured(await request("tools/call", {
     name: "create_task",
     arguments: {
@@ -864,8 +954,10 @@ try {
 } catch (error) {
   console.error("Godot output:\n" + godotOutputRef.value);
   console.error("MCP output:\n" + mcpOutputRef.value);
+  console.error("Secondary MCP output:\n" + secondaryMcpOutputRef.value);
   throw error;
 } finally {
+  await stopProcess(secondaryMcpProcess);
   await stopProcess(mcpProcess);
   await stopProcess(godotProcess);
   await rm(fixtureRoot, { recursive: true, force: true });

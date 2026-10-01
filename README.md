@@ -69,7 +69,7 @@ npm run package:check
 GODOT_BIN=/path/to/Godot node tests/godot-runtime-smoke.mjs
 ~~~
 
-GitHub Actions 还必须通过 `check`、`npm package boundary`、Godot `4.5.1 runtime` 和 Godot `4.7.2 runtime` 四个 job。`npm run package:check` 会用实际 tarball 的显式发布清单检查包边界，拒绝源码、测试、文档、CI、脚本和锁文件进入包。
+GitHub Actions 还必须通过 `check`、`npm package boundary`、Godot `4.5.1 runtime` 和 Godot `4.7.2 runtime` 四个 job。Godot smoke 会在同一真实 EditorPlugin 桥接上启动两个 MCP 进程，验证 lease 冲突和 TTL 接管。`npm run package:check` 会用实际 tarball 的显式发布清单检查包边界，拒绝源码、测试、文档、CI、脚本和锁文件进入包。
 
 ## 通过 npx 运行
 
