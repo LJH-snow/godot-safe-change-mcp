@@ -130,6 +130,48 @@ export class ChangeCoordinator {
           " in " +
           scenePath,
       };
+    } else if (operation.kind === "scene.delete_node") {
+      if (operation.nodePath === ".") {
+        throw new DomainError(
+          ERROR_CODES.UNSAFE_OPERATION,
+          "The current scene root cannot be deleted.",
+          { nodePath: operation.nodePath },
+        );
+      }
+      const node = context.currentScene.nodes.find((candidate) => candidate.path === operation.nodePath);
+      if (node === undefined) {
+        throw new DomainError(
+          ERROR_CODES.VALIDATION_FAILED,
+          "The requested scene node does not exist.",
+          { nodePath: operation.nodePath },
+        );
+      }
+      const deletedNodes = context.currentScene.nodes
+        .filter(
+          (candidate) =>
+            candidate.path === operation.nodePath || candidate.path.startsWith(operation.nodePath + "/"),
+        )
+        .map((candidate) => ({
+          path: candidate.path,
+          name: candidate.name,
+          type: candidate.type,
+          properties: structuredClone(candidate.properties),
+        }));
+      diff = {
+        kind: "scene.delete_node" as const,
+        target: scenePath + ":" + operation.nodePath,
+        summary:
+          "Delete " +
+          node.type +
+          " " +
+          operation.nodePath +
+          " and " +
+          (deletedNodes.length - 1) +
+          " descendant node(s) from " +
+          scenePath,
+        nodePath: operation.nodePath,
+        deletedNodes,
+      };
     } else if (operation.kind === "scene.set_property") {
       const parsedOperation = sceneSetPropertySchema.parse(operation);
       const node = context.currentScene.nodes.find((candidate) => candidate.path === parsedOperation.nodePath);
@@ -324,6 +366,14 @@ export class ChangeCoordinator {
   private async confirmChangeInternal(input: ConfirmChangeInput): Promise<ConfirmedChange> {
     const parsedInput = confirmChangeInputSchema.parse(input);
     const storedPlan = await this.requirePlan(parsedInput.planId, parsedInput.projectRoot);
+
+    if (storedPlan.plan.operations.some((operation) => operation.kind === "scene.delete_node")) {
+      throw new DomainError(
+        ERROR_CODES.OPERATION_REJECTED,
+        "scene.delete_node is preview-only until its UndoRedo apply and rollback path is enabled.",
+        { planId: parsedInput.planId },
+      );
+    }
 
     if (storedPlan.state === "applied") {
       throw new DomainError(

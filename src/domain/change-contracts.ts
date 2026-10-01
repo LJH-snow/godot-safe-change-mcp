@@ -91,6 +91,13 @@ export const createNodeOperationSchema = z
   })
   .strict();
 
+export const sceneDeleteNodeSchema = z
+  .object({
+    kind: z.literal("scene.delete_node"),
+    nodePath: nodePathSchema.describe("NodePath of a node inside the current scene."),
+  })
+  .strict();
+
 const sceneSetVisiblePropertySchema = z
   .object({
     kind: z.literal("scene.set_property"),
@@ -209,6 +216,7 @@ export const scriptReplaceRangeSchema = z
 
 export const changeOperationSchema = z.union([
   createNodeOperationSchema,
+  sceneDeleteNodeSchema,
   sceneSetPropertySchema,
   sceneAttachScriptSchema,
   resourceReplaceReferenceSchema,
@@ -241,6 +249,25 @@ export const sceneChangeDiffSchema = z.object({
   target: z.string().min(1),
   summary: z.string().min(1),
 });
+
+export const sceneDeleteNodeDiffSchema = z.object({
+  kind: z.literal("scene.delete_node"),
+  target: z.string().min(1),
+  summary: z.string().min(1),
+  nodePath: nodePathSchema,
+  deletedNodes: z
+    .array(
+      z
+        .object({
+          path: z.string().min(1),
+          name: z.string().min(1),
+          type: z.string().min(1),
+          properties: z.record(z.string(), z.unknown()),
+        })
+        .strict(),
+    )
+    .min(1),
+}).strict();
 
 export const scriptChangeDiffSchema = z.object({
   kind: z.literal("script.replace_range"),
@@ -331,6 +358,7 @@ export const sceneAttachScriptDiffSchema = z.object({
 
 export const changeDiffSchema = z.union([
   sceneChangeDiffSchema,
+  sceneDeleteNodeDiffSchema,
   scenePropertyDiffSchema,
   sceneAttachScriptDiffSchema,
   resourceReferenceDiffSchema,

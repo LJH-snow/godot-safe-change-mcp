@@ -224,6 +224,86 @@ describe("ChangeCoordinator", () => {
     assert.equal(bridge.applied.length, 0);
   });
 
+  test("previews deleting a bounded scene subtree and rejects unsafe targets", async () => {
+    const bridge = new FakeGodotBridge();
+    bridge.context = {
+      ...bridge.context,
+      currentScene: {
+        ...bridge.context.currentScene,
+        nodes: [
+          ...bridge.context.currentScene.nodes,
+          {
+            path: "Canvas",
+            name: "Canvas",
+            type: "Control",
+            properties: { visible: true, size: { x: 320, y: 180 } },
+          },
+          {
+            path: "Canvas/Title",
+            name: "Title",
+            type: "Label",
+            properties: { visible: true, text: "Fixture label" },
+          },
+          {
+            path: "CanvasOther",
+            name: "CanvasOther",
+            type: "Node2D",
+            properties: { visible: true, position: { x: 0, y: 0 } },
+          },
+        ],
+      },
+    };
+    const coordinator = new ChangeCoordinator(bridge);
+
+    const plan = await coordinator.previewSceneChange({
+      projectRoot,
+      reason: "Remove the obsolete canvas subtree.",
+      operation: { kind: "scene.delete_node", nodePath: "Canvas" },
+    });
+
+    assert.equal(plan.operations[0]?.kind, "scene.delete_node");
+    const diff = plan.diff[0] as {
+      kind: string;
+      nodePath: string;
+      deletedNodes: Array<{ path: string; name: string; type: string }>;
+    };
+    assert.equal(diff.kind, "scene.delete_node");
+    assert.equal(diff.nodePath, "Canvas");
+    assert.deepEqual(diff.deletedNodes.map((node) => node.path), ["Canvas", "Canvas/Title"]);
+    assert.match(plan.diff[0]?.summary ?? "", /Canvas/);
+    assert.equal(bridge.applied.length, 0);
+    await assert.rejects(
+      () => coordinator.confirmChange({ projectRoot, planId: plan.planId, expectedRevision: plan.expectedRevision }),
+      (error: unknown) => error instanceof DomainError && error.code === ERROR_CODES.OPERATION_REJECTED,
+    );
+
+    await assert.rejects(
+      () =>
+        coordinator.previewSceneChange({
+          projectRoot,
+          reason: "Do not remove the scene root.",
+          operation: { kind: "scene.delete_node", nodePath: "." },
+        }),
+      (error: unknown) => error instanceof DomainError && error.code === ERROR_CODES.UNSAFE_OPERATION,
+    );
+    await assert.rejects(
+      () =>
+        coordinator.previewSceneChange({
+          projectRoot,
+          reason: "Reject a missing node.",
+          operation: { kind: "scene.delete_node", nodePath: "Canvas/Missing" },
+        }),
+      (error: unknown) => error instanceof DomainError && error.code === ERROR_CODES.VALIDATION_FAILED,
+    );
+    await assert.rejects(() =>
+      coordinator.previewSceneChange({
+        projectRoot,
+        reason: "Reject traversal.",
+        operation: { kind: "scene.delete_node", nodePath: "../Canvas" },
+      }),
+    );
+  });
+
   test("previews a bounded scene property change", async () => {
     const bridge = new FakeGodotBridge();
     const coordinator = new ChangeCoordinator(bridge);

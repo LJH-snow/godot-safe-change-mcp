@@ -53,7 +53,7 @@ const capabilities = {
     "task_pause_resume_cancel",
   ],
   writePolicy:
-    "Only one allowlisted scene.create_node operation is supported; preview, confirmation, expected revision, Godot UndoRedo, and revision-guarded rollback are required for the write lifecycle.",
+    "Preview supports bounded scene.create_node and scene.delete_node operations; only scene.create_node is currently applyable. Preview, confirmation, expected revision, Godot UndoRedo, and revision-guarded rollback are required for the write lifecycle.",
   forbidden: [
     "arbitrary GDScript execution",
     "shell execution",
