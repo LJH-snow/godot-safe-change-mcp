@@ -235,6 +235,49 @@ export class ChangeCoordinator {
         target: "project.godot:input/" + operation.actionName,
         summary: "Remove physical key " + operation.physicalKeycode + " from input action " + operation.actionName,
       };
+    } else if (operation.kind === "project.input_action.replace_key") {
+      const snapshot = await this.bridge.readInputAction(projectRoot, operation.actionName);
+      const matchingSourceEvents = snapshot.events.filter(
+        (event) => event.type === "InputEventKey" && event.physicalKeycode === operation.fromPhysicalKeycode,
+      );
+      if (!snapshot.exists || matchingSourceEvents.length === 0) {
+        throw new DomainError(
+          ERROR_CODES.VALIDATION_FAILED,
+          "The physical key to replace is not mapped to this input action.",
+          { actionName: operation.actionName, physicalKeycode: operation.fromPhysicalKeycode },
+        );
+      }
+      if (matchingSourceEvents.length !== 1 || matchingSourceEvents[0]?.keycode !== 0) {
+        throw new DomainError(
+          ERROR_CODES.OPERATION_REJECTED,
+          "The source binding is ambiguous or also has a logical keycode; refusing to replace it.",
+          { actionName: operation.actionName, physicalKeycode: operation.fromPhysicalKeycode },
+        );
+      }
+      const targetMatches = snapshot.events.some(
+        (event) =>
+          event.type === "InputEventKey" &&
+          (event.physicalKeycode === operation.toPhysicalKeycode || event.keycode === operation.toPhysicalKeycode),
+      );
+      if (targetMatches) {
+        throw new DomainError(
+          ERROR_CODES.VALIDATION_FAILED,
+          "The target key is already mapped to this input action.",
+          { actionName: operation.actionName, physicalKeycode: operation.toPhysicalKeycode },
+        );
+      }
+      expectedFileRevision = snapshot.revision;
+      diff = {
+        kind: "project.input_action.replace_key" as const,
+        target: "project.godot:input/" + operation.actionName,
+        summary:
+          "Replace physical key " +
+          operation.fromPhysicalKeycode +
+          " with " +
+          operation.toPhysicalKeycode +
+          " in input action " +
+          operation.actionName,
+      };
     } else {
       const snapshot = await this.bridge.readScript(projectRoot, operation.scriptPath);
       const lines = snapshot.content.split("\n");
@@ -423,7 +466,8 @@ export class ChangeCoordinator {
         operation.kind !== "script.replace_range" &&
         operation.kind !== "resource.replace_reference" &&
         operation.kind !== "project.input_action.add_key" &&
-        operation.kind !== "project.input_action.remove_key"
+        operation.kind !== "project.input_action.remove_key" &&
+        operation.kind !== "project.input_action.replace_key"
       ) {
         throw new DomainError(
           ERROR_CODES.VALIDATION_FAILED,
@@ -579,7 +623,8 @@ export class ChangeCoordinator {
         operation.kind !== "script.replace_range" &&
         operation.kind !== "resource.replace_reference" &&
         operation.kind !== "project.input_action.add_key" &&
-        operation.kind !== "project.input_action.remove_key"
+        operation.kind !== "project.input_action.remove_key" &&
+        operation.kind !== "project.input_action.replace_key"
       ) {
         throw new DomainError(
           ERROR_CODES.VALIDATION_FAILED,

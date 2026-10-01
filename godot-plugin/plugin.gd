@@ -641,6 +641,15 @@ func _validate_change_request(request_body: Dictionary) -> Dictionary:
         var physical_keycode_value: Variant = operation["physicalKeycode"]
         if not _is_safe_input_action_name(String(operation["actionName"])) or not _is_valid_integer(physical_keycode_value, 1.0, 10000.0):
             return _failure("VALIDATION_FAILED", "The input action name or physical keycode is invalid.")
+    elif kind == "project.input_action.replace_key":
+        if not _has_exact_keys(operation, ["kind", "actionName", "fromPhysicalKeycode", "toPhysicalKeycode"]):
+            return _failure("VALIDATION_FAILED", "project.input_action.replace_key contains unsupported or missing fields.")
+        var from_physical_keycode: Variant = operation["fromPhysicalKeycode"]
+        var to_physical_keycode: Variant = operation["toPhysicalKeycode"]
+        if not _is_safe_input_action_name(String(operation["actionName"])) or not _is_valid_integer(from_physical_keycode, 1.0, 10000.0) or not _is_valid_integer(to_physical_keycode, 1.0, 10000.0):
+            return _failure("VALIDATION_FAILED", "The input action name or physical keycode is invalid.")
+        if int(from_physical_keycode) == int(to_physical_keycode):
+            return _failure("VALIDATION_FAILED", "The source and target physical keycodes must differ.")
     elif kind == "script.replace_range":
         if not _has_exact_keys(operation, ["kind", "scriptPath", "startLine", "endLine", "replacement"]):
             return _failure("VALIDATION_FAILED", "script.replace_range contains unsupported or missing fields.")
@@ -691,7 +700,7 @@ func _apply_change(body: Variant) -> Dictionary:
         return _apply_attach_script(request_body, scene_root, scene_path)
     if String(operation.get("kind", "")) == "resource.replace_reference":
         return _apply_resource_change(request_body, scene_root, scene_path)
-    if String(operation.get("kind", "")) in ["project.input_action.add_key", "project.input_action.remove_key"]:
+    if String(operation.get("kind", "")) in ["project.input_action.add_key", "project.input_action.remove_key", "project.input_action.replace_key"]:
         return _apply_input_action_change(request_body, scene_root, scene_path)
     if String(operation.get("kind", "")) != "scene.create_node":
         return _failure("UNSAFE_OPERATION", "Only the bounded safe change operations are enabled.")
@@ -832,12 +841,19 @@ func _apply_input_action_change(request_body: Dictionary, scene_root: Node, scen
     var operation: Dictionary = request_body["operations"][0]
     var operation_kind := String(operation.get("kind", ""))
     var removing_key := operation_kind == "project.input_action.remove_key"
+    var replacing_key := operation_kind == "project.input_action.replace_key"
     var action_name := String(operation.get("actionName", ""))
-    var physical_keycode_value: Variant = operation.get("physicalKeycode")
+    var physical_keycode_value: Variant = operation.get("fromPhysicalKeycode") if replacing_key else operation.get("physicalKeycode")
     if not _is_safe_input_action_name(action_name) or not _is_valid_integer(physical_keycode_value, 1.0, 10000.0):
         return _failure("VALIDATION_FAILED", "The input action name or physical keycode is invalid.")
     var physical_keycode := int(physical_keycode_value)
-    if not removing_key and operation.has("deadzone") and not _is_valid_number(operation["deadzone"], 0.0, 1.0):
+    var target_physical_keycode := -1
+    if replacing_key:
+        var target_value: Variant = operation.get("toPhysicalKeycode")
+        if not _is_valid_integer(target_value, 1.0, 10000.0) or int(target_value) == physical_keycode:
+            return _failure("VALIDATION_FAILED", "The source and target physical keycodes must be different valid integers.")
+        target_physical_keycode = int(target_value)
+    if not removing_key and not replacing_key and operation.has("deadzone") and not _is_valid_number(operation["deadzone"], 0.0, 1.0):
         return _failure("VALIDATION_FAILED", "deadzone must be a finite number from 0 to 1.")
 
     var expected_file_revision := String(request_body.get("expectedFileRevision", ""))
@@ -856,6 +872,7 @@ func _apply_input_action_change(request_body: Dictionary, scene_root: Node, scen
     var next_setting: Dictionary = {}
     var existing_events: Array = []
     var matching_key_indices: Array[int] = []
+    var target_key_is_mapped := false
     if typeof(raw_setting) == TYPE_DICTIONARY:
         original_setting = raw_setting.duplicate(true)
         next_setting = raw_setting.duplicate(true)
@@ -864,8 +881,11 @@ func _apply_input_action_change(request_body: Dictionary, scene_root: Node, scen
             existing_events = configured_events.duplicate(true)
     for event_index in range(existing_events.size()):
         var event_snapshot := _input_event_snapshot(existing_events[event_index])
-        if event_snapshot.get("type") == "InputEventKey" and int(event_snapshot.get("physicalKeycode", -1)) == physical_keycode:
-            matching_key_indices.append(event_index)
+        if event_snapshot.get("type") == "InputEventKey":
+            if int(event_snapshot.get("physicalKeycode", -1)) == physical_keycode:
+                matching_key_indices.append(event_index)
+            if replacing_key and (int(event_snapshot.get("physicalKeycode", -1)) == target_physical_keycode or int(event_snapshot.get("keycode", -1)) == target_physical_keycode):
+                target_key_is_mapped = true
 
     if removing_key:
         if typeof(raw_setting) != TYPE_DICTIONARY or matching_key_indices.is_empty():
@@ -878,6 +898,31 @@ func _apply_input_action_change(request_body: Dictionary, scene_root: Node, scen
                 {"actionName": action_name, "physicalKeycode": physical_keycode, "matchCount": matching_key_indices.size()},
             )
         existing_events.remove_at(matching_key_indices[0])
+    elif replacing_key:
+        if typeof(raw_setting) != TYPE_DICTIONARY or matching_key_indices.is_empty():
+            return _failure("VALIDATION_FAILED", "The physical key to replace is not mapped to this input action.")
+        if matching_key_indices.size() != 1:
+            return _failure(
+                "OPERATION_REJECTED",
+                "The input action contains duplicate matching key events; refusing an ambiguous replacement.",
+                409,
+                {"actionName": action_name, "physicalKeycode": physical_keycode, "matchCount": matching_key_indices.size()},
+            )
+        var source_key_event := existing_events[matching_key_indices[0]] as InputEventKey
+        if source_key_event == null or source_key_event.keycode != 0:
+            return _failure(
+                "OPERATION_REJECTED",
+                "Only an unambiguous pure physical key binding can be replaced.",
+                409,
+                {"actionName": action_name, "physicalKeycode": physical_keycode},
+            )
+        if target_key_is_mapped:
+            return _failure("VALIDATION_FAILED", "The target key is already mapped to this input action.")
+        var replacement_key_event := source_key_event.duplicate(true) as InputEventKey
+        if replacement_key_event == null:
+            return _failure("OPERATION_REJECTED", "Godot could not duplicate the input key event safely.")
+        replacement_key_event.physical_keycode = target_physical_keycode
+        existing_events[matching_key_indices[0]] = replacement_key_event
     else:
         if not matching_key_indices.is_empty():
             return _failure("VALIDATION_FAILED", "The physical key is already mapped to this input action.")
@@ -903,6 +948,11 @@ func _apply_input_action_change(request_body: Dictionary, scene_root: Node, scen
     var plan_id := String(request_body.get("planId", ""))
     var applied_revision := _current_revision(scene_root, scene_path)
     var applied_file_revision := _project_settings_revision()
+    var input_action_verb := "Add"
+    if removing_key:
+        input_action_verb = "Remove"
+    elif replacing_key:
+        input_action_verb = "Replace"
     _clear_scene_action_state()
     _clear_file_action_state()
     last_applied_plan_id = plan_id
@@ -918,7 +968,7 @@ func _apply_input_action_change(request_body: Dictionary, scene_root: Node, scen
         "revision": applied_revision,
         "fileRevision": applied_file_revision,
         "operationCount": 1,
-        "undoLabel": "Godot Safe Change: " + ("Remove" if removing_key else "Add") + " input action key",
+        "undoLabel": "Godot Safe Change: " + input_action_verb + " input action key",
     })
 
 func _read_resource_snapshot(resource_path: String) -> Dictionary:

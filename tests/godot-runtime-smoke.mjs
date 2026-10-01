@@ -445,6 +445,50 @@ try {
   assert.equal(removalRestored.body.snapshot.deadzone, 0.35);
   stage("input action removal rollback complete");
 
+  const replaceKeyPlan = structured(await request("tools/call", {
+    name: "preview_scene_change",
+    arguments: {
+      projectRoot: fixtureRoot,
+      reason: "CI input action replacement and rollback smoke test.",
+      operation: {
+        kind: "project.input_action.replace_key",
+        actionName: "remove_binding",
+        fromPhysicalKeycode: 74,
+        toPhysicalKeycode: 75,
+      },
+    },
+  }));
+  assert.ok(replaceKeyPlan.expectedFileRevision);
+  structured(await request("tools/call", {
+    name: "confirm_scene_change",
+    arguments: { projectRoot: fixtureRoot, planId: replaceKeyPlan.planId, expectedRevision: replaceKeyPlan.expectedRevision },
+  }));
+  const replaceKeyApply = structured(await request("tools/call", {
+    name: "apply_scene_change",
+    arguments: { projectRoot: fixtureRoot, planId: replaceKeyPlan.planId },
+  }));
+  assert.equal(replaceKeyApply.status, "applied");
+  const replacementAfter = await bridgeRequest("/v1/input-actions/read", {
+    projectRoot: context.projectRoot,
+    actionName: "remove_binding",
+  });
+  assert.equal(replacementAfter.body.snapshot.exists, true);
+  assert.deepEqual(replacementAfter.body.snapshot.events.map((event) => event.physicalKeycode), [75]);
+  assert.equal(replacementAfter.body.snapshot.deadzone, 0.35);
+  assert.match(await readFile(path.join(fixtureRoot, "project.godot"), "utf8"), /shift_pressed[" ]*[:=][ ]*true/);
+  const replaceKeyRollback = structured(await request("tools/call", {
+    name: "rollback_scene_change",
+    arguments: { projectRoot: fixtureRoot, planId: replaceKeyPlan.planId },
+  }));
+  assert.equal(replaceKeyRollback.status, "rolled_back");
+  const replacementRestored = await bridgeRequest("/v1/input-actions/read", {
+    projectRoot: context.projectRoot,
+    actionName: "remove_binding",
+  });
+  assert.deepEqual(replacementRestored.body.snapshot.events.map((event) => event.physicalKeycode), [74]);
+  assert.equal(replacementRestored.body.snapshot.deadzone, 0.35);
+  stage("input action replacement rollback complete");
+
   const attachBefore = await readEditorContext(fixtureRoot);
   assert.equal(sceneNode(attachBefore, "Scriptless")?.properties.scriptPath, null);
   const attachPlan = structured(await request("tools/call", {

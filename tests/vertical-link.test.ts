@@ -96,18 +96,22 @@ class FakeGodotBridge implements GodotBridge {
     const inputOperation = request.operations[0];
     const isInputAction =
       inputOperation?.kind === "project.input_action.add_key" ||
-      inputOperation?.kind === "project.input_action.remove_key";
+      inputOperation?.kind === "project.input_action.remove_key" ||
+      inputOperation?.kind === "project.input_action.replace_key";
     if (isInputAction && inputOperation !== undefined) {
       this.inputActionBeforeApplySnapshot = structuredClone(this.inputActionSnapshot);
-      const events =
-        inputOperation.kind === "project.input_action.add_key"
-          ? [
-              ...this.inputActionSnapshot.events,
-              { type: "InputEventKey", physicalKeycode: inputOperation.physicalKeycode, keycode: 0 },
-            ]
-          : this.inputActionSnapshot.events.filter(
-              (event) => event.physicalKeycode !== inputOperation.physicalKeycode,
-            );
+      let events = [...this.inputActionSnapshot.events];
+      if (inputOperation.kind === "project.input_action.add_key") {
+        events.push({ type: "InputEventKey", physicalKeycode: inputOperation.physicalKeycode, keycode: 0 });
+      } else if (inputOperation.kind === "project.input_action.remove_key") {
+        events = events.filter((event) => event.physicalKeycode !== inputOperation.physicalKeycode);
+      } else {
+        events = events.map((event) =>
+          event.physicalKeycode === inputOperation.fromPhysicalKeycode
+            ? { ...event, physicalKeycode: inputOperation.toPhysicalKeycode }
+            : event,
+        );
+      }
       this.inputActionSnapshot = {
         ...this.inputActionSnapshot,
         revision: "input-revision-2",
@@ -726,6 +730,44 @@ describe("ChangeCoordinator", () => {
       (error: unknown) => error instanceof DomainError && error.code === ERROR_CODES.OPERATION_REJECTED,
     );
     assert.equal(bridge.applied.length, 0);
+  });
+
+  test("replaces one pure physical input key and restores the original action on rollback", async () => {
+    const bridge = new FakeGodotBridge();
+    bridge.inputActionSnapshot = {
+      actionName: "jump",
+      revision: "input-revision-before-replace",
+      exists: true,
+      deadzone: 0.45,
+      events: [{ type: "InputEventKey", physicalKeycode: 74, keycode: 0 }],
+    };
+    const coordinator = new ChangeCoordinator(bridge);
+    const plan = await coordinator.previewSceneChange({
+      projectRoot,
+      reason: "Replace the old jump key binding.",
+      operation: {
+        kind: "project.input_action.replace_key",
+        actionName: "jump",
+        fromPhysicalKeycode: 74,
+        toPhysicalKeycode: 75,
+      },
+    });
+
+    assert.equal(plan.expectedFileRevision, "input-revision-before-replace");
+    assert.equal(plan.diff[0]?.kind, "project.input_action.replace_key");
+    assert.match(plan.diff[0]?.summary ?? "", /74.*75/);
+    await coordinator.confirmChange({ projectRoot, planId: plan.planId, expectedRevision: plan.expectedRevision });
+    const applied = await coordinator.applyChange({ projectRoot, planId: plan.planId });
+    assert.equal(applied.status, "applied");
+    assert.deepEqual(bridge.inputActionSnapshot.events.map((event) => event.physicalKeycode), [75]);
+    assert.equal(bridge.inputActionSnapshot.deadzone, 0.45);
+
+    const rolledBack = await coordinator.rollbackChange({ projectRoot, planId: plan.planId });
+    assert.equal(rolledBack.status, "rolled_back");
+    assert.deepEqual(bridge.inputActionSnapshot.events, [
+      { type: "InputEventKey", physicalKeycode: 74, keycode: 0 },
+    ]);
+    assert.equal(bridge.inputActionSnapshot.deadzone, 0.45);
   });
 });
 
