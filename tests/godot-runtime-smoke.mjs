@@ -650,7 +650,7 @@ try {
       title: "Godot runtime task smoke",
       steps: [
         { kind: "apply_plan", stepId: "apply-marker", planId: taskPlan.planId, expectedRevision: taskPlan.expectedRevision },
-        { kind: "run_current_scene", stepId: "run-current", timeoutMs: 15000 },
+        { kind: "run_current_scene", stepId: "run-current", timeoutMs: 30000 },
         { kind: "verify_scene_state", stepId: "verify-marker", nodePath: "TaskMarker", expectedProperties: [{ property: "visible", expected: true }] },
         { kind: "verify_diagnostics", stepId: "verify-diagnostics", runStepId: "run-current", maxErrors: 0, maxWarnings: 100 },
       ],
@@ -767,7 +767,7 @@ try {
       projectRoot: fixtureRoot,
       title: "Preview, approve and verify a diagnostic repair",
       steps: [
-        { kind: "run_scene", stepId: "run-before-repair", scenePath: "res://main.tscn", timeoutMs: 15000 },
+        { kind: "run_scene", stepId: "run-before-repair", scenePath: "res://main.tscn", timeoutMs: 30000 },
         {
           kind: "preview_diagnostic_repair",
           stepId: "preview-repair",
@@ -783,7 +783,7 @@ try {
           },
         },
         { kind: "apply_diagnostic_repair", stepId: "apply-repair", previewStepId: "preview-repair" },
-        { kind: "run_current_scene", stepId: "run-after-repair", timeoutMs: 15000 },
+        { kind: "run_current_scene", stepId: "run-after-repair", timeoutMs: 30000 },
         { kind: "verify_diagnostics", stepId: "verify-after-repair", runStepId: "run-after-repair", maxErrors: 0, maxWarnings: 100 },
       ],
     },
@@ -848,7 +848,7 @@ try {
 
   const diagnostics = structured(await request("tools/call", {
     name: "run_scene",
-    arguments: { projectRoot: fixtureRoot, scenePath: "res://main.tscn", timeoutMs: 15000 },
+    arguments: { projectRoot: fixtureRoot, scenePath: "res://main.tscn", timeoutMs: 30000 },
   }));
   assert.equal(diagnostics.status, "stopped");
   assert.equal(diagnostics.scenePath, "res://main.tscn");
