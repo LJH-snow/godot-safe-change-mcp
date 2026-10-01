@@ -175,12 +175,31 @@ test("recovers a crashed task step across processes with timeline evidence", asy
 
     const task = await new FileTaskStore().load(projectRoot, taskId);
     assert.ok(task);
-    assert.ok(task.timeline.some((event) => event.status === "lease_reclaimed"));
+    const reclaimed = task.timeline.find((event) => event.status === "lease_reclaimed");
+    assert.ok(reclaimed);
+    const reclaimedResult = reclaimed.result as { previousOwnerId?: string; ownerId?: string; reason?: string };
+    assert.equal(reclaimedResult.reason, "lease_expired");
+    assert.ok(reclaimedResult.previousOwnerId);
+    assert.ok(reclaimedResult.ownerId);
+    assert.notEqual(reclaimedResult.previousOwnerId, reclaimedResult.ownerId);
     const interrupted = task.timeline.find((event) => event.status === "step_interrupted");
     assert.ok(interrupted?.operationId);
     const runningEvents = task.timeline.filter((event) => event.stepId === "run-step" && event.status === "running");
     assert.equal(runningEvents.length, 2);
     assert.notEqual(runningEvents[0]?.operationId, runningEvents[1]?.operationId);
+    assert.equal(interrupted.operationId, runningEvents[0]?.operationId);
+    const succeeded = task.timeline.find((event) => event.stepId === "run-step" && event.status === "succeeded");
+    assert.ok(succeeded);
+    assert.equal(succeeded.operationId, runningEvents[1]?.operationId);
+    const reclaimedIndex = task.timeline.indexOf(reclaimed);
+    const interruptedIndex = task.timeline.indexOf(interrupted);
+    const rerunIndex = task.timeline.indexOf(runningEvents[1]!);
+    const succeededIndex = task.timeline.indexOf(succeeded);
+    const releasedIndex = task.timeline.findIndex((event) => event.status === "lease_released");
+    assert.ok(reclaimedIndex < interruptedIndex);
+    assert.ok(interruptedIndex < rerunIndex);
+    assert.ok(rerunIndex < succeededIndex);
+    assert.ok(succeededIndex < releasedIndex);
     assert.equal(task.steps[0]?.status, "succeeded");
   } finally {
     await rm(projectRoot, { recursive: true, force: true });
