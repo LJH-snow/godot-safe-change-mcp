@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { nodePathSchema, scenePropertyAssertionSchema } from "./change-contracts.js";
 
 export const taskIdSchema = z
   .string()
@@ -57,11 +58,34 @@ export const runSceneStepDeclSchema = z
   })
   .strict();
 
+export const verifySceneStateStepDeclSchema = z
+  .object({
+    kind: z.literal("verify_scene_state"),
+    stepId: taskStepIdSchema,
+    nodePath: nodePathSchema,
+    expectedProperties: z.array(scenePropertyAssertionSchema).max(5).optional(),
+    note: taskStepNoteSchema.optional(),
+  })
+  .strict();
+
+export const verifyDiagnosticsStepDeclSchema = z
+  .object({
+    kind: z.literal("verify_diagnostics"),
+    stepId: taskStepIdSchema,
+    runStepId: taskStepIdSchema,
+    maxErrors: z.number().int().min(0).max(1000).optional(),
+    maxWarnings: z.number().int().min(0).max(1000).optional(),
+    note: taskStepNoteSchema.optional(),
+  })
+  .strict();
+
 export const taskStepDeclSchema = z.discriminatedUnion("kind", [
   runSceneStepDeclSchema,
   runCurrentSceneStepDeclSchema,
   applyPlanStepDeclSchema,
   rollbackPlanStepDeclSchema,
+  verifySceneStateStepDeclSchema,
+  verifyDiagnosticsStepDeclSchema,
 ]);
 
 export const taskStatusSchema = z.enum([
@@ -112,6 +136,7 @@ export const taskTimelineEventSchema = z.object({
     .object({
       code: z.string(),
       message: z.string(),
+      details: z.unknown().optional(),
     })
     .optional(),
 });
@@ -144,11 +169,35 @@ export const taskLeaseSchema = z.object({
   expiresAt: z.string().min(1),
 });
 
-export const createTaskInputSchema = z.object({
-  projectRoot: z.string().min(1),
-  title: z.string().min(1).max(200),
-  steps: z.array(taskStepDeclSchema).min(1).max(20),
-});
+export const createTaskInputSchema = z
+  .object({
+    projectRoot: z.string().min(1),
+    title: z.string().min(1).max(200),
+    steps: z.array(taskStepDeclSchema).min(1).max(20),
+  })
+  .superRefine((input, context) => {
+    input.steps.forEach((step, index) => {
+      if (step.kind !== "verify_diagnostics") {
+        return;
+      }
+      const runStepMatches = input.steps
+        .map((candidate, candidateIndex) => ({ candidate, candidateIndex }))
+        .filter(({ candidate }) => candidate.stepId === step.runStepId);
+      const runStepMatch = runStepMatches[0];
+      if (
+        runStepMatches.length !== 1 ||
+        runStepMatch === undefined ||
+        runStepMatch.candidateIndex >= index ||
+        (runStepMatch.candidate.kind !== "run_current_scene" && runStepMatch.candidate.kind !== "run_scene")
+      ) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["steps", index, "runStepId"],
+          message: "runStepId must uniquely reference an earlier run_current_scene or run_scene step.",
+        });
+      }
+    });
+  });
 
 export const taskIdInputSchema = z.object({
   projectRoot: z.string().min(1),
@@ -170,9 +219,14 @@ export const acquireTaskLeaseInputSchema = z.object({
 
 export const taskStepStateSchema = z.object({
   stepId: taskStepIdSchema,
-  kind: z.enum(["run_current_scene", "run_scene", "apply_plan", "rollback_plan"]),
+  kind: z.enum(["run_current_scene", "run_scene", "apply_plan", "rollback_plan", "verify_scene_state", "verify_diagnostics"]),
   planId: z.string().nullable(),
   scenePath: z.string().nullable().default(null),
+  nodePath: z.string().nullable().default(null),
+  expectedProperties: z.array(scenePropertyAssertionSchema).default([]),
+  runStepId: taskStepIdSchema.nullable().default(null),
+  maxErrors: z.number().int().min(0).max(1000).default(0),
+  maxWarnings: z.number().int().min(0).max(1000).default(0),
   timeoutMs: z.number().int().min(100).max(30000).nullable().default(null),
   expectedRevision: z.string().nullable(),
   status: taskStepStatusSchema,
@@ -185,6 +239,7 @@ export const taskStepStateSchema = z.object({
     .object({
       code: z.string(),
       message: z.string(),
+      details: z.unknown().optional(),
     })
     .optional(),
 });
@@ -216,6 +271,9 @@ export const taskTimelineReportSchema = z.object({
 });
 
 export type TaskStepDecl = z.infer<typeof taskStepDeclSchema>;
+export type VerifySceneStateStepDecl = z.infer<typeof verifySceneStateStepDeclSchema>;
+export type VerifyDiagnosticsStepDecl = z.infer<typeof verifyDiagnosticsStepDeclSchema>;
+export type ScenePropertyAssertion = z.infer<typeof scenePropertyAssertionSchema>;
 export type TaskStatus = z.infer<typeof taskStatusSchema>;
 export type TaskStepStatus = z.infer<typeof taskStepStatusSchema>;
 export type TaskStepState = z.infer<typeof taskStepStateSchema>;

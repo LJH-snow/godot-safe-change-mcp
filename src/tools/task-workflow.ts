@@ -19,7 +19,7 @@ export function registerCreateTaskTool(server: MCPServer, coordinator: TaskCoord
       name: "create_task",
       title: "Create a multi-step Godot task",
       description:
-        "Declare a bounded sequence of apply, rollback and run steps as one reviewable task.",
+        "Declare a bounded sequence of apply, rollback, run, scene-state verification and diagnostics verification steps as one reviewable task.",
       inputSchema: createTaskInputSchema,
       outputSchema: taskStateSchema,
       annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },

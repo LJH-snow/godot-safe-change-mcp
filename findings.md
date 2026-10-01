@@ -39,3 +39,19 @@
 - Godot fixture 使用的 Godot 4.x 小版本，以及本机是否安装 `godot` 或 `godot4` CLI。
 - EditorPlugin HTTP 服务采用 `HTTPServer` 还是 `TCPServer`，以及 Godot 4.x 对当前运行状态/输出的可读 API。
 - 诊断结果的轮询边界、超时和 operation ID 形状。
+
+## task-level scene verification
+
+- `ChangeCoordinator.getContext(projectRoot)` 已提供只读编辑器上下文，可由 TaskCoordinator 用于验收而无需增加 Godot RPC。
+- `EditorContext.currentScene.nodes` 提供 NodePath 和有限安全属性；现有可写属性白名单为 visible、position、size、text、color。
+- Task steps 已持久化 operationId、result、error 和 timeline；verify step 应复用该持久化结构并在 mismatch 时失败，而不是把断言失败记为 succeeded。
+- `ChangeCoordinator.getContext` 会规范化 projectRoot 并调用只读 bridge；verification 不需要新增 Godot route 或写能力。
+- `verify_scene_state` 的结果应带当前场景路径、revision、nodePath 和每个断言的 expected/actual；失败细节应进入 step.error 与 failed timeline event。
+- 属性比较采用递归 JSON 比较，数值容差为 1e-5，以兼容 Godot float 序列化；验证步骤只读取 context，不调用任何写桥接路由。
+- TaskState 与 timeline error schema 为旧任务保留兼容：nodePath、expectedProperties 和 error.details 均为 additive/defaulted 字段。
+
+## task-level diagnostics verification
+
+- `RunDiagnostics` schema 已包含 runId、scenePath、status、warnings 和 errors；TaskStepState.result 可持久化前序 run 的完整结果。
+- `verify_diagnostics` 将显式引用 earlier run step，避免检查到不相关或陈旧的 run；默认错误和警告阈值均为 0。
+- 通过条件要求 run 状态为 stopped，且错误/警告数量都不超过阈值；失败证据保存 runId、status、counts 与 diagnostics。

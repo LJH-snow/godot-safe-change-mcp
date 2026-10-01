@@ -93,6 +93,12 @@
 | `mcp-apps-builder` 的 Cindy 根路径不存在 | 1 | 使用项目内 `.agents/skills/mcp-apps-builder/SKILL.md`；该项目技能提供本仓库专用约束。 |
 | `apply_patch` 首次补丁缺少空行前缀 | 1 | 修正补丁格式后重新提交；本次失败没有写入文件。 |
 | `rg` 依赖声明检索正则未闭合 | 1 | 改用不含括号的简单模式；基线 typecheck 仍已通过。 |
+| `verify_scene_state` 红灯导致 task kind、错误码和结构化 details 的 TypeScript 检查失败 | 1 | 符合预期；在实现中添加对应契约和失败证据类型。 |
+| `expectedProperties.default([])` 让 Zod 推断的 task 输入类型变成必填 | 1 | task step 输入改为 optional，持久化 TaskStepState 保留空数组默认值；非法 assertion 用 schema safeParse 验证。 |
+| TaskCoordinator 多段补丁因错误处理上下文不匹配而失败 | 1 | 重读文件当前状态后拆为更小补丁应用。 |
+| scene verification 文档补丁把任务阶段行定位到错误文件 | 1 | 该行在 task_plan.md；按实际文档位置拆分更新。 |
+| `verify_diagnostics` 测试红灯因 task union 尚未包含新 step kind | 1 | 符合预期；新增诊断验收契约并实现前序 run step 校验。 |
+| 重复 run stepId 未被诊断引用校验发现 | 1 | 要求 runStepId 唯一匹配一个前序 run step，并在执行时再次检查持久化 task state。 |
 
 ## 本轮状态
 
@@ -161,7 +167,7 @@
 
 状态：complete
 
-- [x] 增加受限任务状态机：active/paused/completed/failed/cancelled，步骤只允许 apply_plan、rollback_plan、run_current_scene 和 run_scene 四种受限操作。
+- [x] 增加受限任务状态机：active/paused/completed/failed/cancelled，步骤支持 apply_plan、rollback_plan、run_current_scene、run_scene、verify_scene_state 和 verify_diagnostics。
 - [x] 任务状态以 JSON 文件持久化到 `<projectRoot>/.godot-safe-change/tasks/`，重启后可查询与继续；崩溃遗留的 running 步骤可重试。
 - [x] 支持 pause/resume/cancel 和失败重试（每步最多 3 次），所有步骤复用既有 preview/confirm/apply/rollback/run 守卫与审计。
 - [x] 新增 create/get/advance/pause/resume/cancel 六个 MCP 工具与契约测试。
@@ -198,6 +204,24 @@
 - [x] 增加输入动作按键添加/移除的 preview/apply/rollback，使用 project.godot revision guard、重复/歧义键校验和回滚验证。
 - [x] 增加资源引用 snapshot/preview diff、revision guard、原子 apply 和 rollback。
 - [x] 增加挂载已有脚本的 preview/apply/rollback。
+
+## Phase 15 — task-level scene verification
+
+状态：`complete`
+
+- [x] 新增只读 `verify_scene_state` task step，验证一个安全 NodePath 是否存在，并可断言有限白名单属性。
+- [x] 成功结果保存 revision、实际节点属性和 task step operationId 作为证据。
+- [x] 验证失败时 task step 标记 failed，返回稳定错误码与结构化 mismatch 证据。
+- [x] 增加契约/TaskCoordinator 单元测试和真实 Godot smoke；确认不执行脚本、不写项目。
+
+## Phase 16 — task-level diagnostics verification
+
+状态：`complete`
+
+- [x] 新增 `verify_diagnostics` step，显式引用前序 run_current_scene/run_scene 结果。
+- [x] 按 maxErrors/maxWarnings 和 stopped 状态验证运行结果，返回 counts、runId 和诊断证据。
+- [x] 无前序 run、失败状态或阈值超限时让 task step 失败并记录 TASK_VERIFICATION_FAILED。
+- [x] 增加单元测试、真实 Godot MCP smoke 和文档，并确认不执行脚本、不写项目。
 
 ## 完成定义
 

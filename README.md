@@ -26,7 +26,7 @@
 - rollback_scene_change：只回滚仍处于最新 revision、文件 revision 或 UndoRedo history 的已应用计划。
 - run_current_scene：运行当前场景，并轮询插件返回 stopped 或 failed 诊断。
 - run_scene：运行一个经过 `res://` 和 `.tscn` 路径校验的指定场景，并通过 run ID 轮询长时运行状态。
-- create_task / get_task / advance_task / pause_task / resume_task / cancel_task：把受限的 apply、rollback 和 run 步骤组成一个可审查的多步骤任务；任务状态持久化在项目内 `.godot-safe-change/tasks/`，支持暂停、继续、取消、失败重试和重启后恢复。步骤只复用既有的确认、revision 守卫和 UndoRedo 语义，不引入新的写入能力。
+- create_task / get_task / advance_task / pause_task / resume_task / cancel_task：把受限的 apply、rollback、run、scene-state 和 diagnostics verification 步骤组成一个可审查的多步骤任务；任务状态持久化在项目内 `.godot-safe-change/tasks/`，支持暂停、继续、取消、失败重试和重启后恢复。步骤只复用既有的确认、revision 守卫和 UndoRedo 语义，不引入新的写入能力。
 
 - acquire_task_lease / renew_task_lease / release_task_lease：管理跨多个 task 步骤的项目 lease，返回 owner、过期时间和 recoverable 状态。
 - task_timeline：只读查询完整任务时间线，可按 stepId、operationId、事件类型和 ISO 时间范围过滤。

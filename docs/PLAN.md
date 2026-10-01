@@ -211,6 +211,10 @@ npm run build
 
 2026-09-30 已增加 `run_scene`：通过 `/v1/run/scene` 和 `EditorInterface.play_custom_scene` 运行经过路径校验的指定 `.tscn`，复用 run/status 长时轮询；任务步骤可保存并执行 run_scene。真实 MCP + Godot 4.7.2 验收通过。
 
+2026-10-01 已新增只读 `verify_scene_state` task step：校验安全 NodePath 和有限属性断言，记录 scene revision 与 observed values；节点/属性不匹配时以 `TASK_VERIFICATION_FAILED` 保存结构化证据。真实 Godot smoke 覆盖 lease-held apply → run → verify 闭环。
+
+2026-10-01 已新增只读 `verify_diagnostics` task step：显式引用前序 run step，要求 run 状态 stopped 并校验 maxErrors/maxWarnings；不满足时返回 `TASK_VERIFICATION_FAILED`，记录 runId、错误/警告数量与诊断细节。
+
 ## 7. 待决定问题
 
 - 本地桥接使用 HTTP、WebSocket，还是两个都提供；

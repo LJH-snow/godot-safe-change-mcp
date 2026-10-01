@@ -18,6 +18,7 @@ import {
   type TaskTimelineEvent,
 } from "../domain/task-contracts.js";
 import { DomainError, ERROR_CODES } from "../domain/errors.js";
+import { runDiagnosticsSchema } from "../domain/contracts.js";
 import type { FileTaskStore } from "../infrastructure/task-store.js";
 import {
   type ProjectLease,
@@ -27,6 +28,24 @@ import { normalizeProjectRoot } from "../infrastructure/project-root.js";
 
 const MAX_STEP_ATTEMPTS = 3;
 const DEFAULT_TASK_LEASE_TTL_MS = 120000;
+const SCENE_VALUE_TOLERANCE = 0.00001;
+
+function sceneValueMatches(expected: unknown, actual: unknown): boolean {
+  if (typeof expected === "number") {
+    return typeof actual === "number" && Math.abs(expected - actual) <= SCENE_VALUE_TOLERANCE;
+  }
+  if (expected === null || typeof expected !== "object") {
+    return expected === actual;
+  }
+  if (Array.isArray(expected) || actual === null || typeof actual !== "object" || Array.isArray(actual)) {
+    return false;
+  }
+  const expectedEntries = Object.entries(expected);
+  const actualEntries = Object.entries(actual);
+  return expectedEntries.length === actualEntries.length && expectedEntries.every(
+    ([key, expectedValue]) => Object.hasOwn(actual, key) && sceneValueMatches(expectedValue, (actual as Record<string, unknown>)[key]),
+  );
+}
 
 interface LeaseHeartbeat {
   timer: ReturnType<typeof setInterval>;
@@ -234,7 +253,11 @@ export class TaskCoordinator {
       step.finishedAt = new Date().toISOString();
       step.error =
         error instanceof DomainError
-          ? { code: error.code, message: error.message }
+          ? {
+              code: error.code,
+              message: error.message,
+              ...(error.details === undefined ? {} : { details: error.details }),
+            }
           : {
               code: "INTERNAL_ERROR",
               message: error instanceof Error ? error.message : String(error),
@@ -395,6 +418,12 @@ export class TaskCoordinator {
     step: TaskStepState,
   ): Promise<unknown> {
     const projectRoot = task.projectRoot;
+    if (step.kind === "verify_diagnostics") {
+      return this.verifyDiagnostics(task, step);
+    }
+    if (step.kind === "verify_scene_state") {
+      return this.verifySceneState(projectRoot, step);
+    }
     if (step.kind === "run_current_scene") {
       return this.changeCoordinator.runCurrentScene({
         projectRoot,
@@ -446,6 +475,134 @@ export class TaskCoordinator {
       planId: step.planId,
       leaseId: this.taskLeases.get(task.taskId)?.leaseId,
     });
+  }
+
+  private verifyDiagnostics(task: TaskState, step: TaskStepState): unknown {
+    const runStepId = step.runStepId;
+    const verificationStepIndex = task.steps.indexOf(step);
+    const runStepMatches = runStepId === null
+      ? []
+      : task.steps
+          .map((candidate, index) => ({ candidate, index }))
+          .filter(({ candidate }) => candidate.stepId === runStepId);
+    const runStepMatch = runStepMatches[0];
+    if (
+      runStepId === null ||
+      runStepMatches.length !== 1 ||
+      runStepMatch === undefined ||
+      runStepMatch.index >= verificationStepIndex ||
+      (runStepMatch.candidate.kind !== "run_current_scene" && runStepMatch.candidate.kind !== "run_scene")
+    ) {
+      throw new DomainError(
+        ERROR_CODES.TASK_VERIFICATION_FAILED,
+        "The verify_diagnostics step must reference an earlier run step.",
+        { runStepId, verificationStepId: step.stepId },
+      );
+    }
+    const runStep = runStepMatch.candidate;
+    if (runStep.status !== "succeeded") {
+      throw new DomainError(
+        ERROR_CODES.TASK_VERIFICATION_FAILED,
+        "The referenced run step did not complete successfully.",
+        { runStepId, runStepStatus: runStep.status },
+      );
+    }
+
+    const parsedDiagnostics = runDiagnosticsSchema.safeParse(runStep.result);
+    if (!parsedDiagnostics.success) {
+      throw new DomainError(
+        ERROR_CODES.TASK_VERIFICATION_FAILED,
+        "The referenced run step did not contain valid diagnostics.",
+        { runStepId, reason: "invalid_run_diagnostics" },
+      );
+    }
+
+    const diagnostics = parsedDiagnostics.data;
+    const evidence = {
+      runStepId,
+      runId: diagnostics.runId,
+      scenePath: diagnostics.scenePath,
+      status: diagnostics.status,
+      errorCount: diagnostics.errors.length,
+      warningCount: diagnostics.warnings.length,
+      maxErrors: step.maxErrors,
+      maxWarnings: step.maxWarnings,
+    };
+    if (
+      diagnostics.status !== "stopped" ||
+      diagnostics.errors.length > step.maxErrors ||
+      diagnostics.warnings.length > step.maxWarnings
+    ) {
+      throw new DomainError(
+        ERROR_CODES.TASK_VERIFICATION_FAILED,
+        "Run diagnostics did not meet the configured thresholds.",
+        { ...evidence, errors: diagnostics.errors, warnings: diagnostics.warnings },
+      );
+    }
+    return { passed: true, ...evidence };
+  }
+
+  private async verifySceneState(projectRoot: string, step: TaskStepState): Promise<unknown> {
+    const nodePath = step.nodePath;
+    if (nodePath === null) {
+      throw new DomainError(
+        ERROR_CODES.TASK_VERIFICATION_FAILED,
+        "The verify_scene_state step is missing its NodePath.",
+        { stepId: step.stepId },
+      );
+    }
+
+    const context = await this.changeCoordinator.getContext(projectRoot);
+    if (context.connection !== "connected") {
+      throw new DomainError(ERROR_CODES.EDITOR_UNAVAILABLE, "The Godot editor is not connected.");
+    }
+    const scenePath = context.currentScene.path;
+    if (scenePath === null) {
+      throw new DomainError(
+        ERROR_CODES.TASK_VERIFICATION_FAILED,
+        "The current scene is unavailable for verification.",
+        { nodePath, expectedScene: true, actualScene: null, revision: context.revision },
+      );
+    }
+
+    const node = context.currentScene.nodes.find((candidate) => candidate.path === nodePath);
+    if (node === undefined) {
+      throw new DomainError(
+        ERROR_CODES.TASK_VERIFICATION_FAILED,
+        "The expected scene node does not exist.",
+        { nodePath, expectedExists: true, actualExists: false, scenePath, revision: context.revision },
+      );
+    }
+
+    const properties = step.expectedProperties.map((assertion) => {
+      const actualPresent = Object.hasOwn(node.properties, assertion.property);
+      const actual = actualPresent ? node.properties[assertion.property] : null;
+      return {
+        property: assertion.property,
+        expected: assertion.expected,
+        actual,
+        actualPresent,
+        matches: actualPresent && sceneValueMatches(assertion.expected, actual),
+      };
+    });
+    const mismatches = properties
+      .filter((property) => !property.matches)
+      .map(({ property, expected, actual, actualPresent }) => ({ property, expected, actual, actualPresent }));
+    if (mismatches.length > 0) {
+      throw new DomainError(
+        ERROR_CODES.TASK_VERIFICATION_FAILED,
+        "One or more expected scene properties did not match.",
+        { nodePath, scenePath, revision: context.revision, mismatches },
+      );
+    }
+
+    return {
+      passed: true,
+      scenePath,
+      nodePath,
+      revision: context.revision,
+      properties: properties.map(({ property, expected, actual }) => ({ property, expected, actual })),
+    };
   }
 
   private async withTaskLease<T>(input: TaskIdInput, action: () => Promise<T>): Promise<T> {
@@ -739,6 +896,11 @@ export class TaskCoordinator {
       kind: step.kind,
       planId: "planId" in step ? step.planId : null,
       scenePath: "scenePath" in step ? step.scenePath : null,
+      nodePath: "nodePath" in step ? step.nodePath : null,
+      expectedProperties: "expectedProperties" in step ? step.expectedProperties ?? [] : [],
+      runStepId: "runStepId" in step ? step.runStepId : null,
+      maxErrors: "maxErrors" in step ? step.maxErrors ?? 0 : 0,
+      maxWarnings: "maxWarnings" in step ? step.maxWarnings ?? 0 : 0,
       timeoutMs: "timeoutMs" in step ? step.timeoutMs ?? null : null,
       expectedRevision: "expectedRevision" in step ? step.expectedRevision : null,
       status: "pending",

@@ -23,6 +23,7 @@ import type { GodotBridge } from "../src/infrastructure/godot-bridge.js";
 import { FileTaskStore } from "../src/infrastructure/task-store.js";
 import { InMemoryProjectLeaseStore, type ProjectLease } from "../src/infrastructure/project-lease-store.js";
 import { normalizeProjectRoot } from "../src/infrastructure/project-root.js";
+import { verifySceneStateStepDeclSchema } from "../src/domain/task-contracts.js";
 
 class RenewalFailureLeaseStore extends InMemoryProjectLeaseStore {
   failRenewal = true;
@@ -470,6 +471,230 @@ describe("TaskCoordinator", () => {
       (finished.steps[0]?.result as { scenePath?: string } | undefined)?.scenePath,
       "res://levels/main.tscn",
     );
+  });
+
+  test("verifies diagnostics from a referenced run step within configured thresholds", async () => {
+    const { projectRoot, taskCoordinator, bridge } = harness;
+    bridge.runDiagnosticsResult = {
+      ...bridge.runDiagnosticsResult,
+      warnings: [{ message: "Expected visual warning", source: "res://main.tscn" }],
+    };
+    const task = await taskCoordinator.createTask({
+      projectRoot,
+      title: "Verify run diagnostics",
+      steps: [
+        { kind: "run_current_scene", stepId: "run-main" },
+        { kind: "verify_diagnostics", stepId: "verify-run", runStepId: "run-main", maxErrors: 0, maxWarnings: 1 },
+      ],
+    });
+
+    const afterRun = await taskCoordinator.advanceTask({ projectRoot, taskId: task.taskId });
+    assert.equal(afterRun.status, "active");
+    const completed = await taskCoordinator.advanceTask({ projectRoot, taskId: task.taskId });
+
+    assert.equal(completed.status, "completed");
+    assert.equal(completed.steps[1]?.status, "succeeded");
+    assert.deepEqual(completed.steps[1]?.result, {
+      passed: true,
+      runStepId: "run-main",
+      runId: "run-1",
+      scenePath: "res://main.tscn",
+      status: "stopped",
+      errorCount: 0,
+      warningCount: 1,
+      maxErrors: 0,
+      maxWarnings: 1,
+    });
+    const verificationEvent = completed.timeline.find((event) => event.stepId === "verify-run" && event.status === "succeeded");
+    assert.equal(verificationEvent?.operationId, completed.steps[1]?.operationId);
+  });
+
+  test("fails diagnostics verification with run output and threshold evidence", async () => {
+    const { projectRoot, taskCoordinator, bridge } = harness;
+    bridge.runDiagnosticsResult = {
+      ...bridge.runDiagnosticsResult,
+      status: "failed",
+      errors: [{ message: "Runtime failure", source: "res://main.gd", line: 12 }],
+      warnings: [{ message: "Runtime warning", source: "res://main.gd", line: 7 }],
+    };
+    const task = await taskCoordinator.createTask({
+      projectRoot,
+      title: "Reject failed run diagnostics",
+      steps: [
+        { kind: "run_current_scene", stepId: "run-main" },
+        { kind: "verify_diagnostics", stepId: "verify-run", runStepId: "run-main", maxErrors: 0, maxWarnings: 0 },
+      ],
+    });
+    await taskCoordinator.advanceTask({ projectRoot, taskId: task.taskId });
+    const failed = await taskCoordinator.advanceTask({ projectRoot, taskId: task.taskId });
+
+    assert.equal(failed.status, "failed");
+    assert.equal(failed.steps[1]?.error?.code, ERROR_CODES.TASK_VERIFICATION_FAILED);
+    assert.deepEqual(failed.steps[1]?.error?.details, {
+      runStepId: "run-main",
+      runId: "run-1",
+      scenePath: "res://main.tscn",
+      status: "failed",
+      errorCount: 1,
+      warningCount: 1,
+      maxErrors: 0,
+      maxWarnings: 0,
+      errors: [{ message: "Runtime failure", source: "res://main.gd", line: 12 }],
+      warnings: [{ message: "Runtime warning", source: "res://main.gd", line: 7 }],
+    });
+    const failedEvent = failed.timeline.find((event) => event.stepId === "verify-run" && event.status === "failed");
+    assert.equal(failedEvent?.operationId, failed.steps[1]?.operationId);
+    assert.deepEqual(failedEvent?.error?.details, failed.steps[1]?.error?.details);
+  });
+
+  test("requires verify_diagnostics to reference an earlier run step", async () => {
+    const { projectRoot, taskCoordinator } = harness;
+    await assert.rejects(() => taskCoordinator.createTask({
+      projectRoot,
+      title: "Reject a forward run reference",
+      steps: [
+        { kind: "verify_diagnostics", stepId: "verify-run", runStepId: "run-main" },
+        { kind: "run_current_scene", stepId: "run-main" },
+      ],
+    }));
+    await assert.rejects(() => taskCoordinator.createTask({
+      projectRoot,
+      title: "Reject a non-run reference",
+      steps: [
+        { kind: "apply_plan", stepId: "apply-plan", planId: "plan-1", expectedRevision: "revision-1" },
+        { kind: "verify_diagnostics", stepId: "verify-run", runStepId: "apply-plan" },
+      ],
+    }));
+    await assert.rejects(() => taskCoordinator.createTask({
+      projectRoot,
+      title: "Reject an ambiguous run reference",
+      steps: [
+        { kind: "run_current_scene", stepId: "run-main" },
+        { kind: "run_scene", stepId: "run-main", scenePath: "res://levels/other.tscn" },
+        { kind: "verify_diagnostics", stepId: "verify-run", runStepId: "run-main" },
+      ],
+    }));
+  });
+
+  test("verifies a scene node and allowlisted properties with revision evidence", async () => {
+    const { projectRoot, taskCoordinator, bridge } = harness;
+    bridge.context.currentScene.nodes = [{
+      path: "HUD/Title",
+      name: "Title",
+      type: "Label",
+      properties: { visible: true, text: "Ready", position: { x: 10, y: 20 } },
+    }];
+    const task = await taskCoordinator.createTask({
+      projectRoot,
+      title: "Verify a scene node",
+      steps: [{
+        kind: "verify_scene_state",
+        stepId: "verify-title",
+        nodePath: "HUD/Title",
+        expectedProperties: [
+          { property: "visible", expected: true },
+          { property: "text", expected: "Ready" },
+          { property: "position", expected: { x: 10.000001, y: 20 } },
+        ],
+      }],
+    });
+
+    const completed = await taskCoordinator.advanceTask({ projectRoot, taskId: task.taskId });
+
+    assert.equal(completed.status, "completed");
+    assert.equal(completed.steps[0]?.status, "succeeded");
+    assert.deepEqual(completed.steps[0]?.result, {
+      passed: true,
+      scenePath: "res://main.tscn",
+      nodePath: "HUD/Title",
+      revision: "revision-1",
+      properties: [
+        { property: "visible", expected: true, actual: true },
+        { property: "text", expected: "Ready", actual: "Ready" },
+        { property: "position", expected: { x: 10.000001, y: 20 }, actual: { x: 10, y: 20 } },
+      ],
+    });
+    const succeededEvent = completed.timeline.find((event) => event.stepId === "verify-title" && event.status === "succeeded");
+    assert.equal(succeededEvent?.operationId, completed.steps[0]?.operationId);
+  });
+
+  test("fails scene verification with structured evidence when the node is missing", async () => {
+    const { projectRoot, taskCoordinator } = harness;
+    const task = await taskCoordinator.createTask({
+      projectRoot,
+      title: "Reject a missing scene node",
+      steps: [{ kind: "verify_scene_state", stepId: "verify-missing", nodePath: "Missing" }],
+    });
+
+    const failed = await taskCoordinator.advanceTask({ projectRoot, taskId: task.taskId });
+
+    assert.equal(failed.status, "failed");
+    assert.equal(failed.steps[0]?.status, "failed");
+    assert.equal(failed.steps[0]?.error?.code, ERROR_CODES.TASK_VERIFICATION_FAILED);
+    assert.deepEqual(failed.steps[0]?.error?.details, {
+      nodePath: "Missing",
+      expectedExists: true,
+      actualExists: false,
+      scenePath: "res://main.tscn",
+      revision: "revision-1",
+    });
+    const failedEvent = failed.timeline.find((event) => event.stepId === "verify-missing" && event.status === "failed");
+    assert.equal(failedEvent?.operationId, failed.steps[0]?.operationId);
+    assert.equal(failedEvent?.error?.code, ERROR_CODES.TASK_VERIFICATION_FAILED);
+    assert.deepEqual(failedEvent?.error?.details, failed.steps[0]?.error?.details);
+  });
+
+  test("fails scene verification with the expected and actual property values", async () => {
+    const { projectRoot, taskCoordinator, bridge } = harness;
+    bridge.context.currentScene.nodes = [{
+      path: "HUD/Title",
+      name: "Title",
+      type: "Label",
+      properties: { text: "Actual" },
+    }];
+    const task = await taskCoordinator.createTask({
+      projectRoot,
+      title: "Reject a mismatched property",
+      steps: [{
+        kind: "verify_scene_state",
+        stepId: "verify-text",
+        nodePath: "HUD/Title",
+        expectedProperties: [
+          { property: "text", expected: "Expected" },
+          { property: "visible", expected: true },
+        ],
+      }],
+    });
+
+    const failed = await taskCoordinator.advanceTask({ projectRoot, taskId: task.taskId });
+
+    assert.equal(failed.status, "failed");
+    assert.equal(failed.steps[0]?.error?.code, ERROR_CODES.TASK_VERIFICATION_FAILED);
+    assert.deepEqual(failed.steps[0]?.error?.details, {
+      nodePath: "HUD/Title",
+      scenePath: "res://main.tscn",
+      revision: "revision-1",
+      mismatches: [
+        { property: "text", expected: "Expected", actual: "Actual", actualPresent: true },
+        { property: "visible", expected: true, actual: null, actualPresent: false },
+      ],
+    });
+  });
+
+  test("rejects unsafe node paths and unallowlisted properties in verification steps", async () => {
+    const { projectRoot, taskCoordinator } = harness;
+    await assert.rejects(() => taskCoordinator.createTask({
+      projectRoot,
+      title: "Reject unsafe verification input",
+      steps: [{ kind: "verify_scene_state", stepId: "verify-unsafe-path", nodePath: "../Canvas" }],
+    }));
+    const invalidPropertyStep = verifySceneStateStepDeclSchema.safeParse({
+      kind: "verify_scene_state",
+      stepId: "verify-unsafe-property",
+      nodePath: ".",
+      expectedProperties: [{ property: "script", expected: "res://unsafe.gd" }],
+    });
+    assert.equal(invalidPropertyStep.success, false);
   });
 
   test("rejects unknown tasks and stops retries after the attempt limit", async () => {
