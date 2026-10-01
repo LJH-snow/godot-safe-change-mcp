@@ -92,4 +92,4 @@ res://addons/godot-safe-change-bridge/
 - 插件只接受固定路由、allowlist 节点类型、safe relative NodePath 和项目内路径，并校验当前项目根目录。
 - 运行诊断只返回插件采集的输出、warning、error 和运行状态。
 
-完整产品计划见 docs/PLAN.md；测试边界和 Godot 手工验收见 tests/README.md。
+完整产品计划见 docs/PLAN.md；测试边界和 Godot 手工验收见 tests/README.md；发布前清单见 docs/RELEASE.md。

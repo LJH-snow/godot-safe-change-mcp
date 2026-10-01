@@ -28,7 +28,7 @@ npm test
 npm run package:check
 ~~~
 
-该检查会构建并打包，然后在临时消费者中验证 `bin/mcp-server.mjs`、MCP bundle 和 Godot 插件文件；本机受 npm 脚本白名单限制时会使用 tarball 解包 fallback。
+该检查会构建并打包，然后在临时消费者中验证 bin/mcp-server.mjs、MCP bundle 和 Godot 插件文件，并拒绝 tests、src、.agents 和计划/进度文件进入 tarball；本机受 npm 脚本白名单限制时会使用 tarball 解包 fallback。
 
 ## Godot manual acceptance
 

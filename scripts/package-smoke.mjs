@@ -21,6 +21,12 @@ try {
   }
   const packed = JSON.parse(packOutput.slice(jsonStart));
   tarballPath = path.join(repositoryRoot, packed[0].filename);
+  const packagedPaths = packed[0].files.map((file) => file.path);
+  const forbiddenPrefixes = ["tests/", "src/", ".agents/", ".git/", "task_plan.md", "findings.md", "progress.md"];
+  const forbiddenFiles = packagedPaths.filter((file) => forbiddenPrefixes.some((prefix) => file === prefix || file.startsWith(prefix)));
+  if (forbiddenFiles.length > 0) {
+    throw new Error("Package contains development-only files: " + forbiddenFiles.join(", "));
+  }
 
   const install = spawnSync("npm", ["install", "--ignore-scripts", "--no-audit", "--no-fund", tarballPath], {
     cwd: consumerRoot,
