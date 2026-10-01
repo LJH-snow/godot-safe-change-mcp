@@ -12,7 +12,7 @@ Automated coverage currently includes:
 - script and resource changes: bounded .gd/resource replacement, temporary-file atomic apply, file revision guard, user-edit conflict and rollback;
 - scene changes: UndoRedo-backed create, property and script-attachment operations with rollback history/version/action guards;
 - input actions: bounded ProjectSettings key addition/removal/replacement for physical keys, direct-plugin rejection of equal, logical, duplicate and occupied keys, settings revision guard and rollback after external edits;
-- multi-step tasks: bounded task state machine with apply/rollback/run steps, pause/resume/cancel transitions, explicit lease acquire/renew/release, retry budget, project-directory persistence and restart recovery;
+- multi-step tasks: bounded task state machine with apply/rollback/run steps, pause/resume/cancel transitions, explicit lease acquire/renew/release, retry budget, project-directory persistence and restart recovery; the real Godot smoke also exercises lease-held apply_plan → run_current_scene and operationId-filtered timeline;
 - HTTP bridge: loopback protocol envelopes, context/search/apply requests, current-scene and specified-scene run status polling;
 - plugin boundary: fixed TCPServer transport, independent validation of forged apply/rollback requests, unchanged project state after rejected payloads, context/apply/rollback/run/run-scene routes, safe paths and forbidden-operation checks.
 

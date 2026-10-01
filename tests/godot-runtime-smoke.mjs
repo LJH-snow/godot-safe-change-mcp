@@ -635,6 +635,64 @@ try {
   assert.equal(await readFile(scriptPath, "utf8"), originalScript);
   stage("script rollback complete");
 
+  const taskPlan = structured(await request("tools/call", {
+    name: "preview_scene_change",
+    arguments: {
+      projectRoot: fixtureRoot,
+      reason: "CI task apply and run integration smoke test.",
+      operation: { kind: "scene.create_node", parentPath: ".", nodeName: "TaskMarker", nodeType: "Node2D" },
+    },
+  }));
+  const task = structured(await request("tools/call", {
+    name: "create_task",
+    arguments: {
+      projectRoot: fixtureRoot,
+      title: "Godot runtime task smoke",
+      steps: [
+        { kind: "apply_plan", stepId: "apply-marker", planId: taskPlan.planId, expectedRevision: taskPlan.expectedRevision },
+        { kind: "run_current_scene", stepId: "run-current", timeoutMs: 15000 },
+      ],
+    },
+  }));
+  assert.equal(task.status, "active");
+  const leasedTask = structured(await request("tools/call", {
+    name: "acquire_task_lease",
+    arguments: { projectRoot: fixtureRoot, taskId: task.taskId, ttlMs: 10000 },
+  }));
+  assert.ok(leasedTask.lease?.leaseId);
+  assert.ok(leasedTask.lease?.expiresAt);
+  const afterTaskApply = structured(await request("tools/call", {
+    name: "advance_task",
+    arguments: { projectRoot: fixtureRoot, taskId: task.taskId },
+  }));
+  assert.equal(afterTaskApply.status, "active");
+  assert.equal(afterTaskApply.steps[0]?.status, "succeeded");
+  const applyStepOperationId = afterTaskApply.steps[0]?.operationId;
+  assert.match(applyStepOperationId ?? "", /^taskop_[A-Za-z0-9]+$/);
+  assert.equal(afterTaskApply.lease?.leaseId, leasedTask.lease.leaseId);
+  const taskStepTimeline = structured(await request("tools/call", {
+    name: "task_timeline",
+    arguments: { projectRoot: fixtureRoot, taskId: task.taskId, stepId: "apply-marker", operationId: applyStepOperationId },
+  }));
+  assert.deepEqual(taskStepTimeline.events.map((event) => event.status), ["running", "succeeded"]);
+  const afterTaskRun = structured(await request("tools/call", {
+    name: "advance_task",
+    arguments: { projectRoot: fixtureRoot, taskId: task.taskId },
+  }));
+  assert.equal(afterTaskRun.status, "completed");
+  assert.equal(afterTaskRun.steps[1]?.status, "succeeded");
+  assert.equal(afterTaskRun.steps[1]?.result?.status, "stopped");
+  const completedTask = structured(await request("tools/call", {
+    name: "task_status",
+    arguments: { projectRoot: fixtureRoot, taskId: task.taskId },
+  }));
+  assert.equal(completedTask.status, "completed");
+  assert.equal(completedTask.lease, null);
+  assert.ok(completedTask.timeline.some((event) => event.status === "lease_acquired"));
+  assert.ok(completedTask.timeline.some((event) => event.status === "lease_released"));
+  assert.ok(sceneNode(await readEditorContext(fixtureRoot), "TaskMarker"));
+  stage("task lease, apply, run and timeline complete");
+
   const diagnostics = structured(await request("tools/call", {
     name: "run_scene",
     arguments: { projectRoot: fixtureRoot, scenePath: "res://main.tscn", timeoutMs: 15000 },
