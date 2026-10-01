@@ -7,14 +7,14 @@ Automated coverage currently includes:
 - search index: read-only scene/script/resource/node matching, signal declarations, input actions, truncation and symlink safety;
 - operation audit: lifecycle operation IDs, inputs, outputs, revisions, failure evidence and JSONL restart recovery;
 - project lease: atomic owner acquisition, concurrent-owner rejection and expired-lease recovery;
-- task lease: acquire, renew, release, task status visibility, heartbeat, filtered task timeline and cross-window conflict handling;
+- task lease/recovery: acquire, renew, release, heartbeat failure pause, same-window and cross-window TTL takeover, interrupted-step operationId recovery, filtered task timeline and conflict handling;
 - diagnostics: source/line/NodePath association and preview generation from explicit repair hints;
 - script and resource changes: bounded .gd/resource replacement, temporary-file atomic apply, file revision guard, user-edit conflict and rollback;
 - scene changes: UndoRedo-backed create, property and script-attachment operations with rollback history/version/action guards;
-- input actions: bounded ProjectSettings persistence, duplicate-key rejection, settings revision guard and rollback;
-- multi-step tasks: bounded task state machine with apply/rollback/run steps, pause/resume/cancel transitions, explicit lease acquire/renew/release, retry budget, project-directory persistence and restart recovery;
+- input actions: bounded ProjectSettings key addition/removal/replacement for physical keys, direct-plugin rejection of equal, logical, duplicate and occupied keys, settings revision guard and rollback after external edits;
+- multi-step tasks: bounded task state machine with apply/rollback/run steps, pause/resume/cancel transitions, explicit lease acquire/renew/release, retry budget, project-directory persistence and restart recovery; the real Godot smoke also exercises lease-held apply_plan → run_current_scene and operationId-filtered timeline;
 - HTTP bridge: loopback protocol envelopes, context/search/apply requests, current-scene and specified-scene run status polling;
-- plugin boundary: fixed TCPServer transport, independent request validation, context/apply/rollback/run/run-scene route markers, safe paths and forbidden-operation checks.
+- plugin boundary: fixed TCPServer transport, independent validation of forged apply/rollback requests, unchanged project state after rejected payloads, context/apply/rollback/run/run-scene routes, safe paths and forbidden-operation checks.
 
 Run the automated suite with:
 

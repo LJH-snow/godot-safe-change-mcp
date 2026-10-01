@@ -11,6 +11,7 @@ const bridgeEndpoint = "http://127.0.0.1:8765";
 const fixtureRoot = await mkdtemp(path.join(tmpdir(), "godot-safe-change-ci-"));
 const scriptPath = path.join(fixtureRoot, "diagnostic_scene.gd");
 let nextRequestId = 1;
+let nextDirectPlanId = 1;
 let godotProcess;
 let mcpProcess;
 const godotOutputRef = { value: "" };
@@ -146,6 +147,46 @@ async function expectToolError(name, argumentsValue, pattern = null) {
   );
 }
 
+async function assertDirectChangeRejected(operation, expectedCode) {
+  const editorContext = await readEditorContext(fixtureRoot);
+  const settingsPath = path.join(fixtureRoot, "project.godot");
+  const settingsBefore = await readFile(settingsPath, "utf8");
+  const nodePathsBefore = editorContext.currentScene.nodes.map((node) => node.path);
+  const response = await bridgeRequest("/v1/changes/apply", {
+    projectRoot: editorContext.projectRoot,
+    planId: "direct-boundary-" + nextDirectPlanId++,
+    expectedRevision: editorContext.revision,
+    operations: [operation],
+  });
+  assert.equal(response.status, 400, JSON.stringify(response.body));
+  assert.equal(response.body.ok, false);
+  assert.equal(response.body.error.code, expectedCode);
+  const editorContextAfter = await readEditorContext(fixtureRoot);
+  assert.equal(editorContextAfter.revision, editorContext.revision);
+  assert.deepEqual(editorContextAfter.currentScene.nodes.map((node) => node.path), nodePathsBefore);
+  assert.equal(await readFile(settingsPath, "utf8"), settingsBefore);
+}
+
+async function assertDirectInputKeyReplacementRejected(actionName, fromPhysicalKeycode, toPhysicalKeycode, expectedStatus, expectedCode, expectedFileRevision = null) {
+  const projectRoot = fixtureRoot;
+  const editorContext = await readEditorContext(projectRoot);
+  const bridgeProjectRoot = editorContext.projectRoot;
+  const before = await bridgeRequest("/v1/input-actions/read", { projectRoot: bridgeProjectRoot, actionName });
+  assert.equal(before.body.ok, true, JSON.stringify(before.body));
+  const response = await bridgeRequest("/v1/changes/apply", {
+    projectRoot: bridgeProjectRoot,
+    planId: "direct-input-replace-" + actionName,
+    expectedRevision: editorContext.revision,
+    expectedFileRevision: expectedFileRevision ?? before.body.snapshot.revision,
+    operations: [{ kind: "project.input_action.replace_key", actionName, fromPhysicalKeycode, toPhysicalKeycode }],
+  });
+  assert.equal(response.status, expectedStatus, JSON.stringify(response.body));
+  assert.equal(response.body.ok, false);
+  assert.equal(response.body.error.code, expectedCode);
+  const after = await bridgeRequest("/v1/input-actions/read", { projectRoot: bridgeProjectRoot, actionName });
+  assert.deepEqual(after.body.snapshot, before.body.snapshot);
+}
+
 async function roundTripSceneProperty(projectRoot, nodePath, property, value) {
   const beforeContext = await readEditorContext(projectRoot);
   const beforeNode = sceneNode(beforeContext, nodePath);
@@ -267,6 +308,22 @@ try {
   assert.equal(directInvalidChange.status, 400);
   assert.equal(directInvalidChange.body.ok, false);
   assert.equal(directInvalidChange.body.error.code, "VALIDATION_FAILED");
+  const directInvalidOperations = [
+    { operation: { kind: "scene.create_node", parentPath: ".", nodeName: "UnsafeType", nodeType: "Object" }, errorCode: "UNSAFE_OPERATION" },
+    { operation: { kind: "scene.set_property", nodePath: ".", property: "script", value: null }, errorCode: "UNSAFE_OPERATION" },
+    { operation: { kind: "scene.attach_script", nodePath: ".", scriptPath: "res://../outside.gd" }, errorCode: "UNSAFE_OPERATION" },
+    { operation: { kind: "resource.replace_reference", resourcePath: "res://../outside.tres", from: "res://old.tres", to: "res://new.tres" }, errorCode: "UNSAFE_OPERATION" },
+    { operation: { kind: "script.replace_range", scriptPath: "res://../outside.gd", startLine: 1, endLine: 1, replacement: "safe" }, errorCode: "VALIDATION_FAILED" },
+    { operation: { kind: "project.input_action.add_key", actionName: "bad/name", physicalKeycode: 70 }, errorCode: "VALIDATION_FAILED" },
+  ];
+  for (const invalidOperation of directInvalidOperations) {
+    await assertDirectChangeRejected(invalidOperation.operation, invalidOperation.errorCode);
+  }
+  await assertDirectInputKeyReplacementRejected("remove_binding", 74, 74, 400, "VALIDATION_FAILED");
+  await assertDirectInputKeyReplacementRejected("logical_binding", 74, 75, 409, "OPERATION_REJECTED");
+  await assertDirectInputKeyReplacementRejected("duplicate_binding", 74, 75, 409, "OPERATION_REJECTED");
+  await assertDirectInputKeyReplacementRejected("occupied_binding", 74, 75, 400, "VALIDATION_FAILED");
+  await assertDirectInputKeyReplacementRejected("remove_binding", 74, 75, 409, "REVISION_CONFLICT", "stale-settings-revision");
 
   const nodeSearch = structured(await request("tools/call", {
     name: "search_project",
@@ -294,15 +351,39 @@ try {
     name: "confirm_scene_change",
     arguments: { projectRoot: fixtureRoot, planId: scenePlan.planId, expectedRevision: scenePlan.expectedRevision },
   }));
-  structured(await request("tools/call", {
+  const sceneApply = structured(await request("tools/call", {
     name: "apply_scene_change",
     arguments: { projectRoot: fixtureRoot, planId: scenePlan.planId },
   }));
+  assert.equal(sceneApply.status, "applied");
+  const appliedSceneContext = await readEditorContext(fixtureRoot);
+  assert.ok(sceneNode(appliedSceneContext, "CiMarker"));
+  const forgedRollback = await bridgeRequest("/v1/changes/rollback", {
+    projectRoot: appliedSceneContext.projectRoot,
+    planId: "direct-foreign-plan",
+    expectedRevision: appliedSceneContext.revision,
+  });
+  assert.equal(forgedRollback.status, 400);
+  assert.equal(forgedRollback.body.error.code, "PLAN_NOT_APPLIED");
+  const afterForgedRollback = await readEditorContext(fixtureRoot);
+  assert.equal(afterForgedRollback.revision, appliedSceneContext.revision);
+  assert.ok(sceneNode(afterForgedRollback, "CiMarker"));
+  const staleRollback = await bridgeRequest("/v1/changes/rollback", {
+    projectRoot: appliedSceneContext.projectRoot,
+    planId: scenePlan.planId,
+    expectedRevision: "stale-scene-revision",
+  });
+  assert.equal(staleRollback.status, 409);
+  assert.equal(staleRollback.body.error.code, "REVISION_CONFLICT");
+  const afterStaleRollback = await readEditorContext(fixtureRoot);
+  assert.equal(afterStaleRollback.revision, appliedSceneContext.revision);
+  assert.ok(sceneNode(afterStaleRollback, "CiMarker"));
   const sceneRollback = structured(await request("tools/call", {
     name: "rollback_scene_change",
     arguments: { projectRoot: fixtureRoot, planId: scenePlan.planId },
   }));
   assert.equal(sceneRollback.status, "rolled_back");
+  assert.equal(sceneNode(await readEditorContext(fixtureRoot), "CiMarker"), undefined);
   stage("scene create rollback complete");
 
   await roundTripSceneProperty(fixtureRoot, ".", "visible", false);
@@ -445,6 +526,56 @@ try {
   assert.equal(removalRestored.body.snapshot.deadzone, 0.35);
   stage("input action removal rollback complete");
 
+  const replaceKeyPlan = structured(await request("tools/call", {
+    name: "preview_scene_change",
+    arguments: {
+      projectRoot: fixtureRoot,
+      reason: "CI input action replacement and rollback smoke test.",
+      operation: {
+        kind: "project.input_action.replace_key",
+        actionName: "remove_binding",
+        fromPhysicalKeycode: 74,
+        toPhysicalKeycode: 75,
+      },
+    },
+  }));
+  assert.ok(replaceKeyPlan.expectedFileRevision);
+  structured(await request("tools/call", {
+    name: "confirm_scene_change",
+    arguments: { projectRoot: fixtureRoot, planId: replaceKeyPlan.planId, expectedRevision: replaceKeyPlan.expectedRevision },
+  }));
+  const replaceKeyApply = structured(await request("tools/call", {
+    name: "apply_scene_change",
+    arguments: { projectRoot: fixtureRoot, planId: replaceKeyPlan.planId },
+  }));
+  assert.equal(replaceKeyApply.status, "applied");
+  const replacementAfter = await bridgeRequest("/v1/input-actions/read", {
+    projectRoot: context.projectRoot,
+    actionName: "remove_binding",
+  });
+  assert.equal(replacementAfter.body.snapshot.exists, true);
+  assert.deepEqual(replacementAfter.body.snapshot.events.map((event) => event.physicalKeycode), [75]);
+  assert.equal(replacementAfter.body.snapshot.deadzone, 0.35);
+  assert.match(await readFile(path.join(fixtureRoot, "project.godot"), "utf8"), /shift_pressed[" ]*[:=][ ]*true/);
+  const appliedProjectSettings = await readFile(path.join(fixtureRoot, "project.godot"), "utf8");
+  await writeFile(path.join(fixtureRoot, "project.godot"), appliedProjectSettings + "\n; external edit after input action apply\n", "utf8");
+  await expectToolError("rollback_scene_change", { projectRoot: fixtureRoot, planId: replaceKeyPlan.planId }, /REVISION_CONFLICT/);
+  assert.match(await readFile(path.join(fixtureRoot, "project.godot"), "utf8"), /external edit after input action apply/);
+  await writeFile(path.join(fixtureRoot, "project.godot"), appliedProjectSettings, "utf8");
+  const replaceKeyRollback = structured(await request("tools/call", {
+    name: "rollback_scene_change",
+    arguments: { projectRoot: fixtureRoot, planId: replaceKeyPlan.planId },
+  }));
+  assert.equal(replaceKeyRollback.status, "rolled_back");
+  const replacementRestored = await bridgeRequest("/v1/input-actions/read", {
+    projectRoot: context.projectRoot,
+    actionName: "remove_binding",
+  });
+  assert.deepEqual(replacementRestored.body.snapshot.events.map((event) => event.physicalKeycode), [74]);
+  assert.equal(replacementRestored.body.snapshot.deadzone, 0.35);
+  assert.match(await readFile(path.join(fixtureRoot, "project.godot"), "utf8"), /shift_pressed[" ]*[:=][ ]*true/);
+  stage("input action replacement rollback complete");
+
   const attachBefore = await readEditorContext(fixtureRoot);
   assert.equal(sceneNode(attachBefore, "Scriptless")?.properties.scriptPath, null);
   const attachPlan = structured(await request("tools/call", {
@@ -503,6 +634,64 @@ try {
   assert.equal(scriptRollback.status, "rolled_back");
   assert.equal(await readFile(scriptPath, "utf8"), originalScript);
   stage("script rollback complete");
+
+  const taskPlan = structured(await request("tools/call", {
+    name: "preview_scene_change",
+    arguments: {
+      projectRoot: fixtureRoot,
+      reason: "CI task apply and run integration smoke test.",
+      operation: { kind: "scene.create_node", parentPath: ".", nodeName: "TaskMarker", nodeType: "Node2D" },
+    },
+  }));
+  const task = structured(await request("tools/call", {
+    name: "create_task",
+    arguments: {
+      projectRoot: fixtureRoot,
+      title: "Godot runtime task smoke",
+      steps: [
+        { kind: "apply_plan", stepId: "apply-marker", planId: taskPlan.planId, expectedRevision: taskPlan.expectedRevision },
+        { kind: "run_current_scene", stepId: "run-current", timeoutMs: 15000 },
+      ],
+    },
+  }));
+  assert.equal(task.status, "active");
+  const leasedTask = structured(await request("tools/call", {
+    name: "acquire_task_lease",
+    arguments: { projectRoot: fixtureRoot, taskId: task.taskId, ttlMs: 10000 },
+  }));
+  assert.ok(leasedTask.lease?.leaseId);
+  assert.ok(leasedTask.lease?.expiresAt);
+  const afterTaskApply = structured(await request("tools/call", {
+    name: "advance_task",
+    arguments: { projectRoot: fixtureRoot, taskId: task.taskId },
+  }));
+  assert.equal(afterTaskApply.status, "active");
+  assert.equal(afterTaskApply.steps[0]?.status, "succeeded");
+  const applyStepOperationId = afterTaskApply.steps[0]?.operationId;
+  assert.match(applyStepOperationId ?? "", /^taskop_[A-Za-z0-9]+$/);
+  assert.equal(afterTaskApply.lease?.leaseId, leasedTask.lease.leaseId);
+  const taskStepTimeline = structured(await request("tools/call", {
+    name: "task_timeline",
+    arguments: { projectRoot: fixtureRoot, taskId: task.taskId, stepId: "apply-marker", operationId: applyStepOperationId },
+  }));
+  assert.deepEqual(taskStepTimeline.events.map((event) => event.status), ["running", "succeeded"]);
+  const afterTaskRun = structured(await request("tools/call", {
+    name: "advance_task",
+    arguments: { projectRoot: fixtureRoot, taskId: task.taskId },
+  }));
+  assert.equal(afterTaskRun.status, "completed");
+  assert.equal(afterTaskRun.steps[1]?.status, "succeeded");
+  assert.equal(afterTaskRun.steps[1]?.result?.status, "stopped");
+  const completedTask = structured(await request("tools/call", {
+    name: "task_status",
+    arguments: { projectRoot: fixtureRoot, taskId: task.taskId },
+  }));
+  assert.equal(completedTask.status, "completed");
+  assert.equal(completedTask.lease, null);
+  assert.ok(completedTask.timeline.some((event) => event.status === "lease_acquired"));
+  assert.ok(completedTask.timeline.some((event) => event.status === "lease_released"));
+  assert.ok(sceneNode(await readEditorContext(fixtureRoot), "TaskMarker"));
+  stage("task lease, apply, run and timeline complete");
 
   const diagnostics = structured(await request("tools/call", {
     name: "run_scene",

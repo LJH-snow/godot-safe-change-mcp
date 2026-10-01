@@ -174,6 +174,18 @@ export const inputActionRemoveKeySchema = z
   })
   .strict();
 
+export const inputActionReplaceKeySchema = z
+  .object({
+    kind: z.literal("project.input_action.replace_key"),
+    actionName: z.string().min(1).max(128).regex(/^[A-Za-z_][A-Za-z0-9_]*$/),
+    fromPhysicalKeycode: z.number().int().min(1).max(10000),
+    toPhysicalKeycode: z.number().int().min(1).max(10000),
+  })
+  .strict()
+  .refine((value) => value.fromPhysicalKeycode !== value.toPhysicalKeycode, {
+    message: "fromPhysicalKeycode and toPhysicalKeycode must differ.",
+  });
+
 export const scriptReplaceRangeSchema = z
   .object({
     kind: z.literal("script.replace_range"),
@@ -194,6 +206,7 @@ export const changeOperationSchema = z.union([
   resourceReplaceReferenceSchema,
   inputActionAddKeySchema,
   inputActionRemoveKeySchema,
+  inputActionReplaceKeySchema,
   scriptReplaceRangeSchema,
 ]);
 
@@ -246,6 +259,12 @@ export const inputActionDiffSchema = z.object({
 
 export const inputActionRemoveKeyDiffSchema = z.object({
   kind: z.literal("project.input_action.remove_key"),
+  target: z.string().min(1),
+  summary: z.string().min(1),
+});
+
+export const inputActionReplaceKeyDiffSchema = z.object({
+  kind: z.literal("project.input_action.replace_key"),
   target: z.string().min(1),
   summary: z.string().min(1),
 });
@@ -309,6 +328,7 @@ export const changeDiffSchema = z.union([
   resourceReferenceDiffSchema,
   inputActionDiffSchema,
   inputActionRemoveKeyDiffSchema,
+  inputActionReplaceKeyDiffSchema,
   scriptChangeDiffSchema,
 ]);
 
