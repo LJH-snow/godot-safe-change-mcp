@@ -31,7 +31,7 @@ jobs:
     timeout-minutes: 8
     env:
       GODOT_VERSION: ${{ matrix.godot-version }}
-      GODOT_DIR: ${{ runner.temp }}/godot-${{ matrix.godot-version }}
+      GODOT_DIR: /tmp/godot-${{ matrix.godot-version }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
