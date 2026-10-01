@@ -52,6 +52,7 @@ npm run dev
 npm run typecheck
 npm test
 npm run build
+npm run package:check
 ~~~
 
 ## 通过 npx 运行

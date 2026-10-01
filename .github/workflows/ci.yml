@@ -67,3 +67,16 @@ jobs:
           name: godot-runtime-smoke-${{ matrix.godot-version }}-${{ github.run_id }}
           path: ${{ runner.temp }}/godot-runtime-smoke.log
           if-no-files-found: warn
+
+  package-check:
+    needs: check
+    runs-on: ubuntu-latest
+    name: npm package boundary
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run package:check

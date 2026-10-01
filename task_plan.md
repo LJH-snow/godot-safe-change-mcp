@@ -103,6 +103,7 @@
 | task repair smoke 大补丁的后续上下文未匹配 | 1 | 重读当前 fixture 流程后确认补丁已有部分写入，只保留已落盘测试并补齐缺项。 |
 | task repair preview 首次未接受 step 级 repairHint | 1 | 仅允许 schema 验证的 scene.create_node hint；缺少 hint 时显式失败。 |
 | GitHub CI heartbeat test exposed ENOENT while renaming a shared task temp file | 1 | Reproduced with parallel FileTaskStore saves; serialized same-target writes and added unique temp paths. |
+| Local npm package consumer was blocked by EALLOWSCRIPTS | 1 | Package smoke uses real npm install when permitted and tarball extraction with source dependency resolution as a safe local fallback. |
 
 ## 本轮状态
 
@@ -243,6 +244,14 @@
 - [x] Reproduce concurrent heartbeat/state saves for one task and preserve last-write ordering.
 - [x] Serialize same-target atomic saves and use unique temporary paths with cleanup.
 - [x] Verify the full test suite, typecheck/build and Godot runtime smoke before pushing.
+
+## Phase 19 — release package boundary
+
+状态：`complete`
+
+- [x] 增加 `npm run package:check`，验证 tarball 元数据、发布入口、MCP bundle 和 Godot 插件文件。
+- [x] 将 package boundary check 接入 GitHub Actions 和 `prepublishOnly`。
+- [x] 本地 package smoke、完整测试、typecheck、build 和 Godot runtime smoke 通过。
 
 ## 完成定义
 

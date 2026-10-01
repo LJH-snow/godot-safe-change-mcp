@@ -227,3 +227,8 @@
 - GitHub Actions run `36821699283` failed `heartbeats an explicit task lease and records lease timeline events` with `ENOENT` renaming the shared task temp file.
 - Added a deterministic 32-writer `FileTaskStore.save` regression; it reproduced the same `ENOENT` locally.
 - Replaced the shared temp path with per-save UUID paths and serialized same-target saves; 80 tests, typecheck/build, diff-check and Godot 4.7.2 runtime smoke all pass.
+
+## 2026-10-01 release package boundary
+
+- Added `npm run package:check` and a CI package job. It builds, packs and validates the tarball metadata, bundled MCP entry and Godot plugin files in a temporary consumer.
+- Local npm `EALLOWSCRIPTS` is handled by a tarball extraction fallback; GitHub Actions uses the real consumer install path.

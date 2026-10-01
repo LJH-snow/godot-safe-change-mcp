@@ -22,6 +22,14 @@ Run the automated suite with:
 npm test
 ~~~
 
+验证发布包边界：
+
+~~~bash
+npm run package:check
+~~~
+
+该检查会构建并打包，然后在临时消费者中验证 `bin/mcp-server.mjs`、MCP bundle 和 Godot 插件文件；本机受 npm 脚本白名单限制时会使用 tarball 解包 fallback。
+
 ## Godot manual acceptance
 
 The real EditorPlugin check uses godot-fixture and requires a local Godot 4.x editor. The repository smoke harness runs the same flow with Godot 4.7.2 when `GODOT_BIN` is available; the Linux workflow wraps it in `xvfb-run` because a launched scene may require a display.
