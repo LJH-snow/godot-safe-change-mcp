@@ -351,15 +351,39 @@ try {
     name: "confirm_scene_change",
     arguments: { projectRoot: fixtureRoot, planId: scenePlan.planId, expectedRevision: scenePlan.expectedRevision },
   }));
-  structured(await request("tools/call", {
+  const sceneApply = structured(await request("tools/call", {
     name: "apply_scene_change",
     arguments: { projectRoot: fixtureRoot, planId: scenePlan.planId },
   }));
+  assert.equal(sceneApply.status, "applied");
+  const appliedSceneContext = await readEditorContext(fixtureRoot);
+  assert.ok(sceneNode(appliedSceneContext, "CiMarker"));
+  const forgedRollback = await bridgeRequest("/v1/changes/rollback", {
+    projectRoot: appliedSceneContext.projectRoot,
+    planId: "direct-foreign-plan",
+    expectedRevision: appliedSceneContext.revision,
+  });
+  assert.equal(forgedRollback.status, 400);
+  assert.equal(forgedRollback.body.error.code, "PLAN_NOT_APPLIED");
+  const afterForgedRollback = await readEditorContext(fixtureRoot);
+  assert.equal(afterForgedRollback.revision, appliedSceneContext.revision);
+  assert.ok(sceneNode(afterForgedRollback, "CiMarker"));
+  const staleRollback = await bridgeRequest("/v1/changes/rollback", {
+    projectRoot: appliedSceneContext.projectRoot,
+    planId: scenePlan.planId,
+    expectedRevision: "stale-scene-revision",
+  });
+  assert.equal(staleRollback.status, 409);
+  assert.equal(staleRollback.body.error.code, "REVISION_CONFLICT");
+  const afterStaleRollback = await readEditorContext(fixtureRoot);
+  assert.equal(afterStaleRollback.revision, appliedSceneContext.revision);
+  assert.ok(sceneNode(afterStaleRollback, "CiMarker"));
   const sceneRollback = structured(await request("tools/call", {
     name: "rollback_scene_change",
     arguments: { projectRoot: fixtureRoot, planId: scenePlan.planId },
   }));
   assert.equal(sceneRollback.status, "rolled_back");
+  assert.equal(sceneNode(await readEditorContext(fixtureRoot), "CiMarker"), undefined);
   stage("scene create rollback complete");
 
   await roundTripSceneProperty(fixtureRoot, ".", "visible", false);
