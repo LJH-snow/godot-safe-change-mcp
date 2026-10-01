@@ -172,6 +172,89 @@ export class ChangeCoordinator {
         nodePath: operation.nodePath,
         deletedNodes,
       };
+    } else if (operation.kind === "scene.reparent_node") {
+      if (operation.nodePath === ".") {
+        throw new DomainError(
+          ERROR_CODES.UNSAFE_OPERATION,
+          "The current scene root cannot be reparented.",
+          { nodePath: operation.nodePath },
+        );
+      }
+      const node = context.currentScene.nodes.find((candidate) => candidate.path === operation.nodePath);
+      if (node === undefined) {
+        throw new DomainError(
+          ERROR_CODES.VALIDATION_FAILED,
+          "The requested scene node does not exist.",
+          { nodePath: operation.nodePath },
+        );
+      }
+      if (
+        operation.newParentPath === operation.nodePath ||
+        operation.newParentPath.startsWith(operation.nodePath + "/")
+      ) {
+        throw new DomainError(
+          ERROR_CODES.UNSAFE_OPERATION,
+          "A scene node cannot be reparented beneath itself or one of its descendants.",
+          { nodePath: operation.nodePath, newParentPath: operation.newParentPath },
+        );
+      }
+      const newParent = context.currentScene.nodes.find((candidate) => candidate.path === operation.newParentPath);
+      if (newParent === undefined) {
+        throw new DomainError(
+          ERROR_CODES.VALIDATION_FAILED,
+          "The requested new parent does not exist in the current scene.",
+          { newParentPath: operation.newParentPath },
+        );
+      }
+      const lastSeparator = operation.nodePath.lastIndexOf("/");
+      const fromParentPath = lastSeparator < 0 ? "." : operation.nodePath.slice(0, lastSeparator);
+      if (fromParentPath === operation.newParentPath) {
+        throw new DomainError(
+          ERROR_CODES.OPERATION_REJECTED,
+          "The requested node is already a child of the new parent.",
+          { nodePath: operation.nodePath, newParentPath: operation.newParentPath },
+        );
+      }
+      const toNodePath = operation.newParentPath === "."
+        ? node.name
+        : operation.newParentPath + "/" + node.name;
+      if (context.currentScene.nodes.some((candidate) => candidate.path === toNodePath)) {
+        throw new DomainError(
+          ERROR_CODES.VALIDATION_FAILED,
+          "A node with the same name already exists under the requested new parent.",
+          { nodePath: toNodePath },
+        );
+      }
+      const fromSiblings = context.currentScene.nodes.filter((candidate) => {
+        const separator = candidate.path.lastIndexOf("/");
+        const candidateParentPath = separator < 0 ? "." : candidate.path.slice(0, separator);
+        return candidate.path !== "." && candidateParentPath === fromParentPath;
+      });
+      const fromIndex = fromSiblings.findIndex((candidate) => candidate.path === operation.nodePath);
+      if (fromIndex < 0) {
+        throw new DomainError(
+          ERROR_CODES.VALIDATION_FAILED,
+          "The scene context does not contain the node's original sibling position.",
+          { nodePath: operation.nodePath, fromParentPath },
+        );
+      }
+      const toIndex = context.currentScene.nodes.filter((candidate) => {
+        const separator = candidate.path.lastIndexOf("/");
+        const candidateParentPath = separator < 0 ? "." : candidate.path.slice(0, separator);
+        return candidate.path !== "." && candidateParentPath === operation.newParentPath;
+      }).length;
+      diff = {
+        kind: "scene.reparent_node" as const,
+        target: scenePath + ":" + operation.nodePath,
+        summary: "Move " + operation.nodePath + " under " + operation.newParentPath + " in " + scenePath,
+        fromNodePath: operation.nodePath,
+        toNodePath,
+        fromParentPath,
+        fromIndex,
+        toParentPath: operation.newParentPath,
+        toIndex,
+        keepGlobalTransform: operation.keepGlobalTransform,
+      };
     } else if (operation.kind === "scene.set_property") {
       const parsedOperation = sceneSetPropertySchema.parse(operation);
       const node = context.currentScene.nodes.find((candidate) => candidate.path === parsedOperation.nodePath);

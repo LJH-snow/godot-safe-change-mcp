@@ -98,6 +98,15 @@ export const sceneDeleteNodeSchema = z
   })
   .strict();
 
+export const sceneReparentNodeSchema = z
+  .object({
+    kind: z.literal("scene.reparent_node"),
+    nodePath: nodePathSchema,
+    newParentPath: nodePathSchema,
+    keepGlobalTransform: z.boolean().default(true),
+  })
+  .strict();
+
 const sceneSetVisiblePropertySchema = z
   .object({
     kind: z.literal("scene.set_property"),
@@ -217,6 +226,7 @@ export const scriptReplaceRangeSchema = z
 export const changeOperationSchema = z.union([
   createNodeOperationSchema,
   sceneDeleteNodeSchema,
+  sceneReparentNodeSchema,
   sceneSetPropertySchema,
   sceneAttachScriptSchema,
   resourceReplaceReferenceSchema,
@@ -268,6 +278,21 @@ export const sceneDeleteNodeDiffSchema = z.object({
     )
     .min(1),
 }).strict();
+
+export const sceneReparentNodeDiffSchema = z
+  .object({
+    kind: z.literal("scene.reparent_node"),
+    target: z.string().min(1),
+    summary: z.string().min(1),
+    fromNodePath: nodePathSchema,
+    toNodePath: nodePathSchema,
+    fromParentPath: nodePathSchema,
+    fromIndex: z.number().int().nonnegative(),
+    toParentPath: nodePathSchema,
+    toIndex: z.number().int().nonnegative(),
+    keepGlobalTransform: z.boolean(),
+  })
+  .strict();
 
 export const scriptChangeDiffSchema = z.object({
   kind: z.literal("script.replace_range"),
@@ -359,6 +384,7 @@ export const sceneAttachScriptDiffSchema = z.object({
 export const changeDiffSchema = z.union([
   sceneChangeDiffSchema,
   sceneDeleteNodeDiffSchema,
+  sceneReparentNodeDiffSchema,
   scenePropertyDiffSchema,
   sceneAttachScriptDiffSchema,
   resourceReferenceDiffSchema,
@@ -388,7 +414,7 @@ export const confirmedChangeSchema = z.object({
 
 export type SafeNodeType = z.infer<typeof safeNodeTypeSchema>;
 export type ChangeOperation = z.infer<typeof changeOperationSchema>;
-export type PreviewSceneChangeInput = z.infer<typeof previewSceneChangeInputSchema>;
+export type PreviewSceneChangeInput = z.input<typeof previewSceneChangeInputSchema>;
 export type ConfirmChangeInput = z.infer<typeof confirmChangeInputSchema>;
 export type ApplyChangeInput = z.infer<typeof applyChangeInputSchema>;
 export type ChangeDiff = z.infer<typeof changeDiffSchema>;

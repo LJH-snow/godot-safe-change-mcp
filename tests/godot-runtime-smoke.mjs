@@ -347,6 +347,11 @@ try {
     { operation: { kind: "scene.delete_node", nodePath: "." }, errorCode: "UNSAFE_OPERATION" },
     { operation: { kind: "scene.delete_node", nodePath: "../Canvas" }, errorCode: "VALIDATION_FAILED" },
     { operation: { kind: "scene.delete_node", nodePath: "Canvas/Missing" }, errorCode: "VALIDATION_FAILED" },
+    { operation: { kind: "scene.reparent_node", nodePath: ".", newParentPath: "Canvas", keepGlobalTransform: true }, errorCode: "UNSAFE_OPERATION" },
+    { operation: { kind: "scene.reparent_node", nodePath: "../Canvas", newParentPath: ".", keepGlobalTransform: true }, errorCode: "VALIDATION_FAILED" },
+    { operation: { kind: "scene.reparent_node", nodePath: "Canvas", newParentPath: "Canvas/Title", keepGlobalTransform: true }, errorCode: "UNSAFE_OPERATION" },
+    { operation: { kind: "scene.reparent_node", nodePath: "Canvas/Title", newParentPath: "Canvas/Missing", keepGlobalTransform: true }, errorCode: "VALIDATION_FAILED" },
+    { operation: { kind: "scene.reparent_node", nodePath: "Canvas/Title", newParentPath: "Canvas", keepGlobalTransform: true }, errorCode: "OPERATION_REJECTED" },
     { operation: { kind: "scene.set_property", nodePath: ".", property: "script", value: null }, errorCode: "UNSAFE_OPERATION" },
     { operation: { kind: "scene.attach_script", nodePath: ".", scriptPath: "res://../outside.gd" }, errorCode: "UNSAFE_OPERATION" },
     { operation: { kind: "resource.replace_reference", resourcePath: "res://../outside.tres", from: "res://old.tres", to: "res://new.tres" }, errorCode: "UNSAFE_OPERATION" },
@@ -487,6 +492,43 @@ try {
     directChildrenBeforeDelete,
   );
   stage("scene subtree delete apply and rollback complete");
+
+  const beforeReparentContext = await readEditorContext(fixtureRoot);
+  const reparentPlan = structured(await request("tools/call", {
+    name: "preview_scene_change",
+    arguments: {
+      projectRoot: fixtureRoot,
+      reason: "CI scene reparent apply and rollback smoke test.",
+      operation: { kind: "scene.reparent_node", nodePath: "Canvas/Title", newParentPath: "Canvas/ColorPanel" },
+    },
+  }));
+  assert.equal(reparentPlan.diff[0]?.fromNodePath, "Canvas/Title");
+  assert.equal(reparentPlan.diff[0]?.toNodePath, "Canvas/ColorPanel/Title");
+  assert.equal(reparentPlan.diff[0]?.fromIndex, 0);
+  assert.equal(reparentPlan.diff[0]?.toIndex, 0);
+  assert.equal(reparentPlan.diff[0]?.keepGlobalTransform, true);
+  structured(await request("tools/call", {
+    name: "confirm_scene_change",
+    arguments: { projectRoot: fixtureRoot, planId: reparentPlan.planId, expectedRevision: reparentPlan.expectedRevision },
+  }));
+  const reparentApply = structured(await request("tools/call", {
+    name: "apply_scene_change",
+    arguments: { projectRoot: fixtureRoot, planId: reparentPlan.planId },
+  }));
+  assert.equal(reparentApply.status, "applied");
+  assert.equal(reparentApply.undoLabel, "Godot Safe Change: Reparent node");
+  const afterReparentContext = await readEditorContext(fixtureRoot);
+  assert.equal(sceneNode(afterReparentContext, "Canvas/Title"), undefined);
+  assert.equal(sceneNode(afterReparentContext, "Canvas/ColorPanel/Title")?.properties.text, "Fixture label");
+  const reparentRollback = structured(await request("tools/call", {
+    name: "rollback_scene_change",
+    arguments: { projectRoot: fixtureRoot, planId: reparentPlan.planId },
+  }));
+  assert.equal(reparentRollback.status, "rolled_back");
+  const afterReparentRollback = await readEditorContext(fixtureRoot);
+  assert.equal(sceneNode(afterReparentRollback, "Canvas/ColorPanel/Title"), undefined);
+  assert.deepEqual(afterReparentRollback.currentScene.nodes, beforeReparentContext.currentScene.nodes);
+  stage("scene reparent apply and rollback complete");
 
   await roundTripSceneProperty(fixtureRoot, ".", "visible", false);
   await roundTripSceneProperty(fixtureRoot, ".", "position", { x: 12, y: 8 });
