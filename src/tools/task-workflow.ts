@@ -4,6 +4,8 @@ import {
   createTaskInputSchema,
   taskIdInputSchema,
   taskLeaseInputSchema,
+  taskTimelineInputSchema,
+  taskTimelineReportSchema,
   taskStateSchema,
   type CreateTaskInput,
   type TaskIdInput,
@@ -77,6 +79,31 @@ export function registerTaskStatusTool(server: MCPServer, coordinator: TaskCoord
         return {
           content: [{ type: "text" as const, text: JSON.stringify(task, null, 2) }],
           structuredContent: task,
+        };
+      } catch (error) {
+        return toolError(error);
+      }
+    },
+  );
+}
+
+export function registerTaskTimelineTool(server: MCPServer, coordinator: TaskCoordinator) {
+  return server.tool(
+    {
+      name: "task_timeline",
+      title: "Read task timeline",
+      description:
+        "Read a filtered, read-only task timeline by step, event type and ISO time range.",
+      inputSchema: taskTimelineInputSchema,
+      outputSchema: taskTimelineReportSchema,
+      annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    },
+    async (input) => {
+      try {
+        const report = await coordinator.getTaskTimeline(input);
+        return {
+          content: [{ type: "text" as const, text: JSON.stringify(report, null, 2) }],
+          structuredContent: report,
         };
       } catch (error) {
         return toolError(error);

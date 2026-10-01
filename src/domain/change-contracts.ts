@@ -166,6 +166,14 @@ export const inputActionAddKeySchema = z
   })
   .strict();
 
+export const inputActionRemoveKeySchema = z
+  .object({
+    kind: z.literal("project.input_action.remove_key"),
+    actionName: z.string().min(1).max(128).regex(/^[A-Za-z_][A-Za-z0-9_]*$/),
+    physicalKeycode: z.number().int().min(1).max(10000),
+  })
+  .strict();
+
 export const scriptReplaceRangeSchema = z
   .object({
     kind: z.literal("script.replace_range"),
@@ -185,6 +193,7 @@ export const changeOperationSchema = z.union([
   sceneAttachScriptSchema,
   resourceReplaceReferenceSchema,
   inputActionAddKeySchema,
+  inputActionRemoveKeySchema,
   scriptReplaceRangeSchema,
 ]);
 
@@ -231,6 +240,12 @@ export const resourceReferenceDiffSchema = z.object({
 
 export const inputActionDiffSchema = z.object({
   kind: z.literal("project.input_action.add_key"),
+  target: z.string().min(1),
+  summary: z.string().min(1),
+});
+
+export const inputActionRemoveKeyDiffSchema = z.object({
+  kind: z.literal("project.input_action.remove_key"),
   target: z.string().min(1),
   summary: z.string().min(1),
 });
@@ -293,6 +308,7 @@ export const changeDiffSchema = z.union([
   sceneAttachScriptDiffSchema,
   resourceReferenceDiffSchema,
   inputActionDiffSchema,
+  inputActionRemoveKeyDiffSchema,
   scriptChangeDiffSchema,
 ]);
 

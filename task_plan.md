@@ -154,6 +154,8 @@
 - [x] 支持 acquire_task_lease、renew_task_lease、release_task_lease 和 task_status。
 - [x] 任务步骤可复用显式 leaseId，lease owner、expiresAt 和 recoverable 状态持久化可见。
 - [x] 显式任务 lease 在持有期间按 TTL/3 自动 heartbeat 续租，并记录 acquire、renew、release、reclaim timeline 事件。
+- [x] heartbeat 续租失败自动暂停任务并保留可恢复状态；接管事件记录 previousOwnerId、ownerId 和到期/丢失/替换原因。
+- [x] 原 owner 在 lease 仍有效时可恢复同一 lease 并记录 lease_recovered；本地缓存 lease 到期时也会正确回收。
 
 ## Phase 11 — 多步骤开发任务
 
@@ -164,6 +166,8 @@
 - [x] 支持 pause/resume/cancel 和失败重试（每步最多 3 次），所有步骤复用既有 preview/confirm/apply/rollback/run 守卫与审计。
 - [x] 新增 create/get/advance/pause/resume/cancel 六个 MCP 工具与契约测试。
 - [x] 每个 task step 生成 operationId，并持久化 running/succeeded/failed timeline 事件。
+- [x] 只读 `task_timeline` 支持按 stepId、operationId、事件类型和时间范围筛选执行证据。
+- [x] 重启接管时把遗留 running operation 标为 step_interrupted，再以新 operationId 重试；同一 coordinator 并发 advance 返回 PROJECT_BUSY。
 - [x] 真实 MCP + Godot 4.7.2 验收通过：UndoRedo apply、fixture 运行诊断、pause/resume/cancel 状态机与重启后磁盘恢复。
 
 ## Phase 12 — 运行指定场景
@@ -178,19 +182,20 @@
 
 ## Phase 13 — Godot headless CI
 
-状态：in_progress
+状态：complete
 
 - [x] 增加固定 Godot 4.7.2 的 GitHub Actions runtime job 和临时 fixture smoke harness。
 - [x] smoke 覆盖 search、context、scene apply/rollback、script apply/rollback、diagnostics 和 operation history。
 - [x] smoke 额外覆盖输入动作的 ProjectSettings 持久化 apply/rollback；Linux runtime 使用 `xvfb-run` 为运行中的场景子进程提供显示服务。
-- [ ] 在远程 GitHub Actions 首次运行并确认 Linux headless 环境通过。
+- [x] 在远程 GitHub Actions run `36741526625` 确认 Linux headless fixture、Godot smoke 和日志 artifact 均通过。
+- [x] Godot 4.5.1/4.7.2 Linux smoke 与独立日志 artifact 均通过；远程 Actions run `36802723876` 的 check 和两个 Godot runtime jobs 全绿。
 
 ## Phase 14 — 更多安全 Godot 操作
 
-状态：in_progress
+状态：complete
 
 - [x] 增加受限 scene.set_property，覆盖 visible、position、size、text、color，并通过 UndoRedo apply/rollback smoke。
-- [x] 增加输入动作的 preview/apply/rollback，使用 project.godot revision guard、重复键校验和回滚验证。
+- [x] 增加输入动作按键添加/移除的 preview/apply/rollback，使用 project.godot revision guard、重复/歧义键校验和回滚验证。
 - [x] 增加资源引用 snapshot/preview diff、revision guard、原子 apply 和 rollback。
 - [x] 增加挂载已有脚本的 preview/apply/rollback。
 

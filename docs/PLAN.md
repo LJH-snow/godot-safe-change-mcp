@@ -185,9 +185,11 @@ npm run build
 
 2026-09-30 已增加项目级短租约：apply/rollback 自动获取用户状态目录中的原子 lease，支持 owner/过期校验，并在并发窗口写入时返回 PROJECT_BUSY。
 
-2026-09-30 已完成 task-level lease heartbeat：任务持有 lease 期间按 TTL/3 自动续租，续租失败会停止 heartbeat 并标记任务可恢复；timeline 记录 lease_acquired、lease_renewed、lease_released 和 lease_reclaimed。
+2026-10-01 已完成 task lease 恢复加固：heartbeat 续租失败会停止 heartbeat、记录 `lease_renew_failed` 并自动暂停任务；原 owner 若 lease 仍有效，可恢复同一 lease 并记录 `lease_recovered`。接管 timeline 保存前任 owner、新 owner 和 `lease_expired` / `lease_missing` / `lease_replaced` 原因；步骤执行期间续租失败时，完成或失败回包不会覆盖 paused 状态。
 
-2026-09-30 已增加 Godot headless CI smoke：固定 Godot 4.7.2，覆盖 search、context、scene/script/input action apply/rollback、diagnostics 和 operation_history；本地 smoke 已通过，Linux workflow 增加 `xvfb-run`，远程 Actions 修复后的首次运行待确认。
+2026-10-01 task 恢复审计进一步覆盖崩溃遗留的 running step：重新执行前写入 `step_interrupted`，保留旧 operationId 并以新 operationId 重试；同一 coordinator 的重复 advance 返回 `PROJECT_BUSY`。
+
+2026-10-01 已完成 Godot headless CI 矩阵：Godot 4.5.1 和 4.7.2 均覆盖 search、context、scene/property/script/resource/input apply/rollback、diagnostics 和 operation_history；Linux workflow 使用 `xvfb-run`、阶段日志、硬超时和按版本隔离的 smoke artifact。远程 Actions run `36802723876` 全绿。
 
 2026-09-30 已增加受限 scene.set_property：visible、position、size、text、color 通过白名单和 UndoRedo apply/rollback，真实 Godot smoke 已通过。
 
@@ -197,7 +199,11 @@ npm run build
 
 2026-09-30 已完成受限 `project.input_action.add_key`：只允许安全 action 名和 physical keycode，preview 读取 project.godot revision，apply 通过 ProjectSettings.save 持久化，rollback 校验 revision 后恢复原 action 设置；真实 Godot 4.7.2 smoke 已通过。
 
+2026-10-01 已增加 `project.input_action.remove_key`：只移除唯一匹配的物理按键，不删除 action；重复匹配会拒绝，apply/rollback 使用 project.godot revision guard 并恢复完整原始 action 设置；真实 Godot 4.7.2 smoke 已通过。
+
 2026-09-30 已增强 task timeline：每个 task step 持有独立 operationId，running/succeeded/failed 事件随 TaskState 持久化，task_status 可恢复查询。
+
+2026-09-30 已增加只读 `task_timeline` 工具：支持按 `stepId`、`operationId`、事件类型、ISO `from/to` 时间范围和 `limit` 过滤，并返回 `total`、`returned`、`truncated`。
 
 2026-09-30 已完成第五阶段的多步骤开发任务：create_task 把受限 apply、rollback、run 步骤组成一个任务，状态持久化在项目内 `.godot-safe-change/tasks/`；advance 逐步执行并复用既有确认、revision 守卫和审计；支持暂停、继续、取消、每步最多 3 次的失败重试，以及服务器重启后的任务恢复。真实 Godot 4.7.2 端到端验收通过。
 

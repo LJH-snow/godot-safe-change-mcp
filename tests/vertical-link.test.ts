@@ -74,6 +74,7 @@ class FakeGodotBridge implements GodotBridge {
     deadzone: null,
     events: [],
   };
+  inputActionBeforeApplySnapshot: InputActionSnapshot | null = null;
   runCalls = 0;
   runDiagnosticsResult: RunDiagnostics = {
     schemaVersion: "0.2",
@@ -92,14 +93,28 @@ class FakeGodotBridge implements GodotBridge {
   async applyChange(_projectRoot: string, request: ApplyChangeRequest): Promise<ChangeReport> {
     this.applied.push(request);
     this.context = createContext("revision-2");
-    const isInputAction = request.operations[0]?.kind === "project.input_action.add_key";
-    if (isInputAction) {
+    const inputOperation = request.operations[0];
+    const isInputAction =
+      inputOperation?.kind === "project.input_action.add_key" ||
+      inputOperation?.kind === "project.input_action.remove_key";
+    if (isInputAction && inputOperation !== undefined) {
+      this.inputActionBeforeApplySnapshot = structuredClone(this.inputActionSnapshot);
+      const events =
+        inputOperation.kind === "project.input_action.add_key"
+          ? [
+              ...this.inputActionSnapshot.events,
+              { type: "InputEventKey", physicalKeycode: inputOperation.physicalKeycode, keycode: 0 },
+            ]
+          : this.inputActionSnapshot.events.filter(
+              (event) => event.physicalKeycode !== inputOperation.physicalKeycode,
+            );
       this.inputActionSnapshot = {
         ...this.inputActionSnapshot,
         revision: "input-revision-2",
-        exists: true,
-        deadzone: 0.2,
-        events: [{ type: "InputEventKey", physicalKeycode: 32, keycode: 0 }],
+        events,
+        ...(inputOperation.kind === "project.input_action.add_key"
+          ? { exists: true, deadzone: inputOperation.deadzone ?? this.inputActionSnapshot.deadzone ?? 0.2 }
+          : {}),
       };
     }
     return {
@@ -133,13 +148,10 @@ class FakeGodotBridge implements GodotBridge {
     this.rolledBack.push(request);
     this.context = createContext("revision-3");
     const isInputAction = request.expectedFileRevision === "input-revision-2";
-    if (isInputAction) {
+    if (isInputAction && this.inputActionBeforeApplySnapshot !== null) {
       this.inputActionSnapshot = {
-        ...this.inputActionSnapshot,
+        ...this.inputActionBeforeApplySnapshot,
         revision: "input-revision-3",
-        exists: false,
-        deadzone: null,
-        events: [],
       };
     }
     return {
@@ -642,6 +654,79 @@ describe("ChangeCoordinator", () => {
     assert.equal(rolledBack.status, "rolled_back");
     assert.equal(bridge.rolledBack[0]?.expectedFileRevision, "input-revision-2");
   });
+
+  test("previews, applies and rolls back removing one existing input action key", async () => {
+    const bridge = new FakeGodotBridge();
+    bridge.inputActionSnapshot = {
+      actionName: "jump",
+      revision: "input-revision-before-remove",
+      exists: true,
+      deadzone: 0.35,
+      events: [{ type: "InputEventKey", physicalKeycode: 32, keycode: 0 }],
+    };
+    const coordinator = new ChangeCoordinator(bridge);
+    const plan = await coordinator.previewSceneChange({
+      projectRoot,
+      reason: "Remove the obsolete jump binding.",
+      operation: {
+        kind: "project.input_action.remove_key",
+        actionName: "jump",
+        physicalKeycode: 32,
+      },
+    });
+
+    assert.equal(plan.expectedFileRevision, "input-revision-before-remove");
+    assert.equal(plan.diff[0]?.kind, "project.input_action.remove_key");
+    assert.match(plan.diff[0]?.summary ?? "", /Remove physical key 32/);
+    await coordinator.confirmChange({ projectRoot, planId: plan.planId, expectedRevision: plan.expectedRevision });
+
+    const applied = await coordinator.applyChange({ projectRoot, planId: plan.planId });
+    assert.equal(applied.status, "applied");
+    assert.deepEqual(bridge.inputActionSnapshot.events, []);
+    assert.equal(bridge.inputActionSnapshot.exists, true);
+
+    const rolledBack = await coordinator.rollbackChange({ projectRoot, planId: plan.planId });
+    assert.equal(rolledBack.status, "rolled_back");
+    assert.deepEqual(bridge.inputActionSnapshot.events, [
+      { type: "InputEventKey", physicalKeycode: 32, keycode: 0 },
+    ]);
+    assert.equal(bridge.inputActionSnapshot.deadzone, 0.35);
+  });
+
+  test("rejects missing and ambiguous input action key removals", async () => {
+    const bridge = new FakeGodotBridge();
+    const coordinator = new ChangeCoordinator(bridge);
+    const input = {
+      projectRoot,
+      reason: "Remove one explicitly selected physical key.",
+      operation: {
+        kind: "project.input_action.remove_key" as const,
+        actionName: "jump",
+        physicalKeycode: 32,
+      },
+    };
+
+    await assert.rejects(
+      () => coordinator.previewSceneChange(input),
+      (error: unknown) => error instanceof DomainError && error.code === ERROR_CODES.VALIDATION_FAILED,
+    );
+
+    bridge.inputActionSnapshot = {
+      actionName: "jump",
+      revision: "duplicate-input-revision",
+      exists: true,
+      deadzone: 0.2,
+      events: [
+        { type: "InputEventKey", physicalKeycode: 32, keycode: 0 },
+        { type: "InputEventKey", physicalKeycode: 32, keycode: 0 },
+      ],
+    };
+    await assert.rejects(
+      () => coordinator.previewSceneChange(input),
+      (error: unknown) => error instanceof DomainError && error.code === ERROR_CODES.OPERATION_REJECTED,
+    );
+    assert.equal(bridge.applied.length, 0);
+  });
 });
 
 test("normalizes a symlinked project root before bridge requests", async () => {
@@ -932,5 +1017,6 @@ test("the Godot plugin exposes only the bounded vertical-link routes", async () 
   assert.match(source, /scene\.set_property/);
   assert.match(source, /add_do_property/);
   assert.match(source, /scene\.attach_script/);
+  assert.match(source, /project\.input_action\.remove_key/);
   assert.match(source, /_is_safe_scene_path/);
 });

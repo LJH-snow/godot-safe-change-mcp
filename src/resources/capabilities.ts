@@ -33,6 +33,7 @@ const capabilities = {
     "create_task",
     "get_task",
     "task_status",
+    "task_timeline",
     "advance_task",
     "acquire_task_lease",
     "renew_task_lease",

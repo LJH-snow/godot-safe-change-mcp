@@ -210,6 +210,31 @@ export class ChangeCoordinator {
           deadzone +
           ")",
       };
+    } else if (operation.kind === "project.input_action.remove_key") {
+      const snapshot = await this.bridge.readInputAction(projectRoot, operation.actionName);
+      const matchCount = snapshot.events.filter(
+        (event) => event.type === "InputEventKey" && event.physicalKeycode === operation.physicalKeycode,
+      ).length;
+      if (!snapshot.exists || matchCount === 0) {
+        throw new DomainError(
+          ERROR_CODES.VALIDATION_FAILED,
+          "The requested physical key is not mapped to this input action.",
+          { actionName: operation.actionName, physicalKeycode: operation.physicalKeycode },
+        );
+      }
+      if (matchCount !== 1) {
+        throw new DomainError(
+          ERROR_CODES.OPERATION_REJECTED,
+          "The input action contains duplicate matching key events; refusing an ambiguous removal.",
+          { actionName: operation.actionName, physicalKeycode: operation.physicalKeycode, matchCount },
+        );
+      }
+      expectedFileRevision = snapshot.revision;
+      diff = {
+        kind: "project.input_action.remove_key" as const,
+        target: "project.godot:input/" + operation.actionName,
+        summary: "Remove physical key " + operation.physicalKeycode + " from input action " + operation.actionName,
+      };
     } else {
       const snapshot = await this.bridge.readScript(projectRoot, operation.scriptPath);
       const lines = snapshot.content.split("\n");
@@ -397,7 +422,8 @@ export class ChangeCoordinator {
       if (
         operation.kind !== "script.replace_range" &&
         operation.kind !== "resource.replace_reference" &&
-        operation.kind !== "project.input_action.add_key"
+        operation.kind !== "project.input_action.add_key" &&
+        operation.kind !== "project.input_action.remove_key"
       ) {
         throw new DomainError(
           ERROR_CODES.VALIDATION_FAILED,
@@ -552,7 +578,8 @@ export class ChangeCoordinator {
       if (
         operation.kind !== "script.replace_range" &&
         operation.kind !== "resource.replace_reference" &&
-        operation.kind !== "project.input_action.add_key"
+        operation.kind !== "project.input_action.add_key" &&
+        operation.kind !== "project.input_action.remove_key"
       ) {
         throw new DomainError(
           ERROR_CODES.VALIDATION_FAILED,

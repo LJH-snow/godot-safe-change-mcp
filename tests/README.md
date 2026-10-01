@@ -7,7 +7,7 @@ Automated coverage currently includes:
 - search index: read-only scene/script/resource/node matching, signal declarations, input actions, truncation and symlink safety;
 - operation audit: lifecycle operation IDs, inputs, outputs, revisions, failure evidence and JSONL restart recovery;
 - project lease: atomic owner acquisition, concurrent-owner rejection and expired-lease recovery;
-- task lease: acquire, renew, release, task status visibility and cross-window conflict handling;
+- task lease: acquire, renew, release, task status visibility, heartbeat, filtered task timeline and cross-window conflict handling;
 - diagnostics: source/line/NodePath association and preview generation from explicit repair hints;
 - script and resource changes: bounded .gd/resource replacement, temporary-file atomic apply, file revision guard, user-edit conflict and rollback;
 - scene changes: UndoRedo-backed create, property and script-attachment operations with rollback history/version/action guards;

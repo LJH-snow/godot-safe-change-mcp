@@ -6,7 +6,7 @@
 - `scene.attach_script`、`resource.replace_reference`、`project.input_action.add_key` 和 `script.replace_range` 均完成 preview → confirm → apply → rollback，并保留 scene/file/project-settings revision guard。
 - Godot 插件增加独立的第二道请求校验、active-plan guard、场景 fingerprint 属性/脚本状态和 UndoRedo history/version/action/label rollback guard；直接 loopback 非法请求由插件返回稳定错误码。
 - fixture/runtime smoke 已覆盖五种属性、scriptless attach、资源引用、输入动作、脚本替换、用户修改后的 revision conflict 和重复 rollback。
-- 当前验证基线为 `npm test` 57/57、typecheck、build、`git diff --check` 和本地 Godot 4.7.2 smoke；远程 GitHub Actions 的 Xvfb 修复后首次运行仍待确认。
+- 验证基线为 `npm test` 65/65、typecheck、build、`git diff --check` 和本地 Godot 4.7.2 smoke；远程 Godot 4.5.1/4.7.2 CI 矩阵 run `36802723876` 全绿。
 
 ## 2026-09-30 Godot CI smoke
 
@@ -43,8 +43,32 @@
 ## 2026-09-30 task lease heartbeat
 
 - TaskCoordinator 为显式和多步骤任务 lease 启动 TTL/3 heartbeat，自动调用 lease store renew 并持久化新的 expiresAt。
-- heartbeat 停止、续租失败和任务释放不会留下活动定时器；timeline 增加 lease_acquired、lease_renewed、lease_released、lease_reclaimed 事件。
-- 自动化回归通过：58/58 tests、typecheck、build。
+- heartbeat 停止、续租失败和任务释放不会留下活动定时器；timeline 增加 lease_acquired、lease_renewed、lease_renew_failed、lease_released、lease_reclaimed 事件。
+- 自动化回归通过：60/60 tests、typecheck、build。
+
+## 2026-10-01 task lease recovery
+
+- Heartbeat 续租失败自动将 active task 转为 paused，保留 recoverable=true，并记录 lease_renew_failed/paused 错误证据。
+- 修复同一 coordinator 持有的过期 lease 无法接管问题；reclaim 事件现在包含 previousOwnerId、ownerId 和 lease_expired、lease_missing 或 lease_replaced 原因。
+- lease 仍有效的 transient renew failure 可由原 owner resume；成功续租后记录 lease_recovered，并保留原 TTL heartbeat 周期。
+- 步骤执行期间 lease 失败时，后续步骤成功/失败处理保留 paused 状态；短 TTL 不会被 advance_task 重置为默认 heartbeat TTL。
+- 本地目标回归通过：63/63 tests；typecheck/build 正在进行本轮最终验证。
+
+## 2026-10-01 interrupted task step recovery
+
+- 进程重启接管后，遗留 running step 的旧 operationId 会产生 `step_interrupted` timeline 事件，再以新 ID 重试。
+- 同一 coordinator 并发推进同一 task 时稳定返回 `PROJECT_BUSY`，避免把仍在执行的步骤误判为 crash recovery。
+- `task_timeline` 可按旧 operationId 查询 running/interrupted 证据；定向回归通过。
+
+## 2026-09-30 task timeline query
+
+- 新增只读 `task_timeline` MCP 工具，支持 `stepId`、`operationId`、`eventTypes`、ISO `from/to` 和 `limit` 过滤。
+- 返回任务状态、过滤后事件、总数、返回数和截断标记；回归测试覆盖 lease 事件和时间范围。
+
+## 2026-10-01 task operation timeline filter
+
+- `task_timeline` 增加精确 `operationId` 过滤，可只取某一步的一次执行尝试及其 running/succeeded/failed 证据。
+- 回归测试用同一 task 的两个 step 验证 operationId 不会混合事件。
 
 ## 2026-09-30 input action persistence
 
@@ -52,11 +76,29 @@
 - `project.input_action.add_key` preview 读取并锁定 project settings revision，拒绝重复 physical key；apply 通过 `ProjectSettings.save()` 持久化，rollback 在 revision 未变化时恢复原 action 设置。
 - TypeScript 契约、HTTP bridge、Fake bridge 和真实 Godot 4.7.2 smoke 均覆盖 apply/rollback；当前 `npm test` 57/57、typecheck、build 通过。
 
+## 2026-10-01 input action removal
+
+- 新增受限 `project.input_action.remove_key`，只允许安全 action 名和 1..10000 的 physical keycode；缺失或重复匹配按键会拒绝。
+- Preview 锁定 `project.godot` revision；apply 从现有事件数组删除唯一 InputEventKey，rollback 恢复完整原始 action 和 deadzone。
+- 自动化与真实 Godot 4.7.2 smoke 覆盖 add/remove apply/rollback。
+
 ## 2026-09-30 Linux CI hardening
 
 - 复盘远程 run `36704166909`：Linux Godot 运行场景子进程时缺少 X11 display，导致 diagnostics warning 未返回。
 - smoke 显式使用 Godot `--display-driver headless` 与 `--audio-driver Dummy`；GitHub Actions 安装 `xvfb` 并通过 `xvfb-run` 启动 smoke。
-- 本地 Godot 4.7.2 smoke 已通过；修复后的远程 Actions 首次运行仍待提交到远程分支确认。
+- 本地 Godot 4.7.2 smoke 已通过；修复后的远程 Actions run `36741526625` 已通过。
+
+## 2026-09-30 Linux CI verification
+
+- GitHub Actions run `36741526625` 的 `check` 与 `godot-runtime` 均成功。
+- Godot runtime smoke 覆盖 search、context、scene/property/script/resource/input apply/rollback、diagnostics 和 operation history。
+- smoke 进程组清理、硬超时和 artifact 日志均已验证，远程 runner 不再被孤儿 Godot 进程长期占用。
+
+## 2026-10-01 Godot version matrix
+
+- CI 扩展为 Godot 4.5.1 与 4.7.2 双版本 smoke；artifact 名称包含版本和 run ID。
+- 修正 job 级 `GODOT_DIR` 不支持 `runner` context 的 workflow parse failure。
+- 远程 run `36802723876` 中 check、Godot 4.5.1 和 Godot 4.7.2 全部成功。
 
 ## 2026-09-30 project lease
 

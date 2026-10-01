@@ -23,9 +23,15 @@ jobs:
   godot-runtime:
     needs: check
     runs-on: ubuntu-latest
+    name: Godot ${{ matrix.godot-version }} runtime
+    strategy:
+      fail-fast: false
+      matrix:
+        godot-version: ["4.5.1", "4.7.2"]
+    timeout-minutes: 8
     env:
-      GODOT_VERSION: "4.7.2"
-      GODOT_DIR: "/tmp/godot"
+      GODOT_VERSION: ${{ matrix.godot-version }}
+      GODOT_DIR: /tmp/godot-${{ matrix.godot-version }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -47,4 +53,17 @@ jobs:
       - name: Install virtual display
         run: sudo apt-get update && sudo apt-get install --yes xvfb
       - name: Run Godot runtime smoke
-        run: xvfb-run --auto-servernum --server-args="-screen 0 1280x720x24" node tests/godot-runtime-smoke.mjs
+        timeout-minutes: 3
+        shell: bash
+        run: |
+          set -o pipefail
+          timeout --signal=TERM --kill-after=15s 150s \
+            xvfb-run --auto-servernum --server-args="-screen 0 1280x720x24" \
+            node tests/godot-runtime-smoke.mjs 2>&1 | tee "$RUNNER_TEMP/godot-runtime-smoke.log"
+      - name: Upload Godot runtime smoke log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: godot-runtime-smoke-${{ matrix.godot-version }}-${{ github.run_id }}
+          path: ${{ runner.temp }}/godot-runtime-smoke.log
+          if-no-files-found: warn

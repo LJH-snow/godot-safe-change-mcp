@@ -14,10 +14,10 @@ The first safe vertical workflow is now fully connected:
 - editor_context: read the current project, scene, selected nodes, open resources, run state and diagnostics.
 - search_project: unified read-only project search covering scenes, nodes, scripts, resources, signal connections and input actions. Scene, node, script and resource results come from the connected Godot editor when available (live state of the edited scene) and fall back to a local read-only index otherwise; signal and input results always come from the local index. Every result is tagged with its `source`.
 - find_references: reverse reference lookup answering "which scenes, resources or scripts reference this script, texture or resource". It scans scene/resource ext_resource entries and GDScript `preload()` / `load()` calls, matches by res:// path or uid:// identifier, and resolves uid-only references where Godot 4.4+ omits the path (purely local and read-only).
-- preview_scene_change: produce a plan and diff for restricted scene.create_node, scene.set_property, scene.attach_script, resource.replace_reference, project.input_action.add_key or script.replace_range operations.
+- preview_scene_change: produce a plan and diff for restricted scene.create_node, scene.set_property, scene.attach_script, resource.replace_reference, project.input_action.add_key/remove_key or script.replace_range operations.
 - scene.set_property: allow only visible, position, size, text and color with node-type checks, exact object keys, finite numeric ranges and a current property snapshot.
 - scene.attach_script: attach only an existing project-local `.gd` script to a node in the current scene; it never executes or edits the script.
-- resource.replace_reference / project.input_action.add_key: use file or project.godot revision guards, bounded writes and safe rollback.
+- resource.replace_reference / project.input_action.add_key/remove_key: use file or project.godot revision guards, bounded writes and safe rollback; key removal requires exactly one matching InputEventKey.
 - confirm_scene_change: check the expected revision and confirm the plan.
 - apply_scene_change: hand only a confirmed, non-expired plan to Godot UndoRedo or its bounded file/settings path; only one applied plan is allowed per project.
 - rollback_scene_change: roll back only an applied plan whose scene, file or UndoRedo history revision is still current.
@@ -86,3 +86,4 @@ When no Godot editor is connected, MCP tools return a stable EDITOR_UNAVAILABLE 
 - Run diagnostics return only plugin-collected output, warnings, errors and run state.
 
 See docs/PLAN.md for the full product plan, and tests/README.md for test boundaries and manual Godot acceptance steps.
+- `task_timeline`: read the task's complete timeline with optional step ID, operation ID, event-type, and ISO time-range filters.

@@ -29,6 +29,10 @@ function capture(processHandle, target) {
   });
 }
 
+function stage(label) {
+  console.log(`[godot-smoke] ${label}`);
+}
+
 function waitForExit(processHandle) {
   if (processHandle.exitCode !== null) {
     return Promise.resolve();
@@ -40,12 +44,23 @@ function waitFor(milliseconds) {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
+function signalProcess(processHandle, signal) {
+  if (process.platform !== "win32" && processHandle.pid !== undefined) {
+    try {
+      process.kill(-processHandle.pid, signal);
+      return;
+    } catch {
+    }
+  }
+  processHandle.kill(signal);
+}
+
 async function stopProcess(processHandle) {
   if (processHandle === undefined || processHandle.exitCode !== null) {
     return;
   }
   const termination = waitForExit(processHandle);
-  processHandle.kill("SIGTERM");
+  signalProcess(processHandle, "SIGTERM");
   const exited = await Promise.race([
     termination.then(() => true),
     waitFor(3000).then(() => false),
@@ -54,7 +69,7 @@ async function stopProcess(processHandle) {
     return;
   }
   if (processHandle.exitCode === null) {
-    processHandle.kill("SIGKILL");
+    signalProcess(processHandle, "SIGKILL");
     await Promise.race([waitForExit(processHandle), waitFor(3000)]);
   }
 }
@@ -193,6 +208,7 @@ async function waitForEditor(projectRoot, godotOutputRef) {
 }
 
 try {
+  stage("prepare fixture");
   await cp(path.join(repositoryRoot, "tests/godot-fixture"), fixtureRoot, {
     recursive: true,
     force: true,
@@ -219,19 +235,23 @@ try {
       "res://main.tscn",
     ],
     {
-    cwd: fixtureRoot,
-    stdio: ["ignore", "pipe", "pipe"],
+      cwd: fixtureRoot,
+      stdio: ["ignore", "pipe", "pipe"],
+      detached: process.platform !== "win32",
     },
   );
   capture(godotProcess, godotOutputRef);
+  stage("wait for editor bridge");
   mcpProcess = spawn(process.platform === "win32" ? "npm.cmd" : "npm", ["run", "dev", "--", "--no-open", "--host", "127.0.0.1", "--port", "3100"], {
     cwd: repositoryRoot,
     stdio: ["ignore", "pipe", "pipe"],
+    detached: process.platform !== "win32",
   });
   capture(mcpProcess, mcpOutputRef);
   const context = await waitForEditor(fixtureRoot, godotOutputRef);
   assert.equal(context.connection, "connected");
   assert.ok(context.currentScene.nodes.length > 0);
+  stage("validate direct plugin input");
 
   const directInvalidChange = await bridgeRequest("/v1/changes/apply", {
     projectRoot: context.projectRoot,
@@ -253,6 +273,7 @@ try {
     arguments: { projectRoot: fixtureRoot, query: "Main", kinds: ["node"] },
   }));
   assert.ok(nodeSearch.results.some((result) => result.nodePath === "."));
+  stage("search complete");
 
   const scriptSearch = structured(await request("tools/call", {
     name: "search_project",
@@ -282,12 +303,14 @@ try {
     arguments: { projectRoot: fixtureRoot, planId: scenePlan.planId },
   }));
   assert.equal(sceneRollback.status, "rolled_back");
+  stage("scene create rollback complete");
 
   await roundTripSceneProperty(fixtureRoot, ".", "visible", false);
   await roundTripSceneProperty(fixtureRoot, ".", "position", { x: 12, y: 8 });
   await roundTripSceneProperty(fixtureRoot, "Canvas", "size", { x: 400, y: 220 });
   await roundTripSceneProperty(fixtureRoot, "Canvas/Title", "text", "Updated fixture title");
   await roundTripSceneProperty(fixtureRoot, "Canvas/ColorPanel", "color", { r: 0.8, g: 0.1, b: 0.3, a: 0.75 });
+  stage("property round trips complete");
 
   await expectToolError("preview_scene_change", {
     projectRoot: fixtureRoot,
@@ -344,6 +367,7 @@ try {
   }));
   assert.equal(resourceRollback.status, "rolled_back");
   assert.equal(await readFile(resourceFile, "utf8"), originalResource);
+  stage("resource rollback complete");
 
   const projectSettingsFile = path.join(fixtureRoot, "project.godot");
   const inputPlan = structured(await request("tools/call", {
@@ -374,6 +398,52 @@ try {
   assert.equal(inputRollback.status, "rolled_back");
   const restoredProjectSettings = await readFile(projectSettingsFile, "utf8");
   assert.doesNotMatch(restoredProjectSettings, /\njump=\{/);
+  stage("input action rollback complete");
+
+  const removalBefore = await bridgeRequest("/v1/input-actions/read", {
+    projectRoot: context.projectRoot,
+    actionName: "remove_binding",
+  });
+  assert.equal(removalBefore.body.ok, true, JSON.stringify(removalBefore.body));
+  assert.equal(removalBefore.body.snapshot.exists, true);
+  assert.deepEqual(removalBefore.body.snapshot.events.map((event) => event.physicalKeycode), [74]);
+  const removeKeyPlan = structured(await request("tools/call", {
+    name: "preview_scene_change",
+    arguments: {
+      projectRoot: fixtureRoot,
+      reason: "CI input action remove and rollback smoke test.",
+      operation: { kind: "project.input_action.remove_key", actionName: "remove_binding", physicalKeycode: 74 },
+    },
+  }));
+  assert.ok(removeKeyPlan.expectedFileRevision);
+  structured(await request("tools/call", {
+    name: "confirm_scene_change",
+    arguments: { projectRoot: fixtureRoot, planId: removeKeyPlan.planId, expectedRevision: removeKeyPlan.expectedRevision },
+  }));
+  const removeKeyApply = structured(await request("tools/call", {
+    name: "apply_scene_change",
+    arguments: { projectRoot: fixtureRoot, planId: removeKeyPlan.planId },
+  }));
+  assert.equal(removeKeyApply.status, "applied");
+  const removalAfter = await bridgeRequest("/v1/input-actions/read", {
+    projectRoot: context.projectRoot,
+    actionName: "remove_binding",
+  });
+  assert.equal(removalAfter.body.snapshot.exists, true);
+  assert.deepEqual(removalAfter.body.snapshot.events, []);
+  assert.equal(removalAfter.body.snapshot.deadzone, 0.35);
+  const removeKeyRollback = structured(await request("tools/call", {
+    name: "rollback_scene_change",
+    arguments: { projectRoot: fixtureRoot, planId: removeKeyPlan.planId },
+  }));
+  assert.equal(removeKeyRollback.status, "rolled_back");
+  const removalRestored = await bridgeRequest("/v1/input-actions/read", {
+    projectRoot: context.projectRoot,
+    actionName: "remove_binding",
+  });
+  assert.deepEqual(removalRestored.body.snapshot.events.map((event) => event.physicalKeycode), [74]);
+  assert.equal(removalRestored.body.snapshot.deadzone, 0.35);
+  stage("input action removal rollback complete");
 
   const attachBefore = await readEditorContext(fixtureRoot);
   assert.equal(sceneNode(attachBefore, "Scriptless")?.properties.scriptPath, null);
@@ -406,6 +476,7 @@ try {
     projectRoot: fixtureRoot,
     planId: attachPlan.planId,
   }, /PLAN_NOT_APPLIED|PLAN_ALREADY_ROLLED_BACK/);
+  stage("script attach rollback complete");
 
   const scriptPlan = structured(await request("tools/call", {
     name: "preview_scene_change",
@@ -431,6 +502,7 @@ try {
   }));
   assert.equal(scriptRollback.status, "rolled_back");
   assert.equal(await readFile(scriptPath, "utf8"), originalScript);
+  stage("script rollback complete");
 
   const diagnostics = structured(await request("tools/call", {
     name: "run_scene",
@@ -445,6 +517,7 @@ try {
     arguments: { projectRoot: fixtureRoot, limit: 50 },
   }));
   assert.ok(history.operations.length >= 9);
+  stage("operation history complete");
   console.log("Godot runtime smoke passed");
 } catch (error) {
   console.error("Godot output:\n" + godotOutputRef.value);
