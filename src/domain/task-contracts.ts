@@ -1,5 +1,6 @@
 import { z } from "zod";
-import { nodePathSchema, scenePropertyAssertionSchema } from "./change-contracts.js";
+import { changePlanSchema, nodePathSchema, scenePropertyAssertionSchema } from "./change-contracts.js";
+import { diagnosticEntrySchema, diagnosticRepairHintSchema } from "./contracts.js";
 
 export const taskIdSchema = z
   .string()
@@ -79,6 +80,39 @@ export const verifyDiagnosticsStepDeclSchema = z
   })
   .strict();
 
+export const previewDiagnosticRepairStepDeclSchema = z
+  .object({
+    kind: z.literal("preview_diagnostic_repair"),
+    stepId: taskStepIdSchema,
+    runStepId: taskStepIdSchema,
+    diagnosticKind: z.enum(["error", "warning"]),
+    diagnosticIndex: z.number().int().min(0).max(1000),
+    repairHint: diagnosticRepairHintSchema.optional(),
+    note: taskStepNoteSchema.optional(),
+  })
+  .strict();
+
+export const applyDiagnosticRepairStepDeclSchema = z
+  .object({
+    kind: z.literal("apply_diagnostic_repair"),
+    stepId: taskStepIdSchema,
+    previewStepId: taskStepIdSchema,
+    note: taskStepNoteSchema.optional(),
+  })
+  .strict();
+
+export const diagnosticRepairPreviewResultSchema = z
+  .object({
+    runStepId: taskStepIdSchema,
+    runId: z.string().min(1),
+    diagnosticKind: z.enum(["error", "warning"]),
+    diagnosticIndex: z.number().int().min(0).max(1000),
+    diagnostic: diagnosticEntrySchema,
+    repairHint: diagnosticRepairHintSchema,
+    plan: changePlanSchema,
+  })
+  .strict();
+
 export const taskStepDeclSchema = z.discriminatedUnion("kind", [
   runSceneStepDeclSchema,
   runCurrentSceneStepDeclSchema,
@@ -86,6 +120,8 @@ export const taskStepDeclSchema = z.discriminatedUnion("kind", [
   rollbackPlanStepDeclSchema,
   verifySceneStateStepDeclSchema,
   verifyDiagnosticsStepDeclSchema,
+  previewDiagnosticRepairStepDeclSchema,
+  applyDiagnosticRepairStepDeclSchema,
 ]);
 
 export const taskStatusSchema = z.enum([
@@ -176,24 +212,38 @@ export const createTaskInputSchema = z
     steps: z.array(taskStepDeclSchema).min(1).max(20),
   })
   .superRefine((input, context) => {
-    input.steps.forEach((step, index) => {
-      if (step.kind !== "verify_diagnostics") {
-        return;
-      }
-      const runStepMatches = input.steps
+    const findUniqueEarlierStep = (stepId: string, beforeIndex: number) => {
+      const matches = input.steps
         .map((candidate, candidateIndex) => ({ candidate, candidateIndex }))
-        .filter(({ candidate }) => candidate.stepId === step.runStepId);
-      const runStepMatch = runStepMatches[0];
-      if (
-        runStepMatches.length !== 1 ||
-        runStepMatch === undefined ||
-        runStepMatch.candidateIndex >= index ||
-        (runStepMatch.candidate.kind !== "run_current_scene" && runStepMatch.candidate.kind !== "run_scene")
-      ) {
+        .filter(({ candidate }) => candidate.stepId === stepId);
+      const match = matches[0];
+      if (matches.length !== 1 || match === undefined || match.candidateIndex >= beforeIndex) {
+        return undefined;
+      }
+      return match.candidate;
+    };
+    input.steps.forEach((step, index) => {
+      if (step.kind === "verify_diagnostics" || step.kind === "preview_diagnostic_repair") {
+        const runStep = findUniqueEarlierStep(step.runStepId, index);
+        if (runStep?.kind === "run_current_scene" || runStep?.kind === "run_scene") {
+          return;
+        }
         context.addIssue({
           code: z.ZodIssueCode.custom,
           path: ["steps", index, "runStepId"],
           message: "runStepId must uniquely reference an earlier run_current_scene or run_scene step.",
+        });
+        return;
+      }
+      if (step.kind === "apply_diagnostic_repair") {
+        const previewStep = findUniqueEarlierStep(step.previewStepId, index);
+        if (previewStep?.kind === "preview_diagnostic_repair") {
+          return;
+        }
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["steps", index, "previewStepId"],
+          message: "previewStepId must uniquely reference an earlier preview_diagnostic_repair step.",
         });
       }
     });
@@ -219,7 +269,7 @@ export const acquireTaskLeaseInputSchema = z.object({
 
 export const taskStepStateSchema = z.object({
   stepId: taskStepIdSchema,
-  kind: z.enum(["run_current_scene", "run_scene", "apply_plan", "rollback_plan", "verify_scene_state", "verify_diagnostics"]),
+  kind: z.enum(["run_current_scene", "run_scene", "apply_plan", "rollback_plan", "verify_scene_state", "verify_diagnostics", "preview_diagnostic_repair", "apply_diagnostic_repair"]),
   planId: z.string().nullable(),
   scenePath: z.string().nullable().default(null),
   nodePath: z.string().nullable().default(null),
@@ -227,6 +277,10 @@ export const taskStepStateSchema = z.object({
   runStepId: taskStepIdSchema.nullable().default(null),
   maxErrors: z.number().int().min(0).max(1000).default(0),
   maxWarnings: z.number().int().min(0).max(1000).default(0),
+  diagnosticKind: z.enum(["error", "warning"]).nullable().default(null),
+  diagnosticIndex: z.number().int().min(0).max(1000).nullable().default(null),
+  repairHint: diagnosticRepairHintSchema.nullable().default(null),
+  previewStepId: taskStepIdSchema.nullable().default(null),
   timeoutMs: z.number().int().min(100).max(30000).nullable().default(null),
   expectedRevision: z.string().nullable(),
   status: taskStepStatusSchema,
@@ -273,7 +327,10 @@ export const taskTimelineReportSchema = z.object({
 export type TaskStepDecl = z.infer<typeof taskStepDeclSchema>;
 export type VerifySceneStateStepDecl = z.infer<typeof verifySceneStateStepDeclSchema>;
 export type VerifyDiagnosticsStepDecl = z.infer<typeof verifyDiagnosticsStepDeclSchema>;
+export type PreviewDiagnosticRepairStepDecl = z.infer<typeof previewDiagnosticRepairStepDeclSchema>;
+export type ApplyDiagnosticRepairStepDecl = z.infer<typeof applyDiagnosticRepairStepDeclSchema>;
 export type ScenePropertyAssertion = z.infer<typeof scenePropertyAssertionSchema>;
+export type DiagnosticRepairPreviewResult = z.infer<typeof diagnosticRepairPreviewResultSchema>;
 export type TaskStatus = z.infer<typeof taskStatusSchema>;
 export type TaskStepStatus = z.infer<typeof taskStepStatusSchema>;
 export type TaskStepState = z.infer<typeof taskStepStateSchema>;

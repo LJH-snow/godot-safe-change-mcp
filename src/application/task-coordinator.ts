@@ -6,7 +6,9 @@ import {
   taskIdInputSchema,
   taskLeaseInputSchema,
   taskTimelineInputSchema,
+  diagnosticRepairPreviewResultSchema,
   type AcquireTaskLeaseInput,
+  type DiagnosticRepairPreviewResult,
   type CreateTaskInput,
   type TaskIdInput,
   type TaskState,
@@ -278,12 +280,24 @@ export class TaskCoordinator {
       return structuredClone(task);
     }
 
-    if (!this.isTaskPausedForRecovery(task.taskId)) {
-      task.status = "active";
+    const pausedForRecovery = this.isTaskPausedForRecovery(task.taskId);
+    const pausedForRepairReview = step.kind === "preview_diagnostic_repair" && !pausedForRecovery;
+    if (!pausedForRecovery) {
+      task.status = pausedForRepairReview ? "paused" : "active";
     }
     const next = this.findNextStep(task);
     task.nextStepId = next?.stepId ?? null;
-    if (next === undefined && !this.isTaskPausedForRecovery(task.taskId)) {
+    if (pausedForRepairReview) {
+      task.updatedAt = new Date().toISOString();
+      this.appendTimeline(task, {
+        stepId: step.stepId,
+        operationId: step.operationId,
+        status: "paused",
+        at: task.updatedAt,
+        result: { reason: "diagnostic_repair_review_required" },
+      });
+    }
+    if (next === undefined && !pausedForRecovery && !pausedForRepairReview) {
       task.status = "completed";
     }
     task.updatedAt = new Date().toISOString();
@@ -418,6 +432,12 @@ export class TaskCoordinator {
     step: TaskStepState,
   ): Promise<unknown> {
     const projectRoot = task.projectRoot;
+    if (step.kind === "preview_diagnostic_repair") {
+      return this.previewDiagnosticRepair(task, step);
+    }
+    if (step.kind === "apply_diagnostic_repair") {
+      return this.applyDiagnosticRepair(task, step);
+    }
     if (step.kind === "verify_diagnostics") {
       return this.verifyDiagnostics(task, step);
     }
@@ -475,6 +495,141 @@ export class TaskCoordinator {
       planId: step.planId,
       leaseId: this.taskLeases.get(task.taskId)?.leaseId,
     });
+  }
+
+  private findUniqueEarlierStep(
+    task: TaskState,
+    referenceStepId: string | null,
+    consumingStep: TaskStepState,
+  ): TaskStepState | undefined {
+    if (referenceStepId === null) {
+      return undefined;
+    }
+    const matches = task.steps
+      .map((candidate, index) => ({ candidate, index }))
+      .filter(({ candidate }) => candidate.stepId === referenceStepId);
+    const match = matches[0];
+    if (matches.length !== 1 || match === undefined || match.index >= task.steps.indexOf(consumingStep)) {
+      return undefined;
+    }
+    return match.candidate;
+  }
+
+  private async previewDiagnosticRepair(
+    task: TaskState,
+    step: TaskStepState,
+  ): Promise<DiagnosticRepairPreviewResult> {
+    const runStep = this.findUniqueEarlierStep(task, step.runStepId, step);
+    if (
+      runStep === undefined ||
+      (runStep.kind !== "run_current_scene" && runStep.kind !== "run_scene")
+    ) {
+      throw new DomainError(
+        ERROR_CODES.TASK_VERIFICATION_FAILED,
+        "The preview_diagnostic_repair step must reference an earlier run step.",
+        { runStepId: step.runStepId, stepId: step.stepId },
+      );
+    }
+    if (runStep.status !== "succeeded") {
+      throw new DomainError(
+        ERROR_CODES.TASK_VERIFICATION_FAILED,
+        "The referenced run step did not complete successfully.",
+        { runStepId: runStep.stepId, runStepStatus: runStep.status },
+      );
+    }
+    const parsedDiagnostics = runDiagnosticsSchema.safeParse(runStep.result);
+    if (!parsedDiagnostics.success) {
+      throw new DomainError(
+        ERROR_CODES.TASK_VERIFICATION_FAILED,
+        "The referenced run step did not contain valid diagnostics.",
+        { runStepId: runStep.stepId, reason: "invalid_run_diagnostics" },
+      );
+    }
+    if (step.diagnosticKind === null || step.diagnosticIndex === null) {
+      throw new DomainError(
+        ERROR_CODES.TASK_VERIFICATION_FAILED,
+        "The diagnostic kind and index are required for a repair preview.",
+        { runStepId: runStep.stepId, stepId: step.stepId },
+      );
+    }
+
+    const diagnostics = parsedDiagnostics.data;
+    const entries = step.diagnosticKind === "error" ? diagnostics.errors : diagnostics.warnings;
+    const diagnostic = entries[step.diagnosticIndex];
+    if (diagnostic === undefined) {
+      throw new DomainError(
+        ERROR_CODES.TASK_VERIFICATION_FAILED,
+        "The selected diagnostic does not exist in the referenced run.",
+        {
+          runStepId: runStep.stepId,
+          runId: diagnostics.runId,
+          diagnosticKind: step.diagnosticKind,
+          diagnosticIndex: step.diagnosticIndex,
+          availableCount: entries.length,
+        },
+      );
+    }
+    const repairHint = step.repairHint ?? diagnostic.repairHint;
+    if (repairHint === undefined) {
+      throw new DomainError(
+        ERROR_CODES.TASK_VERIFICATION_FAILED,
+        "The selected diagnostic does not contain an explicit safe repair hint.",
+        {
+          runStepId: runStep.stepId,
+          runId: diagnostics.runId,
+          diagnosticKind: step.diagnosticKind,
+          diagnosticIndex: step.diagnosticIndex,
+          diagnostic,
+          reason: "missing_repair_hint",
+        },
+      );
+    }
+
+    const diagnosticForPreview = { ...diagnostic, repairHint };
+    const plan = await this.changeCoordinator.previewRepairFromDiagnostic({
+      projectRoot: task.projectRoot,
+      diagnostic: diagnosticForPreview,
+    });
+    return diagnosticRepairPreviewResultSchema.parse({
+      runStepId: runStep.stepId,
+      runId: diagnostics.runId,
+      diagnosticKind: step.diagnosticKind,
+      diagnosticIndex: step.diagnosticIndex,
+      diagnostic,
+      repairHint,
+      plan,
+    });
+  }
+
+  private async applyDiagnosticRepair(task: TaskState, step: TaskStepState): Promise<unknown> {
+    const previewStep = this.findUniqueEarlierStep(task, step.previewStepId, step);
+    if (previewStep === undefined || previewStep.kind !== "preview_diagnostic_repair" || previewStep.status !== "succeeded") {
+      throw new DomainError(
+        ERROR_CODES.TASK_VERIFICATION_FAILED,
+        "The apply_diagnostic_repair step must reference a successful earlier repair preview.",
+        { previewStepId: step.previewStepId, stepId: step.stepId },
+      );
+    }
+    const preview = diagnosticRepairPreviewResultSchema.safeParse(previewStep.result);
+    if (!preview.success) {
+      throw new DomainError(
+        ERROR_CODES.TASK_VERIFICATION_FAILED,
+        "The referenced repair preview evidence is invalid.",
+        { previewStepId: previewStep.stepId },
+      );
+    }
+    const report = await this.changeCoordinator.applyChange({
+      projectRoot: task.projectRoot,
+      planId: preview.data.plan.planId,
+      leaseId: this.taskLeases.get(task.taskId)?.leaseId,
+    });
+    return {
+      previewStepId: previewStep.stepId,
+      runStepId: preview.data.runStepId,
+      runId: preview.data.runId,
+      planId: preview.data.plan.planId,
+      report,
+    };
   }
 
   private verifyDiagnostics(task: TaskState, step: TaskStepState): unknown {
@@ -901,6 +1056,10 @@ export class TaskCoordinator {
       runStepId: "runStepId" in step ? step.runStepId : null,
       maxErrors: "maxErrors" in step ? step.maxErrors ?? 0 : 0,
       maxWarnings: "maxWarnings" in step ? step.maxWarnings ?? 0 : 0,
+      diagnosticKind: "diagnosticKind" in step ? step.diagnosticKind : null,
+      diagnosticIndex: "diagnosticIndex" in step ? step.diagnosticIndex : null,
+      repairHint: "repairHint" in step ? step.repairHint ?? null : null,
+      previewStepId: "previewStepId" in step ? step.previewStepId : null,
       timeoutMs: "timeoutMs" in step ? step.timeoutMs ?? null : null,
       expectedRevision: "expectedRevision" in step ? step.expectedRevision : null,
       status: "pending",

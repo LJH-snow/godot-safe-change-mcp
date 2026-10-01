@@ -215,3 +215,9 @@
 - 新增测试覆盖 warning threshold pass、failed run/diagnostics mismatch 和前序 runStepId 约束。
 - 首轮 `npm test` 红灯定位为任务 union 缺少 `verify_diagnostics`，符合预期。
 - 已完成 diagnostics schema、唯一前序 runStepId 验证、阈值比较和结构化失败证据；75 项单测、typecheck、build、diff-check 与真实 Godot 4.7.2 四步 task smoke 全部通过。
+
+## 2026-10-01 task-level diagnostic repair preview
+
+- 已实现 task-level repair preview：从前序 run 的诊断和诊断内/step-level 有限 `scene.create_node` repairHint 生成 plan，记录 runId 与 diagnostic，预览后暂停。
+- 用户必须显式确认 plan；`apply_diagnostic_repair` 只应用任务内预览，随后可重跑并验证 diagnostics。未执行任意 GDScript 或 shell。
+- 本地 79 项测试、typecheck、build、diff-check 和 Godot 4.7.2 repair workflow smoke 均通过；推送后等待双版本 CI。

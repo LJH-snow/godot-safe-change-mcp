@@ -215,6 +215,8 @@ npm run build
 
 2026-10-01 已新增只读 `verify_diagnostics` task step：显式引用前序 run step，要求 run 状态 stopped 并校验 maxErrors/maxWarnings；不满足时返回 `TASK_VERIFICATION_FAILED`，记录 runId、错误/警告数量与诊断细节。
 
+2026-10-01 已新增任务级诊断修复预览：从前序 run 的指定诊断和诊断内或 task step 提供的受限 repairHint 生成 scene.create_node plan，task 暂停等待审查；apply step 只复用该预览并要求既有 confirm 工具先确认，之后可继续 run 与 diagnostics verification。
+
 ## 7. 待决定问题
 
 - 本地桥接使用 HTTP、WebSocket，还是两个都提供；

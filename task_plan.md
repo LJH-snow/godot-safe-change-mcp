@@ -99,6 +99,9 @@
 | scene verification 文档补丁把任务阶段行定位到错误文件 | 1 | 该行在 task_plan.md；按实际文档位置拆分更新。 |
 | `verify_diagnostics` 测试红灯因 task union 尚未包含新 step kind | 1 | 符合预期；新增诊断验收契约并实现前序 run step 校验。 |
 | 重复 run stepId 未被诊断引用校验发现 | 1 | 要求 runStepId 唯一匹配一个前序 run step，并在执行时再次检查持久化 task state。 |
+| TaskCoordinator repair 方法补丁部分落盘形成重复定义 | 1 | 检查当前 diff 后移除重复实现，只保留一组唯一引用校验方法。 |
+| task repair smoke 大补丁的后续上下文未匹配 | 1 | 重读当前 fixture 流程后确认补丁已有部分写入，只保留已落盘测试并补齐缺项。 |
+| task repair preview 首次未接受 step 级 repairHint | 1 | 仅允许 schema 验证的 scene.create_node hint；缺少 hint 时显式失败。 |
 
 ## 本轮状态
 
@@ -167,7 +170,7 @@
 
 状态：complete
 
-- [x] 增加受限任务状态机：active/paused/completed/failed/cancelled，步骤支持 apply_plan、rollback_plan、run_current_scene、run_scene、verify_scene_state 和 verify_diagnostics。
+- [x] 增加受限任务状态机：active/paused/completed/failed/cancelled，步骤支持 apply_plan、rollback_plan、run_current_scene、run_scene、verify_scene_state、verify_diagnostics 和确认门控的 diagnostic-repair preview/apply。
 - [x] 任务状态以 JSON 文件持久化到 `<projectRoot>/.godot-safe-change/tasks/`，重启后可查询与继续；崩溃遗留的 running 步骤可重试。
 - [x] 支持 pause/resume/cancel 和失败重试（每步最多 3 次），所有步骤复用既有 preview/confirm/apply/rollback/run 守卫与审计。
 - [x] 新增 create/get/advance/pause/resume/cancel 六个 MCP 工具与契约测试。
@@ -222,6 +225,15 @@
 - [x] 按 maxErrors/maxWarnings 和 stopped 状态验证运行结果，返回 counts、runId 和诊断证据。
 - [x] 无前序 run、失败状态或阈值超限时让 task step 失败并记录 TASK_VERIFICATION_FAILED。
 - [x] 增加单元测试、真实 Godot MCP smoke 和文档，并确认不执行脚本、不写项目。
+
+## Phase 17 — task-level diagnostic repair preview
+
+状态：`complete`
+
+- [x] 从前序 run 的诊断和诊断内或 task step 提供的 allowlisted repairHint 生成受限预览计划，并在 task timeline 关联 run ID、diagnostic 和 plan。
+- [x] 预览后暂停任务等待审查；apply step 只能引用本任务的修复预览且不能代替用户确认。
+- [x] 用户通过既有 confirm 工具确认后，任务可应用修复、重跑并重新验证 diagnostics。
+- [x] 增加单测和真实 Godot task smoke，确认没有任意代码执行或未确认写入。
 
 ## 完成定义
 

@@ -55,3 +55,10 @@
 - `RunDiagnostics` schema 已包含 runId、scenePath、status、warnings 和 errors；TaskStepState.result 可持久化前序 run 的完整结果。
 - `verify_diagnostics` 将显式引用 earlier run step，避免检查到不相关或陈旧的 run；默认错误和警告阈值均为 0。
 - 通过条件要求 run 状态为 stopped，且错误/警告数量都不超过阈值；失败证据保存 runId、status、counts 与 diagnostics。
+
+## task-level diagnostic repair preview
+
+- `ChangeCoordinator.previewRepairFromDiagnostic` 只接受显式且受限的 `repairHint`，目前 repair action 是 allowlisted `scene.create_node`。
+- 修复预览应关联前序 run step 和 diagnostic index，并保存产生的 change plan；task 在预览后暂停，不调用 confirm 或 apply。
+- 应用步骤引用同一 task 的预览结果并调用现有 `applyChange`，依赖既有确认状态和 revision guard；不重新解释或执行诊断文本。
+- Godot 原始诊断可能没有 repairHint；task step 可额外接收 schema 限制的 `scene.create_node` repairHint（若两者都有则使用 task 明确指定项），结果仍保存原始诊断、有效 hint 与预览 plan。
