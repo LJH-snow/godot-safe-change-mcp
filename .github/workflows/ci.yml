@@ -23,10 +23,15 @@ jobs:
   godot-runtime:
     needs: check
     runs-on: ubuntu-latest
+    name: Godot ${{ matrix.godot-version }} runtime
+    strategy:
+      fail-fast: false
+      matrix:
+        godot-version: ["4.5.1", "4.7.2"]
     timeout-minutes: 8
     env:
-      GODOT_VERSION: "4.7.2"
-      GODOT_DIR: "/tmp/godot"
+      GODOT_VERSION: ${{ matrix.godot-version }}
+      GODOT_DIR: ${{ runner.temp }}/godot-${{ matrix.godot-version }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -59,6 +64,6 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: godot-runtime-smoke-${{ github.run_id }}
+          name: godot-runtime-smoke-${{ matrix.godot-version }}-${{ github.run_id }}
           path: ${{ runner.temp }}/godot-runtime-smoke.log
           if-no-files-found: warn
