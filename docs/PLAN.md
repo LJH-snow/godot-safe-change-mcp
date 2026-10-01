@@ -201,6 +201,8 @@ npm run build
 
 2026-10-01 已增加 `project.input_action.remove_key`：只移除唯一匹配的物理按键，不删除 action；重复匹配会拒绝，apply/rollback 使用 project.godot revision guard 并恢复完整原始 action 设置；真实 Godot 4.7.2 smoke 已通过。
 
+2026-10-01 已增加 `project.input_action.replace_key`：只替换唯一匹配且不含逻辑键码的物理按键，拒绝重复源和已占用目标，并保留 InputEventKey 修饰键；apply/rollback 使用 project.godot revision guard。运行时 smoke 覆盖直接桥接拒绝、过期 revision、外部编辑后的 rollback 冲突与完整恢复；本地 Godot 4.7.2 smoke 已通过。
+
 2026-09-30 已增强 task timeline：每个 task step 持有独立 operationId，running/succeeded/failed 事件随 TaskState 持久化，task_status 可恢复查询。
 
 2026-09-30 已增加只读 `task_timeline` 工具：支持按 `stepId`、`operationId`、事件类型、ISO `from/to` 时间范围和 `limit` 过滤，并返回 `total`、`returned`、`truncated`。

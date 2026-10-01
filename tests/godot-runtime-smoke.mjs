@@ -11,6 +11,7 @@ const bridgeEndpoint = "http://127.0.0.1:8765";
 const fixtureRoot = await mkdtemp(path.join(tmpdir(), "godot-safe-change-ci-"));
 const scriptPath = path.join(fixtureRoot, "diagnostic_scene.gd");
 let nextRequestId = 1;
+let nextDirectPlanId = 1;
 let godotProcess;
 let mcpProcess;
 const godotOutputRef = { value: "" };
@@ -144,6 +145,26 @@ async function expectToolError(name, argumentsValue, pattern = null) {
     () => request("tools/call", { name, arguments: argumentsValue }).then(structured),
     (error) => pattern === null || pattern.test(error instanceof Error ? error.message : String(error)),
   );
+}
+
+async function assertDirectChangeRejected(operation, expectedCode) {
+  const editorContext = await readEditorContext(fixtureRoot);
+  const settingsPath = path.join(fixtureRoot, "project.godot");
+  const settingsBefore = await readFile(settingsPath, "utf8");
+  const nodePathsBefore = editorContext.currentScene.nodes.map((node) => node.path);
+  const response = await bridgeRequest("/v1/changes/apply", {
+    projectRoot: editorContext.projectRoot,
+    planId: "direct-boundary-" + nextDirectPlanId++,
+    expectedRevision: editorContext.revision,
+    operations: [operation],
+  });
+  assert.equal(response.status, 400, JSON.stringify(response.body));
+  assert.equal(response.body.ok, false);
+  assert.equal(response.body.error.code, expectedCode);
+  const editorContextAfter = await readEditorContext(fixtureRoot);
+  assert.equal(editorContextAfter.revision, editorContext.revision);
+  assert.deepEqual(editorContextAfter.currentScene.nodes.map((node) => node.path), nodePathsBefore);
+  assert.equal(await readFile(settingsPath, "utf8"), settingsBefore);
 }
 
 async function assertDirectInputKeyReplacementRejected(actionName, fromPhysicalKeycode, toPhysicalKeycode, expectedStatus, expectedCode, expectedFileRevision = null) {
@@ -287,6 +308,17 @@ try {
   assert.equal(directInvalidChange.status, 400);
   assert.equal(directInvalidChange.body.ok, false);
   assert.equal(directInvalidChange.body.error.code, "VALIDATION_FAILED");
+  const directInvalidOperations = [
+    { operation: { kind: "scene.create_node", parentPath: ".", nodeName: "UnsafeType", nodeType: "Object" }, errorCode: "UNSAFE_OPERATION" },
+    { operation: { kind: "scene.set_property", nodePath: ".", property: "script", value: null }, errorCode: "UNSAFE_OPERATION" },
+    { operation: { kind: "scene.attach_script", nodePath: ".", scriptPath: "res://../outside.gd" }, errorCode: "UNSAFE_OPERATION" },
+    { operation: { kind: "resource.replace_reference", resourcePath: "res://../outside.tres", from: "res://old.tres", to: "res://new.tres" }, errorCode: "UNSAFE_OPERATION" },
+    { operation: { kind: "script.replace_range", scriptPath: "res://../outside.gd", startLine: 1, endLine: 1, replacement: "safe" }, errorCode: "VALIDATION_FAILED" },
+    { operation: { kind: "project.input_action.add_key", actionName: "bad/name", physicalKeycode: 70 }, errorCode: "VALIDATION_FAILED" },
+  ];
+  for (const invalidOperation of directInvalidOperations) {
+    await assertDirectChangeRejected(invalidOperation.operation, invalidOperation.errorCode);
+  }
   await assertDirectInputKeyReplacementRejected("remove_binding", 74, 74, 400, "VALIDATION_FAILED");
   await assertDirectInputKeyReplacementRejected("logical_binding", 74, 75, 409, "OPERATION_REJECTED");
   await assertDirectInputKeyReplacementRejected("duplicate_binding", 74, 75, 409, "OPERATION_REJECTED");
