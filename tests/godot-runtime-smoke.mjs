@@ -462,6 +462,16 @@ try {
     afterDeleteContext.currentScene.nodes.filter((node) => node.path !== "." && !node.path.includes("/")).map((node) => node.path),
     directChildrenBeforeDelete.filter((nodePath) => nodePath !== "Canvas"),
   );
+  const staleDeleteRollback = await bridgeRequest("/v1/changes/rollback", {
+    projectRoot: afterDeleteContext.projectRoot,
+    planId: deleteNodePlan.planId,
+    expectedRevision: "stale-delete-scene-revision",
+  });
+  assert.equal(staleDeleteRollback.status, 409);
+  assert.equal(staleDeleteRollback.body.error.code, "REVISION_CONFLICT");
+  const afterStaleDeleteRollback = await readEditorContext(fixtureRoot);
+  assert.equal(afterStaleDeleteRollback.revision, afterDeleteContext.revision);
+  assert.equal(afterStaleDeleteRollback.currentScene.nodes.some((node) => node.path === "Canvas" || node.path.startsWith("Canvas/")), false);
   const deleteNodeRollback = structured(await request("tools/call", {
     name: "rollback_scene_change",
     arguments: { projectRoot: fixtureRoot, planId: deleteNodePlan.planId },
