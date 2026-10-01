@@ -11,12 +11,15 @@ let extractedPackageRoot;
 let tarballPath;
 
 try {
-  const packed = JSON.parse(
-    execFileSync("npm", ["pack", "--json", "--ignore-scripts"], {
-      cwd: repositoryRoot,
-      encoding: "utf8",
-    }),
-  );
+  const packOutput = execFileSync("npm", ["pack", "--json"], {
+    cwd: repositoryRoot,
+    encoding: "utf8",
+  });
+  const jsonStart = packOutput.indexOf("[\n  {");
+  if (jsonStart < 0) {
+    throw new Error("npm pack did not return a JSON package manifest.");
+  }
+  const packed = JSON.parse(packOutput.slice(jsonStart));
   tarballPath = path.join(repositoryRoot, packed[0].filename);
 
   const install = spawnSync("npm", ["install", "--ignore-scripts", "--no-audit", "--no-fund", tarballPath], {

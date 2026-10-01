@@ -232,3 +232,4 @@
 
 - Added `npm run package:check` and a CI package job. It builds, packs and validates the tarball metadata, bundled MCP entry and Godot plugin files in a temporary consumer.
 - Local npm `EALLOWSCRIPTS` is handled by a tarball extraction fallback; GitHub Actions uses the real consumer install path.
+- CI run `36835756490` exposed npm pack JSON polluted by the package prepare log; package smoke now parses the trailing JSON manifest.

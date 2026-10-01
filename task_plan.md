@@ -104,6 +104,8 @@
 | task repair preview 首次未接受 step 级 repairHint | 1 | 仅允许 schema 验证的 scene.create_node hint；缺少 hint 时显式失败。 |
 | GitHub CI heartbeat test exposed ENOENT while renaming a shared task temp file | 1 | Reproduced with parallel FileTaskStore saves; serialized same-target writes and added unique temp paths. |
 | Local npm package consumer was blocked by EALLOWSCRIPTS | 1 | Package smoke uses real npm install when permitted and tarball extraction with source dependency resolution as a safe local fallback. |
+| GitHub package job failed because npm prepare logs preceded pack JSON | 1 | Parse the final JSON array from npm pack output while retaining real install in CI and local fallback behavior. |
+| Package manifest parser selected a nested files array | 1 | Match the outer manifest prefix instead of the last array start. |
 
 ## 本轮状态
 
