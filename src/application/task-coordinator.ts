@@ -43,6 +43,7 @@ interface LeaseHeartbeat {
  */
 export class TaskCoordinator {
   private readonly tasks = new Map<string, TaskState>();
+  private readonly advancingTasks = new Set<string>();
   private readonly taskLeases = new Map<string, ProjectLease>();
   private readonly taskLeaseTtls = new Map<string, number>();
   private readonly leaseHeartbeats = new Map<string, LeaseHeartbeat>();
@@ -136,10 +137,17 @@ export class TaskCoordinator {
     const parsedInput = taskIdInputSchema.parse(input);
     const projectRoot = await normalizeProjectRoot(parsedInput.projectRoot);
     const task = await this.requireTask(parsedInput.taskId, projectRoot);
-    await this.ensureTaskLease(task, projectRoot);
+    if (this.advancingTasks.has(task.taskId)) {
+      throw new DomainError(ERROR_CODES.PROJECT_BUSY, "Another step for this task is already running.", {
+        taskId: task.taskId,
+      });
+    }
+    this.advancingTasks.add(task.taskId);
     try {
+      await this.ensureTaskLease(task, projectRoot);
       return await this.advanceTaskInternal(input);
     } finally {
+      this.advancingTasks.delete(task.taskId);
       const latestTask = this.tasks.get(task.taskId);
       if (!this.explicitLeaseTaskIds.has(task.taskId) || latestTask?.status !== "active") {
         await this.releaseHeldTaskLease(task.taskId);
@@ -182,6 +190,16 @@ export class TaskCoordinator {
         "The step already used its retry budget; cancel the task or create a new plan.",
         { taskId: task.taskId, stepId: step.stepId, attempts: step.attempts },
       );
+    }
+
+    if (step.status === "running") {
+      this.appendTimeline(task, {
+        stepId: step.stepId,
+        operationId: step.operationId,
+        status: "step_interrupted",
+        at: new Date().toISOString(),
+        result: { attempt: step.attempts, reason: "recovered_after_restart" },
+      });
     }
 
     step.status = "running";

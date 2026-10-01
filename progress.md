@@ -54,6 +54,12 @@
 - 步骤执行期间 lease 失败时，后续步骤成功/失败处理保留 paused 状态；短 TTL 不会被 advance_task 重置为默认 heartbeat TTL。
 - 本地目标回归通过：63/63 tests；typecheck/build 正在进行本轮最终验证。
 
+## 2026-10-01 interrupted task step recovery
+
+- 进程重启接管后，遗留 running step 的旧 operationId 会产生 `step_interrupted` timeline 事件，再以新 ID 重试。
+- 同一 coordinator 并发推进同一 task 时稳定返回 `PROJECT_BUSY`，避免把仍在执行的步骤误判为 crash recovery。
+- `task_timeline` 可按旧 operationId 查询 running/interrupted 证据；定向回归通过。
+
 ## 2026-09-30 task timeline query
 
 - 新增只读 `task_timeline` MCP 工具，支持 `stepId`、`operationId`、`eventTypes`、ISO `from/to` 和 `limit` 过滤。

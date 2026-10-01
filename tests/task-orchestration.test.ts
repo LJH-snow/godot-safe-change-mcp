@@ -65,6 +65,7 @@ class FakeGodotBridge implements GodotBridge {
     content: "extends Node2D\n\nfunc _ready() -> void:\n    pass\n",
   };
   applyError: Error | null = null;
+  runCalls = 0;
   runDiagnosticsResult: RunDiagnostics = {
     schemaVersion: "0.2",
     runId: "run-1",
@@ -103,6 +104,7 @@ class FakeGodotBridge implements GodotBridge {
   }
 
   async runCurrentScene(): Promise<RunDiagnostics> {
+    this.runCalls += 1;
     if (this.runDelayMs > 0) {
       await new Promise((resolve) => setTimeout(resolve, this.runDelayMs));
     }
@@ -359,6 +361,98 @@ describe("TaskCoordinator", () => {
     assert.equal(bridge.applied.length, appliedBefore + 1);
   });
 
+  test("rejects concurrent advance attempts from the same coordinator", async () => {
+    const { projectRoot, bridge, taskCoordinator } = harness;
+    bridge.runDelayMs = 150;
+    const task = await taskCoordinator.createTask({
+      projectRoot,
+      title: "Prevent duplicate in-flight task steps",
+      steps: [{ kind: "run_current_scene", stepId: "single-flight-step" }],
+    });
+
+    const inFlight = taskCoordinator.advanceTask({ projectRoot, taskId: task.taskId });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    await assert.rejects(
+      () => taskCoordinator.advanceTask({ projectRoot, taskId: task.taskId }),
+      (error: unknown) => error instanceof DomainError && error.code === ERROR_CODES.PROJECT_BUSY,
+    );
+
+    const completed = await inFlight;
+    assert.equal(completed.status, "completed");
+    assert.equal(bridge.runCalls, 1);
+  });
+
+  test("records an interrupted step and owner takeover after lease TTL expiry", async () => {
+    const { projectRoot, changeCoordinator } = harness;
+    const store = new FileTaskStore();
+    const leaseStore = changeCoordinator.getProjectLeaseStore() as InMemoryProjectLeaseStore;
+    const originalCoordinator = new TaskCoordinator(changeCoordinator, store);
+    const task = await originalCoordinator.createTask({
+      projectRoot,
+      title: "Recover interrupted run",
+      steps: [{ kind: "run_current_scene", stepId: "interrupted-run" }],
+    });
+    const interrupted = structuredClone(task);
+    const interruptedAt = new Date(Date.now() - 5000).toISOString();
+    const normalizedProjectRoot = await normalizeProjectRoot(projectRoot);
+    const crashedLease = await leaseStore.acquire(normalizedProjectRoot, "crashed-owner", 10000);
+    const expiredLease = await leaseStore.renew(crashedLease, 1);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    interrupted.steps[0]!.status = "running";
+    interrupted.steps[0]!.attempts = 1;
+    interrupted.steps[0]!.operationId = "taskop_abandoned_attempt";
+    interrupted.steps[0]!.startedAt = interruptedAt;
+    interrupted.nextStepId = "interrupted-run";
+    interrupted.lease = {
+      leaseId: expiredLease.leaseId,
+      ownerId: expiredLease.ownerId,
+      acquiredAt: expiredLease.acquiredAt,
+      expiresAt: expiredLease.expiresAt,
+    };
+    interrupted.recoverable = true;
+    interrupted.timeline.push({
+      eventId: "event_abandoned_attempt",
+      stepId: "interrupted-run",
+      operationId: "taskop_abandoned_attempt",
+      status: "running",
+      at: interruptedAt,
+    });
+    await store.save(task.projectRoot, interrupted);
+
+    const recoveredCoordinator = new TaskCoordinator(
+      changeCoordinator,
+      store,
+      leaseStore,
+    );
+    const recovered = await recoveredCoordinator.advanceTask({ projectRoot, taskId: task.taskId });
+
+    assert.equal(recovered.status, "completed");
+    assert.equal(recovered.steps[0]?.attempts, 2);
+    assert.notEqual(recovered.steps[0]?.operationId, "taskop_abandoned_attempt");
+    assert.ok(
+      recovered.timeline.some(
+        (event) =>
+          event.status === "step_interrupted" &&
+          event.operationId === "taskop_abandoned_attempt" &&
+          event.stepId === "interrupted-run",
+      ),
+    );
+    const reclaimed = recovered.timeline.find((event) => event.status === "lease_reclaimed");
+    assert.ok(reclaimed);
+    assert.equal((reclaimed.result as { previousOwnerId?: string }).previousOwnerId, expiredLease.ownerId);
+    assert.notEqual((reclaimed.result as { ownerId?: string }).ownerId, expiredLease.ownerId);
+    assert.equal((reclaimed.result as { reason?: string }).reason, "lease_expired");
+
+    const interruptedEvidence = await recoveredCoordinator.getTaskTimeline({
+      projectRoot,
+      taskId: task.taskId,
+      operationId: "taskop_abandoned_attempt",
+      eventTypes: ["running", "step_interrupted"],
+    });
+    assert.equal(interruptedEvidence.total, 2);
+    assert.deepEqual(interruptedEvidence.events.map((event) => event.status), ["running", "step_interrupted"]);
+  });
+
   test("executes a run_scene step for a specific scene", async () => {
     const { projectRoot, taskCoordinator, bridge } = harness;
     const task = await taskCoordinator.createTask({
@@ -544,6 +638,7 @@ describe("TaskCoordinator", () => {
         "running",
         "succeeded",
         "failed",
+        "step_interrupted",
         "paused",
         "resumed",
         "cancelled",
