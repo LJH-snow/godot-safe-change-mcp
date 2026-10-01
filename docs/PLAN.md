@@ -223,6 +223,8 @@ npm run build
 
 2026-10-01 已将多进程验收接入真实 Godot smoke：两个独立 MCP 进程共享同一 EditorPlugin 桥接和 state 目录，验证 lease 冲突、强制终止、TTL 接管，并由接管进程运行真实场景。
 
+2026-10-01 已补真实桥接写入边界：第二进程持有 task lease 时，第一进程的 scene apply 返回 PROJECT_BUSY 且场景不变；TTL 接管后 apply/rollback 均成功。
+
 ## 7. 待决定问题
 
 - 本地桥接使用 HTTP、WebSocket，还是两个都提供；

@@ -786,6 +786,25 @@ try {
   }));
   assert.ok(secondaryLease.lease?.leaseId);
   assert.ok(secondaryLease.lease?.ownerId);
+  const blockedApplyPlan = structured(await request("tools/call", {
+    name: "preview_scene_change",
+    arguments: {
+      projectRoot: fixtureRoot,
+      reason: "Verify a second MCP process cannot write through another process lease.",
+      operation: { kind: "scene.create_node", parentPath: ".", nodeName: "BlockedByLease", nodeType: "Node2D" },
+    },
+  }));
+  await request("tools/call", {
+    name: "confirm_scene_change",
+    arguments: { projectRoot: fixtureRoot, planId: blockedApplyPlan.planId, expectedRevision: blockedApplyPlan.expectedRevision },
+  });
+  await expectToolErrorAt(
+    endpoint,
+    "apply_scene_change",
+    { projectRoot: fixtureRoot, planId: blockedApplyPlan.planId },
+    /PROJECT_BUSY/,
+  );
+  assert.equal(sceneNode(await readEditorContext(fixtureRoot), "BlockedByLease"), undefined);
   const secondaryExpiresAt = Date.parse(secondaryLease.lease.expiresAt);
   assert.ok(Number.isFinite(secondaryExpiresAt));
   assert.ok(secondaryExpiresAt > Date.now());
@@ -836,6 +855,18 @@ try {
   }));
   assert.deepEqual(recoveredTimeline.events.map((event) => event.status), ["running", "succeeded"]);
   assert.equal(recoveredTimeline.events[1]?.operationId, recoveredOperationId);
+  const appliedAfterTakeover = structured(await request("tools/call", {
+    name: "apply_scene_change",
+    arguments: { projectRoot: fixtureRoot, planId: blockedApplyPlan.planId },
+  }));
+  assert.equal(appliedAfterTakeover.status, "applied");
+  assert.ok(sceneNode(await readEditorContext(fixtureRoot), "BlockedByLease"));
+  const rolledBackAfterTakeover = structured(await request("tools/call", {
+    name: "rollback_scene_change",
+    arguments: { projectRoot: fixtureRoot, planId: blockedApplyPlan.planId },
+  }));
+  assert.equal(rolledBackAfterTakeover.status, "rolled_back");
+  assert.equal(sceneNode(await readEditorContext(fixtureRoot), "BlockedByLease"), undefined);
   stage("real bridge multi-process lease recovery complete");
 
   const missingNodeTask = structured(await request("tools/call", {
