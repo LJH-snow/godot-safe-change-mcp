@@ -782,14 +782,18 @@ try {
   }));
   const secondaryLease = structured(await requestAt(secondaryEndpoint, "tools/call", {
     name: "acquire_task_lease",
-    arguments: { projectRoot: fixtureRoot, taskId: crossProcessTask.taskId, ttlMs: 1000 },
+    arguments: { projectRoot: fixtureRoot, taskId: crossProcessTask.taskId, ttlMs: 5000 },
   }));
   assert.ok(secondaryLease.lease?.leaseId);
   assert.ok(secondaryLease.lease?.ownerId);
+  const secondaryExpiresAt = Date.parse(secondaryLease.lease.expiresAt);
+  assert.ok(Number.isFinite(secondaryExpiresAt));
+  assert.ok(secondaryExpiresAt > Date.now());
+  assert.ok(secondaryExpiresAt - Date.now() > 1000);
   await expectToolErrorAt(
     endpoint,
     "acquire_task_lease",
-    { projectRoot: fixtureRoot, taskId: crossProcessTask.taskId, ttlMs: 1000 },
+    { projectRoot: fixtureRoot, taskId: crossProcessTask.taskId, ttlMs: 5000 },
     /PROJECT_BUSY/,
   );
   const busyStatus = structured(await request("tools/call", {
@@ -798,14 +802,21 @@ try {
   }));
   assert.equal(busyStatus.lease?.leaseId, secondaryLease.lease.leaseId);
   assert.equal(busyStatus.lease?.ownerId, secondaryLease.lease.ownerId);
+  assert.equal(busyStatus.recoverable, false);
+  assert.equal(Date.parse(busyStatus.lease.expiresAt), secondaryExpiresAt);
+  assert.ok(Date.now() < secondaryExpiresAt);
   signalProcess(secondaryMcpProcess, "SIGKILL");
   await waitForExit(secondaryMcpProcess);
-  await waitFor(1250);
+  await waitFor(Math.max(0, secondaryExpiresAt - Date.now() + 150));
+  assert.ok(Date.now() > secondaryExpiresAt);
 
   const reclaimedCrossProcessTask = structured(await request("tools/call", {
     name: "acquire_task_lease",
     arguments: { projectRoot: fixtureRoot, taskId: crossProcessTask.taskId, ttlMs: 2000 },
   }));
+  assert.equal(reclaimedCrossProcessTask.recoverable, false);
+  assert.ok(reclaimedCrossProcessTask.lease?.expiresAt);
+  assert.ok(Date.parse(reclaimedCrossProcessTask.lease.expiresAt) > Date.now());
   const reclaimedEvent = reclaimedCrossProcessTask.timeline.find((event) => event.status === "lease_reclaimed");
   assert.ok(reclaimedEvent);
   assert.equal(reclaimedEvent.result?.reason, "lease_expired");

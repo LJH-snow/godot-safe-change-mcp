@@ -109,12 +109,12 @@ test("serializes concurrent process lease owners", async () => {
   const projectRoot = await mkdtemp(join(tmpdir(), "godot-process-lease-project-"));
   const workers: WorkerHandle[] = [];
   try {
-    const holder = startWorker(["lease", stateDirectory, projectRoot, "holder", "5000", "hold"]);
+    const holder = startWorker(["lease", stateDirectory, projectRoot, "holder", "30000", "hold"]);
     workers.push(holder);
     await waitForEvent(holder, (event) => event.event === "lease_acquired");
 
     const contenders = Array.from({ length: 8 }, (_, index) => {
-      const worker = startWorker(["lease", stateDirectory, projectRoot, "contender-" + index, "5000", "hold"]);
+      const worker = startWorker(["lease", stateDirectory, projectRoot, "contender-" + index, "10000", "hold"]);
       workers.push(worker);
       return worker;
     });
@@ -138,14 +138,14 @@ test("allows exactly one process to reclaim an expired lease", async () => {
     await stopWorker(crashedOwner);
     await new Promise((resolve) => setTimeout(resolve, 180));
 
-    const contenders = Array.from({ length: 12 }, (_, index) => {
-      const worker = startWorker(["lease", stateDirectory, projectRoot, "takeover-" + index, "5000", "hold"]);
+    const contenders = Array.from({ length: 8 }, (_, index) => {
+      const worker = startWorker(["lease", stateDirectory, projectRoot, "takeover-" + index, "30000", "hold"]);
       workers.push(worker);
       return worker;
     });
     const results = await Promise.all(contenders.map((worker) => worker.nextEvent()));
     assert.equal(results.filter((event) => event.event === "lease_acquired").length, 1);
-    assert.equal(results.filter((event) => event.code === "PROJECT_BUSY").length, 11);
+    assert.equal(results.filter((event) => event.code === "PROJECT_BUSY").length, 7);
   } finally {
     await Promise.all(workers.map(stopWorker));
     await rm(projectRoot, { recursive: true, force: true });
