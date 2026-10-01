@@ -400,6 +400,51 @@ try {
   assert.doesNotMatch(restoredProjectSettings, /\njump=\{/);
   stage("input action rollback complete");
 
+  const removalBefore = await bridgeRequest("/v1/input-actions/read", {
+    projectRoot: context.projectRoot,
+    actionName: "remove_binding",
+  });
+  assert.equal(removalBefore.body.ok, true, JSON.stringify(removalBefore.body));
+  assert.equal(removalBefore.body.snapshot.exists, true);
+  assert.deepEqual(removalBefore.body.snapshot.events.map((event) => event.physicalKeycode), [74]);
+  const removeKeyPlan = structured(await request("tools/call", {
+    name: "preview_scene_change",
+    arguments: {
+      projectRoot: fixtureRoot,
+      reason: "CI input action remove and rollback smoke test.",
+      operation: { kind: "project.input_action.remove_key", actionName: "remove_binding", physicalKeycode: 74 },
+    },
+  }));
+  assert.ok(removeKeyPlan.expectedFileRevision);
+  structured(await request("tools/call", {
+    name: "confirm_scene_change",
+    arguments: { projectRoot: fixtureRoot, planId: removeKeyPlan.planId, expectedRevision: removeKeyPlan.expectedRevision },
+  }));
+  const removeKeyApply = structured(await request("tools/call", {
+    name: "apply_scene_change",
+    arguments: { projectRoot: fixtureRoot, planId: removeKeyPlan.planId },
+  }));
+  assert.equal(removeKeyApply.status, "applied");
+  const removalAfter = await bridgeRequest("/v1/input-actions/read", {
+    projectRoot: context.projectRoot,
+    actionName: "remove_binding",
+  });
+  assert.equal(removalAfter.body.snapshot.exists, true);
+  assert.deepEqual(removalAfter.body.snapshot.events, []);
+  assert.equal(removalAfter.body.snapshot.deadzone, 0.35);
+  const removeKeyRollback = structured(await request("tools/call", {
+    name: "rollback_scene_change",
+    arguments: { projectRoot: fixtureRoot, planId: removeKeyPlan.planId },
+  }));
+  assert.equal(removeKeyRollback.status, "rolled_back");
+  const removalRestored = await bridgeRequest("/v1/input-actions/read", {
+    projectRoot: context.projectRoot,
+    actionName: "remove_binding",
+  });
+  assert.deepEqual(removalRestored.body.snapshot.events.map((event) => event.physicalKeycode), [74]);
+  assert.equal(removalRestored.body.snapshot.deadzone, 0.35);
+  stage("input action removal rollback complete");
+
   const attachBefore = await readEditorContext(fixtureRoot);
   assert.equal(sceneNode(attachBefore, "Scriptless")?.properties.scriptPath, null);
   const attachPlan = structured(await request("tools/call", {

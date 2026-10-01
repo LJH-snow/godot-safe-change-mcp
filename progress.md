@@ -65,6 +65,12 @@
 - `project.input_action.add_key` preview 读取并锁定 project settings revision，拒绝重复 physical key；apply 通过 `ProjectSettings.save()` 持久化，rollback 在 revision 未变化时恢复原 action 设置。
 - TypeScript 契约、HTTP bridge、Fake bridge 和真实 Godot 4.7.2 smoke 均覆盖 apply/rollback；当前 `npm test` 57/57、typecheck、build 通过。
 
+## 2026-10-01 input action removal
+
+- 新增受限 `project.input_action.remove_key`，只允许安全 action 名和 1..10000 的 physical keycode；缺失或重复匹配按键会拒绝。
+- Preview 锁定 `project.godot` revision；apply 从现有事件数组删除唯一 InputEventKey，rollback 恢复完整原始 action 和 deadzone。
+- 自动化与真实 Godot 4.7.2 smoke 覆盖 add/remove apply/rollback。
+
 ## 2026-09-30 Linux CI hardening
 
 - 复盘远程 run `36704166909`：Linux Godot 运行场景子进程时缺少 X11 display，导致 diagnostics warning 未返回。

@@ -197,6 +197,8 @@ npm run build
 
 2026-09-30 已完成受限 `project.input_action.add_key`：只允许安全 action 名和 physical keycode，preview 读取 project.godot revision，apply 通过 ProjectSettings.save 持久化，rollback 校验 revision 后恢复原 action 设置；真实 Godot 4.7.2 smoke 已通过。
 
+2026-10-01 已增加 `project.input_action.remove_key`：只移除唯一匹配的物理按键，不删除 action；重复匹配会拒绝，apply/rollback 使用 project.godot revision guard 并恢复完整原始 action 设置；真实 Godot 4.7.2 smoke 已通过。
+
 2026-09-30 已增强 task timeline：每个 task step 持有独立 operationId，running/succeeded/failed 事件随 TaskState 持久化，task_status 可恢复查询。
 
 2026-09-30 已增加只读 `task_timeline` 工具：支持按 `stepId`、事件类型、ISO `from/to` 时间范围和 `limit` 过滤，并返回 `total`、`returned`、`truncated`。
