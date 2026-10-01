@@ -6,7 +6,7 @@
 - `scene.attach_script`、`resource.replace_reference`、`project.input_action.add_key` 和 `script.replace_range` 均完成 preview → confirm → apply → rollback，并保留 scene/file/project-settings revision guard。
 - Godot 插件增加独立的第二道请求校验、active-plan guard、场景 fingerprint 属性/脚本状态和 UndoRedo history/version/action/label rollback guard；直接 loopback 非法请求由插件返回稳定错误码。
 - fixture/runtime smoke 已覆盖五种属性、scriptless attach、资源引用、输入动作、脚本替换、用户修改后的 revision conflict 和重复 rollback。
-- 当前验证基线为 `npm test` 57/57、typecheck、build、`git diff --check` 和本地 Godot 4.7.2 smoke；远程 GitHub Actions 的 Xvfb 修复后首次运行仍待确认。
+- 验证基线为 `npm test` 65/65、typecheck、build、`git diff --check` 和本地 Godot 4.7.2 smoke；远程 Godot 4.5.1/4.7.2 CI 矩阵 run `36802723876` 全绿。
 
 ## 2026-09-30 Godot CI smoke
 
@@ -82,6 +82,12 @@
 - GitHub Actions run `36741526625` 的 `check` 与 `godot-runtime` 均成功。
 - Godot runtime smoke 覆盖 search、context、scene/property/script/resource/input apply/rollback、diagnostics 和 operation history。
 - smoke 进程组清理、硬超时和 artifact 日志均已验证，远程 runner 不再被孤儿 Godot 进程长期占用。
+
+## 2026-10-01 Godot version matrix
+
+- CI 扩展为 Godot 4.5.1 与 4.7.2 双版本 smoke；artifact 名称包含版本和 run ID。
+- 修正 job 级 `GODOT_DIR` 不支持 `runner` context 的 workflow parse failure。
+- 远程 run `36802723876` 中 check、Godot 4.5.1 和 Godot 4.7.2 全部成功。
 
 ## 2026-09-30 project lease
 

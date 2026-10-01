@@ -180,13 +180,13 @@
 
 ## Phase 13 — Godot headless CI
 
-状态：in_progress
+状态：complete
 
 - [x] 增加固定 Godot 4.7.2 的 GitHub Actions runtime job 和临时 fixture smoke harness。
 - [x] smoke 覆盖 search、context、scene apply/rollback、script apply/rollback、diagnostics 和 operation history。
 - [x] smoke 额外覆盖输入动作的 ProjectSettings 持久化 apply/rollback；Linux runtime 使用 `xvfb-run` 为运行中的场景子进程提供显示服务。
 - [x] 在远程 GitHub Actions run `36741526625` 确认 Linux headless fixture、Godot smoke 和日志 artifact 均通过。
-- [ ] 增加 Godot 4.5.1/4.7.2 版本矩阵，并确认两个版本的 Linux smoke 与独立日志 artifact 均通过。
+- [x] Godot 4.5.1/4.7.2 Linux smoke 与独立日志 artifact 均通过；远程 Actions run `36802723876` 的 check 和两个 Godot runtime jobs 全绿。
 
 ## Phase 14 — 更多安全 Godot 操作
 
