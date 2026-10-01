@@ -26,6 +26,10 @@ The package job verifies the actual tarball boundary. Runtime jobs verify the Ed
 
 The published tarball is intentionally limited to the CLI entry point, built MCP bundle, Godot plugin, public README files, license, `.env.example`, and package metadata. `npm run package:check` fails if source, tests, plans, docs, CI configuration, build scripts, or `package-lock.json` enter the tarball. Update the explicit allowlist together with any intentional release artifact.
 
+## Contract boundary
+
+The automated suite also checks that task `stepId` values are unique, task IDs remain safe for the task directory, lease TTL stays within the supported one-second to one-hour range, and timeline filters reject reversed ranges or out-of-bounds limits while accepting inclusive endpoints.
+
 ## Evidence to retain
 
 - Record the pushed commit SHA and the GitHub Actions run URL.

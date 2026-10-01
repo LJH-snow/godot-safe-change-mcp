@@ -222,7 +222,16 @@ export const createTaskInputSchema = z
       }
       return match.candidate;
     };
+    const seenStepIds = new Set<string>();
     input.steps.forEach((step, index) => {
+      if (seenStepIds.has(step.stepId)) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["steps", index, "stepId"],
+          message: "stepId must be unique within a task.",
+        });
+      }
+      seenStepIds.add(step.stepId);
       if (step.kind === "verify_diagnostics" || step.kind === "preview_diagnostic_repair") {
         const runStep = findUniqueEarlierStep(step.runStepId, index);
         if (runStep?.kind === "run_current_scene" || runStep?.kind === "run_scene") {

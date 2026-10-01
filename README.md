@@ -26,7 +26,7 @@
 - rollback_scene_change：只回滚仍处于最新 revision、文件 revision 或 UndoRedo history 的已应用计划。
 - run_current_scene：运行当前场景，并轮询插件返回 stopped 或 failed 诊断。
 - run_scene：运行一个经过 `res://` 和 `.tscn` 路径校验的指定场景，并通过 run ID 轮询长时运行状态。
-- create_task / get_task / advance_task / pause_task / resume_task / cancel_task：把受限的 apply、rollback、run、scene-state/diagnostics 验收和诊断修复预览/应用步骤组成一个可审查的多步骤任务；修复预览后暂停等用户确认，apply 仍走既有 revision/confirmation 守卫。
+- create_task / get_task / advance_task / pause_task / resume_task / cancel_task：把受限的 apply、rollback、run、scene-state/diagnostics 验收和诊断修复预览/应用步骤组成一个可审查的多步骤任务；每个任务的 `stepId` 必须唯一，修复预览后暂停等用户确认，apply 仍走既有 revision/confirmation 守卫。
 
 - acquire_task_lease / renew_task_lease / release_task_lease：管理跨多个 task 步骤的项目 lease，返回 owner、过期时间和 recoverable 状态。
 - task_status：只读返回任务状态、lease owner、expiresAt 和可恢复状态。

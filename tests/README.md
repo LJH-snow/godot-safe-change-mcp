@@ -6,6 +6,7 @@ Automated coverage currently includes:
 - change contracts: strict visible/position/size/text/color value shapes, finite numeric ranges, safe relative NodePaths and project-local script/resource identifiers;
 - search index: read-only scene/script/resource/node matching, signal declarations, input actions, truncation and symlink safety;
 - operation audit: lifecycle operation IDs, inputs, outputs, revisions, failure evidence and JSONL restart recovery;
+- task contract boundaries: unique step IDs, slug-safe task IDs, lease TTL limits, inclusive timeline time ranges and bounded timeline limits;
 - project lease: atomic owner acquisition, concurrent-owner rejection and expired-lease recovery;
 - task lease/recovery: acquire, renew, release, heartbeat failure pause, same-window and cross-window TTL takeover, interrupted-step operationId recovery, filtered task timeline and conflict handling;
 - diagnostics: source/line/NodePath association and preview generation from explicit repair hints;

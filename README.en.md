@@ -24,7 +24,7 @@ The first safe vertical workflow is now fully connected:
 - rollback_scene_change: roll back only an applied plan whose scene, file or UndoRedo history revision is still current.
 - run_current_scene: run the current scene and poll the plugin until it returns stopped or failed diagnostics.
 - run_scene: run one validated `res://` `.tscn` scene through the editor and poll its run ID until it returns terminal diagnostics.
-- create_task / get_task / advance_task / pause_task / resume_task / cancel_task: compose bounded apply, rollback, run, scene/diagnostic verification and diagnostic-repair preview/apply steps into an auditable task with leases, pause/resume/cancel, retry and restart recovery. Repair apply requires a separate confirm_scene_change call.
+- create_task / get_task / advance_task / pause_task / resume_task / cancel_task: compose bounded apply, rollback, run, scene/diagnostic verification and diagnostic-repair preview/apply steps into an auditable task with leases, pause/resume/cancel, retry and restart recovery. Every task must use unique `stepId` values. Repair apply requires a separate confirm_scene_change call.
 - acquire_task_lease / renew_task_lease / release_task_lease / task_status / task_timeline: coordinate multi-window ownership, heartbeat recovery and filtered evidence timelines.
 
 The current scene can create only allowlisted node types—Node, Node2D, Control, Label and ColorRect—and property/script operations accept only safe relative NodePaths and allowlisted properties.
