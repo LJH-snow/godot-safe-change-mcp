@@ -56,8 +56,13 @@
 
 ## 2026-09-30 task timeline query
 
-- 新增只读 `task_timeline` MCP 工具，支持 `stepId`、`eventTypes`、ISO `from/to` 和 `limit` 过滤。
+- 新增只读 `task_timeline` MCP 工具，支持 `stepId`、`operationId`、`eventTypes`、ISO `from/to` 和 `limit` 过滤。
 - 返回任务状态、过滤后事件、总数、返回数和截断标记；回归测试覆盖 lease 事件和时间范围。
+
+## 2026-10-01 task operation timeline filter
+
+- `task_timeline` 增加精确 `operationId` 过滤，可只取某一步的一次执行尝试及其 running/succeeded/failed 证据。
+- 回归测试用同一 task 的两个 step 验证 operationId 不会混合事件。
 
 ## 2026-09-30 input action persistence
 

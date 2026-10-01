@@ -102,6 +102,9 @@ export class TaskCoordinator {
       if (parsedInput.stepId !== undefined && event.stepId !== parsedInput.stepId) {
         return false;
       }
+      if (parsedInput.operationId !== undefined && event.operationId !== parsedInput.operationId) {
+        return false;
+      }
       if (eventTypes !== undefined && !eventTypes.has(event.status)) {
         return false;
       }

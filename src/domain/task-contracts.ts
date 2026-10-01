@@ -120,6 +120,7 @@ export const taskTimelineInputSchema = z
     projectRoot: z.string().min(1),
     taskId: taskIdSchema,
     stepId: taskStepIdSchema.optional(),
+    operationId: z.string().min(1).max(128).optional(),
     eventTypes: z.array(taskTimelineEventStatusSchema).min(1).max(12).optional(),
     from: timelineTimestampSchema.optional(),
     to: timelineTimestampSchema.optional(),

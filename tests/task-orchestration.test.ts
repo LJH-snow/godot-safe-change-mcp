@@ -519,7 +519,10 @@ describe("TaskCoordinator", () => {
     const task = await taskCoordinator.createTask({
       projectRoot,
       title: "Filtered timeline",
-      steps: [{ kind: "run_current_scene", stepId: "timeline-step" }],
+      steps: [
+        { kind: "run_current_scene", stepId: "timeline-step" },
+        { kind: "run_current_scene", stepId: "timeline-step-two" },
+      ],
     });
     const from = new Date(Date.now() - 1000).toISOString();
     const acquired = await taskCoordinator.acquireTaskLease({
@@ -563,6 +566,7 @@ describe("TaskCoordinator", () => {
     assert.ok(["lease_acquired", "lease_released"].includes(String(report.events[0]?.status)));
     assert.equal(released.lease, null);
 
+    const firstAdvance = await taskCoordinator.advanceTask({ projectRoot, taskId: task.taskId });
     await taskCoordinator.advanceTask({ projectRoot, taskId: task.taskId });
     const stepEvents = await taskCoordinator.getTaskTimeline({
       projectRoot,
@@ -574,6 +578,19 @@ describe("TaskCoordinator", () => {
     });
     assert.equal(stepEvents.total, 2);
     assert.ok(stepEvents.events.every((event) => event.stepId === "timeline-step"));
+
+    const stepOperationId = firstAdvance.steps[0]?.operationId;
+    assert.ok(stepOperationId);
+    const operationEvents = await taskCoordinator.getTaskTimeline({
+      projectRoot,
+      taskId: task.taskId,
+      operationId: stepOperationId,
+      eventTypes: ["running", "succeeded"],
+      from,
+      to: new Date(Date.now() + 1000).toISOString(),
+    });
+    assert.equal(operationEvents.total, 2);
+    assert.ok(operationEvents.events.every((event) => event.operationId === stepOperationId));
   });
 
   test("records heartbeat renewal failure and marks the task recoverable", async () => {

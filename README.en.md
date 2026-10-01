@@ -86,4 +86,4 @@ When no Godot editor is connected, MCP tools return a stable EDITOR_UNAVAILABLE 
 - Run diagnostics return only plugin-collected output, warnings, errors and run state.
 
 See docs/PLAN.md for the full product plan, and tests/README.md for test boundaries and manual Godot acceptance steps.
-- `task_timeline`: read the task's complete timeline with optional step, event-type, and ISO time-range filters.
+- `task_timeline`: read the task's complete timeline with optional step ID, operation ID, event-type, and ISO time-range filters.

@@ -166,6 +166,7 @@
 - [x] 支持 pause/resume/cancel 和失败重试（每步最多 3 次），所有步骤复用既有 preview/confirm/apply/rollback/run 守卫与审计。
 - [x] 新增 create/get/advance/pause/resume/cancel 六个 MCP 工具与契约测试。
 - [x] 每个 task step 生成 operationId，并持久化 running/succeeded/failed timeline 事件。
+- [x] 只读 `task_timeline` 支持按 stepId、operationId、事件类型和时间范围筛选执行证据。
 - [x] 真实 MCP + Godot 4.7.2 验收通过：UndoRedo apply、fixture 运行诊断、pause/resume/cancel 状态机与重启后磁盘恢复。
 
 ## Phase 12 — 运行指定场景
