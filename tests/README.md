@@ -6,7 +6,9 @@ Automated coverage currently includes:
 - change contracts: strict visible/position/size/text/color value shapes, finite numeric ranges, safe relative NodePaths and project-local script/resource identifiers;
 - search index: read-only scene/script/resource/node matching, signal declarations, input actions, truncation and symlink safety;
 - operation audit: lifecycle operation IDs, inputs, outputs, revisions, failure evidence and JSONL restart recovery;
+- task contract boundaries: unique step IDs, slug-safe task IDs, lease TTL limits, inclusive timeline time ranges and bounded timeline limits;
 - project lease: atomic owner acquisition, concurrent-owner rejection and expired-lease recovery;
+- multi-process lease recovery: independent worker processes, stable `PROJECT_BUSY`, single expired-lease takeover, crashed running-step recovery and operation ID continuity;
 - task lease/recovery: acquire, renew, release, heartbeat failure pause, same-window and cross-window TTL takeover, interrupted-step operationId recovery, filtered task timeline and conflict handling;
 - diagnostics: source/line/NodePath association and preview generation from explicit repair hints;
 - script and resource changes: bounded .gd/resource replacement, temporary-file atomic apply, file revision guard, user-edit conflict and rollback;
@@ -28,7 +30,7 @@ npm test
 npm run package:check
 ~~~
 
-该检查会构建并打包，然后在临时消费者中验证 `bin/mcp-server.mjs`、MCP bundle 和 Godot 插件文件；本机受 npm 脚本白名单限制时会使用 tarball 解包 fallback。
+该检查会构建并打包，然后在临时消费者中验证 bin/mcp-server.mjs、MCP bundle 和 Godot 插件文件，并拒绝 tests、src、.agents 和计划/进度文件进入 tarball；本机受 npm 脚本白名单限制时会使用 tarball 解包 fallback。
 
 ## Godot manual acceptance
 

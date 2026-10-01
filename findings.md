@@ -68,3 +68,8 @@
 - `FileTaskStore.save` originally reused one `<taskId>.json.tmp` path; a heartbeat and a task transition can write that same file concurrently, letting one rename consume the temp file before the other rename.
 - Same-instance saves for one target should run in call order; unique temp names also prevent cross-instance temporary-file collisions.
 - Implemented a per-target save queue with UUID temporary paths and cleanup after failed writes; the regression confirms all concurrent saves finish and the last requested snapshot loads.
+
+## release package boundary
+
+- Published files are controlled by package.json files; package smoke verifies required runtime assets and rejects source/tests/agent/planning files.
+- docs/RELEASE.md is the human checklist; CI repeats the package smoke plus both Godot runtime versions.

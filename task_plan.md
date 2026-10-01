@@ -252,6 +252,7 @@
 状态：`complete`
 
 - [x] 增加 `npm run package:check`，验证 tarball 元数据、发布入口、MCP bundle 和 Godot 插件文件。
+- [x] package smoke 拒绝 tests、src、.agents 和计划/进度文件进入发布 tarball。
 - [x] 将 package boundary check 接入 GitHub Actions 和 `prepublishOnly`。
 - [x] 本地 package smoke、完整测试、typecheck、build 和 Godot runtime smoke 通过。
 

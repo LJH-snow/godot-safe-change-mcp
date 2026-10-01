@@ -26,9 +26,10 @@
 - rollback_scene_change：只回滚仍处于最新 revision、文件 revision 或 UndoRedo history 的已应用计划。
 - run_current_scene：运行当前场景，并轮询插件返回 stopped 或 failed 诊断。
 - run_scene：运行一个经过 `res://` 和 `.tscn` 路径校验的指定场景，并通过 run ID 轮询长时运行状态。
-- create_task / get_task / advance_task / pause_task / resume_task / cancel_task：把受限的 apply、rollback、run、scene-state/diagnostics 验收和诊断修复预览/应用步骤组成一个可审查的多步骤任务；修复预览后暂停等用户确认，apply 仍走既有 revision/confirmation 守卫。
+- create_task / get_task / advance_task / pause_task / resume_task / cancel_task：把受限的 apply、rollback、run、scene-state/diagnostics 验收和诊断修复预览/应用步骤组成一个可审查的多步骤任务；每个任务的 `stepId` 必须唯一，修复预览后暂停等用户确认，apply 仍走既有 revision/confirmation 守卫。
 
-- acquire_task_lease / renew_task_lease / release_task_lease：管理跨多个 task 步骤的项目 lease，返回 owner、过期时间和 recoverable 状态。
+- acquire_task_lease / renew_task_lease / release_task_lease：管理跨多个 task 步骤的项目 lease，返回 owner、过期时间和 recoverable 状态；多个 MCP 进程并发接管时通过原子文件 lease 保证单一 owner。
+- task_status：只读返回任务状态、lease owner、expiresAt 和可恢复状态。
 - task_timeline：只读查询完整任务时间线，可按 stepId、operationId、事件类型和 ISO 时间范围过滤。
 
 当前只支持在当前场景内创建一个 allowlist 中的节点类型：Node、Node2D、Control、Label、ColorRect；场景属性修改和脚本挂载也只针对当前场景内的相对 NodePath 和 allowlisted 属性。
@@ -54,6 +55,21 @@ npm test
 npm run build
 npm run package:check
 ~~~
+
+## 发布前检查
+
+发布前必须在干净工作区执行完整检查，并确认当前提交已推送：
+
+~~~bash
+npm ci
+npm test
+npm run typecheck
+npm run build
+npm run package:check
+GODOT_BIN=/path/to/Godot node tests/godot-runtime-smoke.mjs
+~~~
+
+GitHub Actions 还必须通过 `check`、`npm package boundary`、Godot `4.5.1 runtime` 和 Godot `4.7.2 runtime` 四个 job。`npm run package:check` 会用实际 tarball 的显式发布清单检查包边界，拒绝源码、测试、文档、CI、脚本和锁文件进入包。
 
 ## 通过 npx 运行
 
@@ -92,4 +108,4 @@ res://addons/godot-safe-change-bridge/
 - 插件只接受固定路由、allowlist 节点类型、safe relative NodePath 和项目内路径，并校验当前项目根目录。
 - 运行诊断只返回插件采集的输出、warning、error 和运行状态。
 
-完整产品计划见 docs/PLAN.md；测试边界和 Godot 手工验收见 tests/README.md。
+完整产品计划见 docs/PLAN.md；测试边界和 Godot 手工验收见 tests/README.md；发布前清单见 docs/RELEASE.md。

@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { mkdir, open, readFile, rename, unlink, writeFile } from "node:fs/promises";
+import { mkdir, open, readFile, rename, stat, unlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { z } from "zod";
@@ -12,6 +12,10 @@ const leaseSchema = z.object({
   acquiredAt: z.string().min(1),
   expiresAt: z.string().min(1),
 });
+
+const ACQUIRE_LOCK_TIMEOUT_MS = 5000;
+const ACQUIRE_LOCK_STALE_MS = 5000;
+const ACQUIRE_LOCK_RETRY_MS = 10;
 
 export type ProjectLease = z.infer<typeof leaseSchema>;
 
@@ -99,9 +103,8 @@ export class FileProjectLeaseStore implements ProjectLeaseStore {
   async acquire(projectRoot: string, ownerId: string, ttlMs: number): Promise<ProjectLease> {
     await mkdir(this.baseDirectory, { recursive: true });
     const filePath = this.filePath(projectRoot);
-    const lease = this.createLease(projectRoot, ownerId, ttlMs);
-
-    for (let attempt = 0; attempt < 2; attempt += 1) {
+    return this.withAcquireLock(filePath, async () => {
+      const lease = this.createLease(projectRoot, ownerId, ttlMs);
       try {
         const handle = await open(filePath, "wx", 0o600);
         try {
@@ -123,9 +126,15 @@ export class FileProjectLeaseStore implements ProjectLeaseStore {
           });
         }
         await unlink(filePath).catch(() => undefined);
+        const handle = await open(filePath, "wx", 0o600);
+        try {
+          await handle.writeFile(JSON.stringify(lease) + "\n", "utf8");
+        } finally {
+          await handle.close();
+        }
+        return lease;
       }
-    }
-    throw new DomainError(ERROR_CODES.PROJECT_BUSY, "The project lease could not be acquired.");
+    });
   }
 
   async assert(projectRoot: string, leaseId: string): Promise<void> {
@@ -161,6 +170,44 @@ export class FileProjectLeaseStore implements ProjectLeaseStore {
       return leaseSchema.parse(JSON.parse(await readFile(filePath, "utf8")));
     } catch {
       return null;
+    }
+  }
+
+  private async withAcquireLock<T>(filePath: string, action: () => Promise<T>): Promise<T> {
+    const lockPath = filePath + ".acquire.lock";
+    const deadline = Date.now() + ACQUIRE_LOCK_TIMEOUT_MS;
+    while (true) {
+      try {
+        const handle = await open(lockPath, "wx", 0o600);
+        try {
+          await handle.writeFile(JSON.stringify({ pid: process.pid, acquiredAt: new Date().toISOString() }) + "\n", "utf8");
+          return await action();
+        } finally {
+          await handle.close();
+          await unlink(lockPath).catch(() => undefined);
+        }
+      } catch (error) {
+        if (!(error instanceof Error) || !("code" in error) || error.code !== "EEXIST") {
+          throw error;
+        }
+        if (await this.isStaleAcquireLock(lockPath)) {
+          await unlink(lockPath).catch(() => undefined);
+          continue;
+        }
+        if (Date.now() >= deadline) {
+          throw new DomainError(ERROR_CODES.PROJECT_BUSY, "The project lease acquisition is busy.");
+        }
+        await new Promise((resolve) => setTimeout(resolve, ACQUIRE_LOCK_RETRY_MS));
+      }
+    }
+  }
+
+  private async isStaleAcquireLock(lockPath: string): Promise<boolean> {
+    try {
+      const details = await stat(lockPath);
+      return Date.now() - details.mtimeMs > ACQUIRE_LOCK_STALE_MS;
+    } catch {
+      return false;
     }
   }
 
