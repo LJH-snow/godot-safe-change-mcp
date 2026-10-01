@@ -262,7 +262,7 @@ async function waitForEditor(projectRoot, godotOutputRef) {
         arguments: { projectRoot },
       });
       const context = structured(result);
-      if (context.connection === "connected") {
+      if (context.connection === "connected" && context.currentScene.nodes.length > 0) {
         return context;
       }
     } catch {
