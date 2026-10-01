@@ -371,6 +371,12 @@ try {
     arguments: { projectRoot: fixtureRoot, query: "diagnostic", kinds: ["script"] },
   }));
   assert.ok(scriptSearch.results.length > 0);
+  const initialCurrentSceneRun = structured(await request("tools/call", {
+    name: "run_current_scene",
+    arguments: { projectRoot: fixtureRoot, timeoutMs: 30000 },
+  }));
+  assert.equal(initialCurrentSceneRun.status, "stopped");
+  stage("current scene run complete");
 
   const originalScript = await readFile(scriptPath, "utf8");
   const scenePlan = structured(await request("tools/call", {
@@ -684,7 +690,7 @@ try {
       title: "Godot runtime task smoke",
       steps: [
         { kind: "apply_plan", stepId: "apply-marker", planId: taskPlan.planId, expectedRevision: taskPlan.expectedRevision },
-        { kind: "run_current_scene", stepId: "run-current", timeoutMs: 30000 },
+        { kind: "run_scene", stepId: "run-current", scenePath: "res://main.tscn", timeoutMs: 30000 },
         { kind: "verify_scene_state", stepId: "verify-marker", nodePath: "TaskMarker", expectedProperties: [{ property: "visible", expected: true }] },
         { kind: "verify_diagnostics", stepId: "verify-diagnostics", runStepId: "run-current", maxErrors: 0, maxWarnings: 100 },
       ],
@@ -771,7 +777,7 @@ try {
     arguments: {
       projectRoot: fixtureRoot,
       title: "Real bridge multi-process lease smoke",
-      steps: [{ kind: "run_current_scene", stepId: "cross-process-run", timeoutMs: 30000 }],
+      steps: [{ kind: "run_scene", stepId: "cross-process-run", scenePath: "res://main.tscn", timeoutMs: 30000 }],
     },
   }));
   const secondaryLease = structured(await requestAt(secondaryEndpoint, "tools/call", {
@@ -873,7 +879,7 @@ try {
           },
         },
         { kind: "apply_diagnostic_repair", stepId: "apply-repair", previewStepId: "preview-repair" },
-        { kind: "run_current_scene", stepId: "run-after-repair", timeoutMs: 30000 },
+        { kind: "run_scene", stepId: "run-after-repair", scenePath: "res://main.tscn", timeoutMs: 30000 },
         { kind: "verify_diagnostics", stepId: "verify-after-repair", runStepId: "run-after-repair", maxErrors: 0, maxWarnings: 100 },
       ],
     },
