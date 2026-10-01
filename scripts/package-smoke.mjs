@@ -22,10 +22,42 @@ try {
   const packed = JSON.parse(packOutput.slice(jsonStart));
   tarballPath = path.join(repositoryRoot, packed[0].filename);
   const packagedPaths = packed[0].files.map((file) => file.path);
-  const forbiddenPrefixes = ["tests/", "src/", ".agents/", ".git/", "task_plan.md", "findings.md", "progress.md"];
+  const allowedPackagePaths = new Set([
+    ".env.example",
+    ".mcp-use/build/index.js",
+    ".mcp-use/build/manifest.json",
+    ".mcp-use/build/views/public/icon.svg",
+    "LICENSE",
+    "README.en.md",
+    "README.md",
+    "bin/mcp-server.mjs",
+    "godot-plugin/bridge_server.gd",
+    "godot-plugin/diagnostics_debugger.gd",
+    "godot-plugin/plugin.cfg",
+    "godot-plugin/plugin.gd",
+    "godot-plugin/README.md",
+    "package.json",
+  ]);
+  const forbiddenPrefixes = [
+    "tests/",
+    "src/",
+    ".agents/",
+    ".git/",
+    ".github/",
+    "docs/",
+    "scripts/",
+    "task_plan.md",
+    "findings.md",
+    "progress.md",
+    "package-lock.json",
+  ];
   const forbiddenFiles = packagedPaths.filter((file) => forbiddenPrefixes.some((prefix) => file === prefix || file.startsWith(prefix)));
   if (forbiddenFiles.length > 0) {
     throw new Error("Package contains development-only files: " + forbiddenFiles.join(", "));
+  }
+  const unexpectedFiles = packagedPaths.filter((file) => !allowedPackagePaths.has(file));
+  if (unexpectedFiles.length > 0) {
+    throw new Error("Package contains files outside the release allowlist: " + unexpectedFiles.join(", "));
   }
 
   const install = spawnSync("npm", ["install", "--ignore-scripts", "--no-audit", "--no-fund", tarballPath], {
