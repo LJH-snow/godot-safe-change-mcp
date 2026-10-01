@@ -28,7 +28,7 @@
 - run_scene：运行一个经过 `res://` 和 `.tscn` 路径校验的指定场景，并通过 run ID 轮询长时运行状态。
 - create_task / get_task / advance_task / pause_task / resume_task / cancel_task：把受限的 apply、rollback、run、scene-state/diagnostics 验收和诊断修复预览/应用步骤组成一个可审查的多步骤任务；每个任务的 `stepId` 必须唯一，修复预览后暂停等用户确认，apply 仍走既有 revision/confirmation 守卫。
 
-- acquire_task_lease / renew_task_lease / release_task_lease：管理跨多个 task 步骤的项目 lease，返回 owner、过期时间和 recoverable 状态。
+- acquire_task_lease / renew_task_lease / release_task_lease：管理跨多个 task 步骤的项目 lease，返回 owner、过期时间和 recoverable 状态；多个 MCP 进程并发接管时通过原子文件 lease 保证单一 owner。
 - task_status：只读返回任务状态、lease owner、expiresAt 和可恢复状态。
 - task_timeline：只读查询完整任务时间线，可按 stepId、operationId、事件类型和 ISO 时间范围过滤。
 

@@ -29,6 +29,7 @@ The published tarball is intentionally limited to the CLI entry point, built MCP
 ## Contract boundary
 
 The automated suite also checks that task `stepId` values are unique, task IDs remain safe for the task directory, lease TTL stays within the supported one-second to one-hour range, and timeline filters reject reversed ranges or out-of-bounds limits while accepting inclusive endpoints.
+It also starts independent worker processes to verify stable `PROJECT_BUSY`, atomic expired-lease takeover, and recovery of a running task step after the owner process is killed.
 
 ## Evidence to retain
 

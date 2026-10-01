@@ -219,6 +219,8 @@ npm run build
 
 2026-10-01 已增加发布包边界验收：`npm run package:check` 构建并打包后，在临时消费者中验证 npm 元数据、MCP bundle、CLI 入口和 Godot 插件文件；GitHub Actions 的 package job 与 `prepublishOnly` 均接入该检查。
 
+2026-10-01 已增加真实多进程 lease 回归：独立 worker 进程验证并发 owner 稳定返回 `PROJECT_BUSY`，过期 lease 只允许一个进程接管，并在 owner 被 kill 后恢复 running task step，保留 `step_interrupted`、`lease_reclaimed` 和新旧 operation ID 证据。
+
 ## 7. 待决定问题
 
 - 本地桥接使用 HTTP、WebSocket，还是两个都提供；
