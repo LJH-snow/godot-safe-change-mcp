@@ -62,3 +62,9 @@
 - 修复预览应关联前序 run step 和 diagnostic index，并保存产生的 change plan；task 在预览后暂停，不调用 confirm 或 apply。
 - 应用步骤引用同一 task 的预览结果并调用现有 `applyChange`，依赖既有确认状态和 revision guard；不重新解释或执行诊断文本。
 - Godot 原始诊断可能没有 repairHint；task step 可额外接收 schema 限制的 `scene.create_node` repairHint（若两者都有则使用 task 明确指定项），结果仍保存原始诊断、有效 hint 与预览 plan。
+
+## task store concurrency
+
+- `FileTaskStore.save` originally reused one `<taskId>.json.tmp` path; a heartbeat and a task transition can write that same file concurrently, letting one rename consume the temp file before the other rename.
+- Same-instance saves for one target should run in call order; unique temp names also prevent cross-instance temporary-file collisions.
+- Implemented a per-target save queue with UUID temporary paths and cleanup after failed writes; the regression confirms all concurrent saves finish and the last requested snapshot loads.

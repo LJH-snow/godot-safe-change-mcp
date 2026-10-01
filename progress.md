@@ -221,3 +221,9 @@
 - 已实现 task-level repair preview：从前序 run 的诊断和诊断内/step-level 有限 `scene.create_node` repairHint 生成 plan，记录 runId 与 diagnostic，预览后暂停。
 - 用户必须显式确认 plan；`apply_diagnostic_repair` 只应用任务内预览，随后可重跑并验证 diagnostics。未执行任意 GDScript 或 shell。
 - 本地 79 项测试、typecheck、build、diff-check 和 Godot 4.7.2 repair workflow smoke 均通过；推送后等待双版本 CI。
+
+## 2026-10-01 task-store concurrency regression
+
+- GitHub Actions run `36821699283` failed `heartbeats an explicit task lease and records lease timeline events` with `ENOENT` renaming the shared task temp file.
+- Added a deterministic 32-writer `FileTaskStore.save` regression; it reproduced the same `ENOENT` locally.
+- Replaced the shared temp path with per-save UUID paths and serialized same-target saves; 80 tests, typecheck/build, diff-check and Godot 4.7.2 runtime smoke all pass.

@@ -102,6 +102,7 @@
 | TaskCoordinator repair 方法补丁部分落盘形成重复定义 | 1 | 检查当前 diff 后移除重复实现，只保留一组唯一引用校验方法。 |
 | task repair smoke 大补丁的后续上下文未匹配 | 1 | 重读当前 fixture 流程后确认补丁已有部分写入，只保留已落盘测试并补齐缺项。 |
 | task repair preview 首次未接受 step 级 repairHint | 1 | 仅允许 schema 验证的 scene.create_node hint；缺少 hint 时显式失败。 |
+| GitHub CI heartbeat test exposed ENOENT while renaming a shared task temp file | 1 | Reproduced with parallel FileTaskStore saves; serialized same-target writes and added unique temp paths. |
 
 ## 本轮状态
 
@@ -234,6 +235,14 @@
 - [x] 预览后暂停任务等待审查；apply step 只能引用本任务的修复预览且不能代替用户确认。
 - [x] 用户通过既有 confirm 工具确认后，任务可应用修复、重跑并重新验证 diagnostics。
 - [x] 增加单测和真实 Godot task smoke，确认没有任意代码执行或未确认写入。
+
+## Phase 18 — concurrent task-store persistence
+
+状态：`complete`
+
+- [x] Reproduce concurrent heartbeat/state saves for one task and preserve last-write ordering.
+- [x] Serialize same-target atomic saves and use unique temporary paths with cleanup.
+- [x] Verify the full test suite, typecheck/build and Godot runtime smoke before pushing.
 
 ## 完成定义
 
