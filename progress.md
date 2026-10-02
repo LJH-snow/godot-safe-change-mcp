@@ -1,5 +1,10 @@
 # 进度记录
 
+## 2026-10-03 demo storyboard
+
+- 新增 docs/DEMO.md，固定 60 秒演示的录制环境、时间线、旁白和安全检查。
+- 下一步需要在安装 Godot 的环境实际录制 GIF/视频并附到 GitHub Release；当前 npm 1.1.0 发布仍等待 2FA。
+
 ## 2026-10-03 starter fixture
 
 - 新增 examples/starter 最小 Godot 项目和 ui/hud.tscn，覆盖搜索、实例化、属性修改和 rollback 的首次体验。
