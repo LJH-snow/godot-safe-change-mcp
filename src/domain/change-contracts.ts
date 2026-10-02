@@ -91,6 +91,30 @@ export const createNodeOperationSchema = z
   })
   .strict();
 
+export const sceneDeleteNodeSchema = z
+  .object({
+    kind: z.literal("scene.delete_node"),
+    nodePath: nodePathSchema.describe("NodePath of a node inside the current scene."),
+  })
+  .strict();
+
+export const sceneReparentNodeSchema = z
+  .object({
+    kind: z.literal("scene.reparent_node"),
+    nodePath: nodePathSchema,
+    newParentPath: nodePathSchema,
+    keepGlobalTransform: z.boolean().default(true),
+  })
+  .strict();
+
+export const sceneRenameNodeSchema = z
+  .object({
+    kind: z.literal("scene.rename_node"),
+    nodePath: nodePathSchema,
+    newName: nodeNameSchema,
+  })
+  .strict();
+
 const sceneSetVisiblePropertySchema = z
   .object({
     kind: z.literal("scene.set_property"),
@@ -209,6 +233,9 @@ export const scriptReplaceRangeSchema = z
 
 export const changeOperationSchema = z.union([
   createNodeOperationSchema,
+  sceneDeleteNodeSchema,
+  sceneReparentNodeSchema,
+  sceneRenameNodeSchema,
   sceneSetPropertySchema,
   sceneAttachScriptSchema,
   resourceReplaceReferenceSchema,
@@ -241,6 +268,53 @@ export const sceneChangeDiffSchema = z.object({
   target: z.string().min(1),
   summary: z.string().min(1),
 });
+
+export const sceneDeleteNodeDiffSchema = z.object({
+  kind: z.literal("scene.delete_node"),
+  target: z.string().min(1),
+  summary: z.string().min(1),
+  nodePath: nodePathSchema,
+  deletedNodes: z
+    .array(
+      z
+        .object({
+          path: z.string().min(1),
+          name: z.string().min(1),
+          type: z.string().min(1),
+          properties: z.record(z.string(), z.unknown()),
+        })
+        .strict(),
+    )
+    .min(1),
+}).strict();
+
+export const sceneReparentNodeDiffSchema = z
+  .object({
+    kind: z.literal("scene.reparent_node"),
+    target: z.string().min(1),
+    summary: z.string().min(1),
+    fromNodePath: nodePathSchema,
+    toNodePath: nodePathSchema,
+    fromParentPath: nodePathSchema,
+    fromIndex: z.number().int().nonnegative(),
+    toParentPath: nodePathSchema,
+    toIndex: z.number().int().nonnegative(),
+    keepGlobalTransform: z.boolean(),
+  })
+  .strict();
+
+export const sceneRenameNodeDiffSchema = z
+  .object({
+    kind: z.literal("scene.rename_node"),
+    target: z.string().min(1),
+    summary: z.string().min(1),
+    nodePath: nodePathSchema,
+    newNodePath: nodePathSchema,
+    previousName: nodeNameSchema,
+    newName: nodeNameSchema,
+    affectedPaths: z.array(z.object({ from: nodePathSchema, to: nodePathSchema }).strict()).min(1),
+  })
+  .strict();
 
 export const scriptChangeDiffSchema = z.object({
   kind: z.literal("script.replace_range"),
@@ -331,6 +405,9 @@ export const sceneAttachScriptDiffSchema = z.object({
 
 export const changeDiffSchema = z.union([
   sceneChangeDiffSchema,
+  sceneDeleteNodeDiffSchema,
+  sceneReparentNodeDiffSchema,
+  sceneRenameNodeDiffSchema,
   scenePropertyDiffSchema,
   sceneAttachScriptDiffSchema,
   resourceReferenceDiffSchema,
@@ -360,7 +437,7 @@ export const confirmedChangeSchema = z.object({
 
 export type SafeNodeType = z.infer<typeof safeNodeTypeSchema>;
 export type ChangeOperation = z.infer<typeof changeOperationSchema>;
-export type PreviewSceneChangeInput = z.infer<typeof previewSceneChangeInputSchema>;
+export type PreviewSceneChangeInput = z.input<typeof previewSceneChangeInputSchema>;
 export type ConfirmChangeInput = z.infer<typeof confirmChangeInputSchema>;
 export type ApplyChangeInput = z.infer<typeof applyChangeInputSchema>;
 export type ChangeDiff = z.infer<typeof changeDiffSchema>;

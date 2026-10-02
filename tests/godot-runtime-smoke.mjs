@@ -7,15 +7,19 @@ import { spawn } from "node:child_process";
 const repositoryRoot = process.cwd();
 const godotBinary = process.env.GODOT_BIN;
 const endpoint = "http://127.0.0.1:3100/mcp";
+const secondaryEndpoint = "http://127.0.0.1:3101/mcp";
 const bridgeEndpoint = "http://127.0.0.1:8765";
 const fixtureRoot = await mkdtemp(path.join(tmpdir(), "godot-safe-change-ci-"));
+const stateDirectory = path.join(fixtureRoot, ".mcp-state");
 const scriptPath = path.join(fixtureRoot, "diagnostic_scene.gd");
 let nextRequestId = 1;
 let nextDirectPlanId = 1;
 let godotProcess;
 let mcpProcess;
+let secondaryMcpProcess;
 const godotOutputRef = { value: "" };
 const mcpOutputRef = { value: "" };
+const secondaryMcpOutputRef = { value: "" };
 
 if (!godotBinary) {
   throw new Error("GODOT_BIN is required for the Godot runtime smoke test.");
@@ -75,8 +79,8 @@ async function stopProcess(processHandle) {
   }
 }
 
-async function request(method, params) {
-  const response = await fetch(endpoint, {
+async function requestAt(endpointValue, method, params) {
+  const response = await fetch(endpointValue, {
     method: "POST",
     headers: {
       "content-type": "application/json",
@@ -94,6 +98,10 @@ async function request(method, params) {
     throw new Error(JSON.stringify(envelope.error));
   }
   return envelope.result;
+}
+
+async function request(method, params) {
+  return requestAt(endpoint, method, params);
 }
 
 async function bridgeRequest(pathname, body, method = "POST") {
@@ -119,6 +127,18 @@ async function readEditorContext(projectRoot) {
   }));
 }
 
+async function waitForMcpEndpoint(endpointValue) {
+  for (let attempt = 0; attempt < 120; attempt += 1) {
+    try {
+      await requestAt(endpointValue, "tools/list", {});
+      return;
+    } catch {
+      await waitFor(250);
+    }
+  }
+  throw new Error("The secondary MCP process did not become available.");
+}
+
 function sceneNode(context, nodePath) {
   return context.currentScene.nodes.find((node) => node.path === nodePath);
 }
@@ -140,11 +160,15 @@ function assertValueClose(actual, expected, label) {
   assert.deepEqual(actual, expected, label);
 }
 
-async function expectToolError(name, argumentsValue, pattern = null) {
+async function expectToolErrorAt(endpointValue, name, argumentsValue, pattern = null) {
   await assert.rejects(
-    () => request("tools/call", { name, arguments: argumentsValue }).then(structured),
+    () => requestAt(endpointValue, "tools/call", { name, arguments: argumentsValue }).then(structured),
     (error) => pattern === null || pattern.test(error instanceof Error ? error.message : String(error)),
   );
+}
+
+async function expectToolError(name, argumentsValue, pattern = null) {
+  return expectToolErrorAt(endpoint, name, argumentsValue, pattern);
 }
 
 async function assertDirectChangeRejected(operation, expectedCode) {
@@ -238,7 +262,7 @@ async function waitForEditor(projectRoot, godotOutputRef) {
         arguments: { projectRoot },
       });
       const context = structured(result);
-      if (context.connection === "connected") {
+      if (context.connection === "connected" && context.currentScene.nodes.length > 0) {
         return context;
       }
     } catch {
@@ -283,13 +307,23 @@ try {
   );
   capture(godotProcess, godotOutputRef);
   stage("wait for editor bridge");
+  const mcpEnvironment = { ...process.env, GODOT_SAFE_CHANGE_STATE_DIR: stateDirectory };
   mcpProcess = spawn(process.platform === "win32" ? "npm.cmd" : "npm", ["run", "dev", "--", "--no-open", "--host", "127.0.0.1", "--port", "3100"], {
     cwd: repositoryRoot,
     stdio: ["ignore", "pipe", "pipe"],
     detached: process.platform !== "win32",
+    env: mcpEnvironment,
   });
   capture(mcpProcess, mcpOutputRef);
+  secondaryMcpProcess = spawn(process.platform === "win32" ? "npm.cmd" : "npm", ["run", "dev", "--", "--no-open", "--host", "127.0.0.1", "--port", "3101"], {
+    cwd: repositoryRoot,
+    stdio: ["ignore", "pipe", "pipe"],
+    detached: process.platform !== "win32",
+    env: mcpEnvironment,
+  });
+  capture(secondaryMcpProcess, secondaryMcpOutputRef);
   const context = await waitForEditor(fixtureRoot, godotOutputRef);
+  await waitForMcpEndpoint(secondaryEndpoint);
   assert.equal(context.connection, "connected");
   assert.ok(context.currentScene.nodes.length > 0);
   stage("validate direct plugin input");
@@ -310,6 +344,18 @@ try {
   assert.equal(directInvalidChange.body.error.code, "VALIDATION_FAILED");
   const directInvalidOperations = [
     { operation: { kind: "scene.create_node", parentPath: ".", nodeName: "UnsafeType", nodeType: "Object" }, errorCode: "UNSAFE_OPERATION" },
+    { operation: { kind: "scene.delete_node", nodePath: "." }, errorCode: "UNSAFE_OPERATION" },
+    { operation: { kind: "scene.delete_node", nodePath: "../Canvas" }, errorCode: "VALIDATION_FAILED" },
+    { operation: { kind: "scene.delete_node", nodePath: "Canvas/Missing" }, errorCode: "VALIDATION_FAILED" },
+    { operation: { kind: "scene.reparent_node", nodePath: ".", newParentPath: "Canvas", keepGlobalTransform: true }, errorCode: "UNSAFE_OPERATION" },
+    { operation: { kind: "scene.reparent_node", nodePath: "../Canvas", newParentPath: ".", keepGlobalTransform: true }, errorCode: "VALIDATION_FAILED" },
+    { operation: { kind: "scene.reparent_node", nodePath: "Canvas", newParentPath: "Canvas/Title", keepGlobalTransform: true }, errorCode: "UNSAFE_OPERATION" },
+    { operation: { kind: "scene.reparent_node", nodePath: "Canvas/Title", newParentPath: "Canvas/Missing", keepGlobalTransform: true }, errorCode: "VALIDATION_FAILED" },
+    { operation: { kind: "scene.reparent_node", nodePath: "Canvas/Title", newParentPath: "Canvas", keepGlobalTransform: true }, errorCode: "OPERATION_REJECTED" },
+    { operation: { kind: "scene.rename_node", nodePath: ".", newName: "RenamedRoot" }, errorCode: "UNSAFE_OPERATION" },
+    { operation: { kind: "scene.rename_node", nodePath: "Canvas/Missing", newName: "Renamed" }, errorCode: "VALIDATION_FAILED" },
+    { operation: { kind: "scene.rename_node", nodePath: "Canvas", newName: "Scriptless" }, errorCode: "VALIDATION_FAILED" },
+    { operation: { kind: "scene.rename_node", nodePath: "Canvas", newName: "bad/name" }, errorCode: "VALIDATION_FAILED" },
     { operation: { kind: "scene.set_property", nodePath: ".", property: "script", value: null }, errorCode: "UNSAFE_OPERATION" },
     { operation: { kind: "scene.attach_script", nodePath: ".", scriptPath: "res://../outside.gd" }, errorCode: "UNSAFE_OPERATION" },
     { operation: { kind: "resource.replace_reference", resourcePath: "res://../outside.tres", from: "res://old.tres", to: "res://new.tres" }, errorCode: "UNSAFE_OPERATION" },
@@ -337,6 +383,12 @@ try {
     arguments: { projectRoot: fixtureRoot, query: "diagnostic", kinds: ["script"] },
   }));
   assert.ok(scriptSearch.results.length > 0);
+  const initialCurrentSceneRun = structured(await request("tools/call", {
+    name: "run_current_scene",
+    arguments: { projectRoot: fixtureRoot, timeoutMs: 30000 },
+  }));
+  assert.equal(initialCurrentSceneRun.status, "stopped");
+  stage("current scene run complete");
 
   const originalScript = await readFile(scriptPath, "utf8");
   const scenePlan = structured(await request("tools/call", {
@@ -385,6 +437,138 @@ try {
   assert.equal(sceneRollback.status, "rolled_back");
   assert.equal(sceneNode(await readEditorContext(fixtureRoot), "CiMarker"), undefined);
   stage("scene create rollback complete");
+
+  const beforeDeleteContext = await readEditorContext(fixtureRoot);
+  const directChildrenBeforeDelete = beforeDeleteContext.currentScene.nodes
+    .filter((node) => node.path !== "." && !node.path.includes("/"))
+    .map((node) => node.path);
+  const canvasSubtreeBefore = beforeDeleteContext.currentScene.nodes
+    .filter((node) => node.path === "Canvas" || node.path.startsWith("Canvas/"))
+    .map(({ path: nodePath, name, type, properties }) => ({ path: nodePath, name, type, properties }));
+  assert.deepEqual(canvasSubtreeBefore.map((node) => node.path), ["Canvas", "Canvas/Title", "Canvas/ColorPanel"]);
+  const deleteNodePlan = structured(await request("tools/call", {
+    name: "preview_scene_change",
+    arguments: {
+      projectRoot: fixtureRoot,
+      reason: "CI scene subtree deletion apply and rollback smoke test.",
+      operation: { kind: "scene.delete_node", nodePath: "Canvas" },
+    },
+  }));
+  assert.deepEqual(deleteNodePlan.diff[0]?.deletedNodes.map((node) => node.path), canvasSubtreeBefore.map((node) => node.path));
+  structured(await request("tools/call", {
+    name: "confirm_scene_change",
+    arguments: { projectRoot: fixtureRoot, planId: deleteNodePlan.planId, expectedRevision: deleteNodePlan.expectedRevision },
+  }));
+  const deleteNodeApply = structured(await request("tools/call", {
+    name: "apply_scene_change",
+    arguments: { projectRoot: fixtureRoot, planId: deleteNodePlan.planId },
+  }));
+  assert.equal(deleteNodeApply.status, "applied");
+  assert.equal(deleteNodeApply.undoLabel, "Godot Safe Change: Delete node");
+  const afterDeleteContext = await readEditorContext(fixtureRoot);
+  assert.equal(afterDeleteContext.currentScene.nodes.some((node) => node.path === "Canvas" || node.path.startsWith("Canvas/")), false);
+  assert.deepEqual(
+    afterDeleteContext.currentScene.nodes.filter((node) => node.path !== "." && !node.path.includes("/")).map((node) => node.path),
+    directChildrenBeforeDelete.filter((nodePath) => nodePath !== "Canvas"),
+  );
+  const staleDeleteRollback = await bridgeRequest("/v1/changes/rollback", {
+    projectRoot: afterDeleteContext.projectRoot,
+    planId: deleteNodePlan.planId,
+    expectedRevision: "stale-delete-scene-revision",
+  });
+  assert.equal(staleDeleteRollback.status, 409);
+  assert.equal(staleDeleteRollback.body.error.code, "REVISION_CONFLICT");
+  const afterStaleDeleteRollback = await readEditorContext(fixtureRoot);
+  assert.equal(afterStaleDeleteRollback.revision, afterDeleteContext.revision);
+  assert.equal(afterStaleDeleteRollback.currentScene.nodes.some((node) => node.path === "Canvas" || node.path.startsWith("Canvas/")), false);
+  const deleteNodeRollback = structured(await request("tools/call", {
+    name: "rollback_scene_change",
+    arguments: { projectRoot: fixtureRoot, planId: deleteNodePlan.planId },
+  }));
+  assert.equal(deleteNodeRollback.status, "rolled_back");
+  const afterDeleteRollback = await readEditorContext(fixtureRoot);
+  const restoredCanvasSubtree = afterDeleteRollback.currentScene.nodes
+    .filter((node) => node.path === "Canvas" || node.path.startsWith("Canvas/"))
+    .map(({ path: nodePath, name, type, properties }) => ({ path: nodePath, name, type, properties }));
+  assert.deepEqual(restoredCanvasSubtree, canvasSubtreeBefore);
+  assert.deepEqual(
+    afterDeleteRollback.currentScene.nodes.filter((node) => node.path !== "." && !node.path.includes("/")).map((node) => node.path),
+    directChildrenBeforeDelete,
+  );
+  stage("scene subtree delete apply and rollback complete");
+
+  const beforeReparentContext = await readEditorContext(fixtureRoot);
+  const reparentPlan = structured(await request("tools/call", {
+    name: "preview_scene_change",
+    arguments: {
+      projectRoot: fixtureRoot,
+      reason: "CI scene reparent apply and rollback smoke test.",
+      operation: { kind: "scene.reparent_node", nodePath: "Canvas", newParentPath: "Scriptless" },
+    },
+  }));
+  assert.equal(reparentPlan.diff[0]?.fromNodePath, "Canvas");
+  assert.equal(reparentPlan.diff[0]?.toNodePath, "Scriptless/Canvas");
+  assert.equal(reparentPlan.diff[0]?.fromIndex, 0);
+  assert.equal(reparentPlan.diff[0]?.toIndex, 0);
+  assert.equal(reparentPlan.diff[0]?.keepGlobalTransform, true);
+  structured(await request("tools/call", {
+    name: "confirm_scene_change",
+    arguments: { projectRoot: fixtureRoot, planId: reparentPlan.planId, expectedRevision: reparentPlan.expectedRevision },
+  }));
+  const reparentApply = structured(await request("tools/call", {
+    name: "apply_scene_change",
+    arguments: { projectRoot: fixtureRoot, planId: reparentPlan.planId },
+  }));
+  assert.equal(reparentApply.status, "applied");
+  assert.equal(reparentApply.undoLabel, "Godot Safe Change: Reparent node");
+  const afterReparentContext = await readEditorContext(fixtureRoot);
+  assert.equal(sceneNode(afterReparentContext, "Canvas"), undefined);
+  assert.equal(sceneNode(afterReparentContext, "Scriptless/Canvas/Title")?.properties.text, "Fixture label");
+  const reparentRollback = structured(await request("tools/call", {
+    name: "rollback_scene_change",
+    arguments: { projectRoot: fixtureRoot, planId: reparentPlan.planId },
+  }));
+  assert.equal(reparentRollback.status, "rolled_back");
+  const afterReparentRollback = await readEditorContext(fixtureRoot);
+  assert.equal(sceneNode(afterReparentRollback, "Scriptless/Canvas"), undefined);
+  assert.deepEqual(afterReparentRollback.currentScene.nodes, beforeReparentContext.currentScene.nodes);
+  stage("scene reparent apply and rollback complete");
+
+  const beforeRenameContext = await readEditorContext(fixtureRoot);
+  const renamePlan = structured(await request("tools/call", {
+    name: "preview_scene_change",
+    arguments: {
+      projectRoot: fixtureRoot,
+      reason: "CI scene rename apply and rollback smoke test.",
+      operation: { kind: "scene.rename_node", nodePath: "Canvas", newName: "HUD" },
+    },
+  }));
+  assert.deepEqual(renamePlan.diff[0]?.affectedPaths, [
+    { from: "Canvas", to: "HUD" },
+    { from: "Canvas/Title", to: "HUD/Title" },
+    { from: "Canvas/ColorPanel", to: "HUD/ColorPanel" },
+  ]);
+  structured(await request("tools/call", {
+    name: "confirm_scene_change",
+    arguments: { projectRoot: fixtureRoot, planId: renamePlan.planId, expectedRevision: renamePlan.expectedRevision },
+  }));
+  const renameApply = structured(await request("tools/call", {
+    name: "apply_scene_change",
+    arguments: { projectRoot: fixtureRoot, planId: renamePlan.planId },
+  }));
+  assert.equal(renameApply.status, "applied");
+  assert.equal(renameApply.undoLabel, "Godot Safe Change: Rename node");
+  const afterRenameContext = await readEditorContext(fixtureRoot);
+  assert.equal(sceneNode(afterRenameContext, "Canvas"), undefined);
+  assert.equal(sceneNode(afterRenameContext, "HUD/Title")?.properties.text, "Fixture label");
+  const renameRollback = structured(await request("tools/call", {
+    name: "rollback_scene_change",
+    arguments: { projectRoot: fixtureRoot, planId: renamePlan.planId },
+  }));
+  assert.equal(renameRollback.status, "rolled_back");
+  const afterRenameRollback = await readEditorContext(fixtureRoot);
+  assert.deepEqual(afterRenameRollback.currentScene.nodes, beforeRenameContext.currentScene.nodes);
+  stage("scene rename apply and rollback complete");
 
   await roundTripSceneProperty(fixtureRoot, ".", "visible", false);
   await roundTripSceneProperty(fixtureRoot, ".", "position", { x: 12, y: 8 });
@@ -650,7 +834,7 @@ try {
       title: "Godot runtime task smoke",
       steps: [
         { kind: "apply_plan", stepId: "apply-marker", planId: taskPlan.planId, expectedRevision: taskPlan.expectedRevision },
-        { kind: "run_current_scene", stepId: "run-current", timeoutMs: 30000 },
+        { kind: "run_scene", stepId: "run-current", scenePath: "res://main.tscn", timeoutMs: 30000 },
         { kind: "verify_scene_state", stepId: "verify-marker", nodePath: "TaskMarker", expectedProperties: [{ property: "visible", expected: true }] },
         { kind: "verify_diagnostics", stepId: "verify-diagnostics", runStepId: "run-current", maxErrors: 0, maxWarnings: 100 },
       ],
@@ -731,6 +915,104 @@ try {
   assert.equal(taskPlanRollback.status, "rolled_back");
   assert.equal(sceneNode(await readEditorContext(fixtureRoot), "TaskMarker"), undefined);
 
+  stage("real bridge multi-process lease recovery");
+  const crossProcessTask = structured(await requestAt(secondaryEndpoint, "tools/call", {
+    name: "create_task",
+    arguments: {
+      projectRoot: fixtureRoot,
+      title: "Real bridge multi-process lease smoke",
+      steps: [{ kind: "run_scene", stepId: "cross-process-run", scenePath: "res://main.tscn", timeoutMs: 30000 }],
+    },
+  }));
+  const secondaryLease = structured(await requestAt(secondaryEndpoint, "tools/call", {
+    name: "acquire_task_lease",
+    arguments: { projectRoot: fixtureRoot, taskId: crossProcessTask.taskId, ttlMs: 5000 },
+  }));
+  assert.ok(secondaryLease.lease?.leaseId);
+  assert.ok(secondaryLease.lease?.ownerId);
+  const blockedApplyPlan = structured(await request("tools/call", {
+    name: "preview_scene_change",
+    arguments: {
+      projectRoot: fixtureRoot,
+      reason: "Verify a second MCP process cannot write through another process lease.",
+      operation: { kind: "scene.create_node", parentPath: ".", nodeName: "BlockedByLease", nodeType: "Node2D" },
+    },
+  }));
+  await request("tools/call", {
+    name: "confirm_scene_change",
+    arguments: { projectRoot: fixtureRoot, planId: blockedApplyPlan.planId, expectedRevision: blockedApplyPlan.expectedRevision },
+  });
+  await expectToolErrorAt(
+    endpoint,
+    "apply_scene_change",
+    { projectRoot: fixtureRoot, planId: blockedApplyPlan.planId },
+    /PROJECT_BUSY/,
+  );
+  assert.equal(sceneNode(await readEditorContext(fixtureRoot), "BlockedByLease"), undefined);
+  const secondaryExpiresAt = Date.parse(secondaryLease.lease.expiresAt);
+  assert.ok(Number.isFinite(secondaryExpiresAt));
+  assert.ok(secondaryExpiresAt > Date.now());
+  assert.ok(secondaryExpiresAt - Date.now() > 1000);
+  await expectToolErrorAt(
+    endpoint,
+    "acquire_task_lease",
+    { projectRoot: fixtureRoot, taskId: crossProcessTask.taskId, ttlMs: 5000 },
+    /PROJECT_BUSY/,
+  );
+  const busyStatus = structured(await request("tools/call", {
+    name: "task_status",
+    arguments: { projectRoot: fixtureRoot, taskId: crossProcessTask.taskId },
+  }));
+  assert.equal(busyStatus.lease?.leaseId, secondaryLease.lease.leaseId);
+  assert.equal(busyStatus.lease?.ownerId, secondaryLease.lease.ownerId);
+  assert.equal(busyStatus.recoverable, false);
+  assert.equal(Date.parse(busyStatus.lease.expiresAt), secondaryExpiresAt);
+  assert.ok(Date.now() < secondaryExpiresAt);
+  signalProcess(secondaryMcpProcess, "SIGKILL");
+  await waitForExit(secondaryMcpProcess);
+  await waitFor(Math.max(0, secondaryExpiresAt - Date.now() + 150));
+  assert.ok(Date.now() > secondaryExpiresAt);
+
+  const reclaimedCrossProcessTask = structured(await request("tools/call", {
+    name: "acquire_task_lease",
+    arguments: { projectRoot: fixtureRoot, taskId: crossProcessTask.taskId, ttlMs: 2000 },
+  }));
+  assert.equal(reclaimedCrossProcessTask.recoverable, false);
+  assert.ok(reclaimedCrossProcessTask.lease?.expiresAt);
+  assert.ok(Date.parse(reclaimedCrossProcessTask.lease.expiresAt) > Date.now());
+  const reclaimedEvent = reclaimedCrossProcessTask.timeline.find((event) => event.status === "lease_reclaimed");
+  assert.ok(reclaimedEvent);
+  assert.equal(reclaimedEvent.result?.reason, "lease_expired");
+  assert.equal(reclaimedEvent.result?.previousOwnerId, secondaryLease.lease.ownerId);
+  assert.notEqual(reclaimedEvent.result?.ownerId, secondaryLease.lease.ownerId);
+  const recoveredCrossProcessTask = structured(await request("tools/call", {
+    name: "advance_task",
+    arguments: { projectRoot: fixtureRoot, taskId: crossProcessTask.taskId },
+  }));
+  assert.equal(recoveredCrossProcessTask.status, "completed");
+  assert.equal(recoveredCrossProcessTask.steps[0]?.status, "succeeded");
+  const recoveredOperationId = recoveredCrossProcessTask.steps[0]?.operationId;
+  assert.match(recoveredOperationId ?? "", /^taskop_[A-Za-z0-9]+$/);
+  const recoveredTimeline = structured(await request("tools/call", {
+    name: "task_timeline",
+    arguments: { projectRoot: fixtureRoot, taskId: crossProcessTask.taskId, stepId: "cross-process-run", operationId: recoveredOperationId },
+  }));
+  assert.deepEqual(recoveredTimeline.events.map((event) => event.status), ["running", "succeeded"]);
+  assert.equal(recoveredTimeline.events[1]?.operationId, recoveredOperationId);
+  const appliedAfterTakeover = structured(await request("tools/call", {
+    name: "apply_scene_change",
+    arguments: { projectRoot: fixtureRoot, planId: blockedApplyPlan.planId },
+  }));
+  assert.equal(appliedAfterTakeover.status, "applied");
+  assert.ok(sceneNode(await readEditorContext(fixtureRoot), "BlockedByLease"));
+  const rolledBackAfterTakeover = structured(await request("tools/call", {
+    name: "rollback_scene_change",
+    arguments: { projectRoot: fixtureRoot, planId: blockedApplyPlan.planId },
+  }));
+  assert.equal(rolledBackAfterTakeover.status, "rolled_back");
+  assert.equal(sceneNode(await readEditorContext(fixtureRoot), "BlockedByLease"), undefined);
+  stage("real bridge multi-process lease recovery complete");
+
   const missingNodeTask = structured(await request("tools/call", {
     name: "create_task",
     arguments: {
@@ -783,7 +1065,7 @@ try {
           },
         },
         { kind: "apply_diagnostic_repair", stepId: "apply-repair", previewStepId: "preview-repair" },
-        { kind: "run_current_scene", stepId: "run-after-repair", timeoutMs: 30000 },
+        { kind: "run_scene", stepId: "run-after-repair", scenePath: "res://main.tscn", timeoutMs: 30000 },
         { kind: "verify_diagnostics", stepId: "verify-after-repair", runStepId: "run-after-repair", maxErrors: 0, maxWarnings: 100 },
       ],
     },
@@ -864,8 +1146,10 @@ try {
 } catch (error) {
   console.error("Godot output:\n" + godotOutputRef.value);
   console.error("MCP output:\n" + mcpOutputRef.value);
+  console.error("Secondary MCP output:\n" + secondaryMcpOutputRef.value);
   throw error;
 } finally {
+  await stopProcess(secondaryMcpProcess);
   await stopProcess(mcpProcess);
   await stopProcess(godotProcess);
   await rm(fixtureRoot, { recursive: true, force: true });

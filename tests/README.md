@@ -3,7 +3,7 @@
 Automated coverage currently includes:
 
 - contracts and application: preview, explicit confirmation, revision conflicts, property-specific diffs, active-plan identity, apply reports and run diagnostics through a fake bridge;
-- change contracts: strict visible/position/size/text/color value shapes, finite numeric ranges, safe relative NodePaths and project-local script/resource identifiers;
+- change contracts: strict visible/position/size/text/color value shapes, finite numeric ranges, safe relative NodePaths, scene subtree deletion/reparent/rename preview/apply/rollback checks, and project-local script/resource identifiers;
 - search index: read-only scene/script/resource/node matching, signal declarations, input actions, truncation and symlink safety;
 - operation audit: lifecycle operation IDs, inputs, outputs, revisions, failure evidence and JSONL restart recovery;
 - task contract boundaries: unique step IDs, slug-safe task IDs, lease TTL limits, inclusive timeline time ranges and bounded timeline limits;
@@ -17,6 +17,7 @@ Automated coverage currently includes:
 - multi-step tasks: bounded task state machine with apply/rollback/run/verify/diagnostic-repair preview+apply steps, pause/resume/cancel transitions, explicit lease acquire/renew/release, retry budget, project-directory persistence and restart recovery; repair apply is gated by a separate confirmation;
 - HTTP bridge: loopback protocol envelopes, context/search/apply requests, current-scene and specified-scene run status polling;
 - plugin boundary: fixed TCPServer transport, independent validation of forged apply/rollback requests, unchanged project state after rejected payloads, context/apply/rollback/run/run-scene routes, safe paths and forbidden-operation checks.
+- real Godot integration: two MCP processes sharing one EditorPlugin bridge, lease contention, write apply rejection, forced owner termination, TTL takeover, and task execution plus rollback through the real bridge.
 
 Run the automated suite with:
 

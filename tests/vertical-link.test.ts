@@ -6,6 +6,7 @@ import type { AddressInfo } from "node:net";
 import { ChangeCoordinator } from "../src/application/change-coordinator.js";
 import { LocalProjectSearchService } from "../src/application/project-search-service.js";
 import { DomainError, ERROR_CODES } from "../src/domain/errors.js";
+import { changeOperationSchema } from "../src/domain/change-contracts.js";
 import type {
   ApplyChangeRequest,
   ChangeReport,
@@ -202,6 +203,213 @@ class FakeGodotBridge implements GodotBridge {
 }
 
 describe("ChangeCoordinator", () => {
+  test("previews a scene node rename with descendant NodePath changes", async () => {
+    const bridge = new FakeGodotBridge();
+    bridge.context = {
+      ...bridge.context,
+      currentScene: {
+        ...bridge.context.currentScene,
+        nodes: [
+          ...bridge.context.currentScene.nodes,
+          { path: "Canvas", name: "Canvas", type: "Control", properties: { visible: true } },
+          { path: "Canvas/Title", name: "Title", type: "Label", properties: { text: "Fixture" } },
+          { path: "Canvas/Title/Badge", name: "Badge", type: "Label", properties: { text: "New" } },
+          { path: "Scriptless", name: "Scriptless", type: "Node2D", properties: {} },
+        ],
+      },
+    };
+    const coordinator = new ChangeCoordinator(bridge);
+    const plan = await coordinator.previewSceneChange({
+      projectRoot,
+      reason: "Give the canvas a stable descriptive name.",
+      operation: { kind: "scene.rename_node", nodePath: "Canvas", newName: "HUD" } as never,
+    });
+
+    assert.equal(plan.operations[0]?.kind, "scene.rename_node");
+    assert.deepEqual(plan.diff[0], {
+      kind: "scene.rename_node",
+      target: "res://main.tscn:Canvas",
+      summary: "Rename Canvas to HUD in res://main.tscn",
+      nodePath: "Canvas",
+      newNodePath: "HUD",
+      previousName: "Canvas",
+      newName: "HUD",
+      affectedPaths: [
+        { from: "Canvas", to: "HUD" },
+        { from: "Canvas/Title", to: "HUD/Title" },
+        { from: "Canvas/Title/Badge", to: "HUD/Title/Badge" },
+      ],
+    });
+    assert.equal(bridge.applied.length, 0);
+  });
+
+  test("rejects root, missing, unchanged and colliding scene rename targets", async () => {
+    const bridge = new FakeGodotBridge();
+    bridge.context = {
+      ...bridge.context,
+      currentScene: {
+        ...bridge.context.currentScene,
+        nodes: [
+          ...bridge.context.currentScene.nodes,
+          { path: "Canvas", name: "Canvas", type: "Control", properties: {} },
+          { path: "Scriptless", name: "Scriptless", type: "Node2D", properties: {} },
+        ],
+      },
+    };
+    const coordinator = new ChangeCoordinator(bridge);
+    const preview = (nodePath: string, newName: string) =>
+      coordinator.previewSceneChange({
+        projectRoot,
+        reason: "Exercise rename safety validation.",
+        operation: { kind: "scene.rename_node", nodePath, newName } as never,
+      });
+
+    await assert.rejects(
+      () => preview(".", "RenamedRoot"),
+      (error: unknown) => error instanceof DomainError && error.code === ERROR_CODES.UNSAFE_OPERATION,
+    );
+    await assert.rejects(
+      () => preview("Missing", "Renamed"),
+      (error: unknown) => error instanceof DomainError && error.code === ERROR_CODES.VALIDATION_FAILED,
+    );
+    await assert.rejects(
+      () => preview("Canvas", "Canvas"),
+      (error: unknown) => error instanceof DomainError && error.code === ERROR_CODES.OPERATION_REJECTED,
+    );
+    await assert.rejects(
+      () => preview("Canvas", "Scriptless"),
+      (error: unknown) => error instanceof DomainError && error.code === ERROR_CODES.VALIDATION_FAILED,
+    );
+    await assert.rejects(() => preview("Canvas", "bad/name"));
+    assert.equal(bridge.applied.length, 0);
+  });
+
+  test("accepts the bounded scene.reparent_node contract and defaults transform preservation on", () => {
+    const parsed = changeOperationSchema.parse({
+      kind: "scene.reparent_node",
+      nodePath: "Source/Movable",
+      newParentPath: "Target",
+    });
+
+    assert.deepEqual(parsed, {
+      kind: "scene.reparent_node",
+      nodePath: "Source/Movable",
+      newParentPath: "Target",
+      keepGlobalTransform: true,
+    });
+    assert.deepEqual(
+      changeOperationSchema.parse({
+        kind: "scene.reparent_node",
+        nodePath: "Source/Movable",
+        newParentPath: "Target",
+        keepGlobalTransform: false,
+      }),
+      {
+        kind: "scene.reparent_node",
+        nodePath: "Source/Movable",
+        newParentPath: "Target",
+        keepGlobalTransform: false,
+      },
+    );
+  });
+
+  test("previews reparent paths, child indexes and transform policy without applying", async () => {
+    const bridge = new FakeGodotBridge();
+    bridge.context = {
+      ...bridge.context,
+      currentScene: {
+        ...bridge.context.currentScene,
+        nodes: [
+          ...bridge.context.currentScene.nodes,
+          { path: "Source", name: "Source", type: "Node2D", properties: { position: { x: 0, y: 0 } } },
+          { path: "Source/Spacer", name: "Spacer", type: "Node2D", properties: { position: { x: 1, y: 1 } } },
+          { path: "Source/Movable", name: "Movable", type: "Node2D", properties: { position: { x: 12, y: 8 } } },
+          { path: "Source/Movable/Grandchild", name: "Grandchild", type: "Label", properties: { text: "Keep me" } },
+          { path: "Target", name: "Target", type: "Node2D", properties: { position: { x: 4, y: 5 } } },
+          { path: "Target/Existing", name: "Existing", type: "Node2D", properties: { position: { x: 0, y: 0 } } },
+        ],
+      },
+    };
+    const coordinator = new ChangeCoordinator(bridge);
+    const plan = await coordinator.previewSceneChange({
+      projectRoot,
+      reason: "Move the node into the target branch.",
+      operation: {
+        kind: "scene.reparent_node",
+        nodePath: "Source/Movable",
+        newParentPath: "Target",
+      },
+    });
+
+    assert.equal(plan.operations[0]?.kind, "scene.reparent_node");
+    assert.deepEqual(plan.operations[0], {
+      kind: "scene.reparent_node",
+      nodePath: "Source/Movable",
+      newParentPath: "Target",
+      keepGlobalTransform: true,
+    });
+    assert.deepEqual(plan.diff[0], {
+      kind: "scene.reparent_node",
+      target: "res://main.tscn:Source/Movable",
+      summary: "Move Source/Movable under Target in res://main.tscn",
+      fromNodePath: "Source/Movable",
+      toNodePath: "Target/Movable",
+      fromParentPath: "Source",
+      fromIndex: 1,
+      toParentPath: "Target",
+      toIndex: 1,
+      keepGlobalTransform: true,
+    });
+    assert.equal(bridge.applied.length, 0);
+  });
+
+  test("rejects root, missing, cyclic, same-parent and colliding reparent targets", async () => {
+    const bridge = new FakeGodotBridge();
+    bridge.context = {
+      ...bridge.context,
+      currentScene: {
+        ...bridge.context.currentScene,
+        nodes: [
+          ...bridge.context.currentScene.nodes,
+          { path: "Source", name: "Source", type: "Node2D", properties: {} },
+          { path: "Source/Movable", name: "Movable", type: "Node2D", properties: {} },
+          { path: "Source/Movable/Child", name: "Child", type: "Node2D", properties: {} },
+          { path: "Target", name: "Target", type: "Node2D", properties: {} },
+          { path: "Target/Movable", name: "Movable", type: "Node2D", properties: {} },
+        ],
+      },
+    };
+    const coordinator = new ChangeCoordinator(bridge);
+    const preview = (nodePath: string, newParentPath: string) =>
+      coordinator.previewSceneChange({
+        projectRoot,
+        reason: "Exercise reparent path validation.",
+        operation: { kind: "scene.reparent_node", nodePath, newParentPath },
+      });
+
+    await assert.rejects(
+      () => preview(".", "Target"),
+      (error: unknown) => error instanceof DomainError && error.code === ERROR_CODES.UNSAFE_OPERATION,
+    );
+    await assert.rejects(
+      () => preview("Source/Missing", "Target"),
+      (error: unknown) => error instanceof DomainError && error.code === ERROR_CODES.VALIDATION_FAILED,
+    );
+    await assert.rejects(
+      () => preview("Source/Movable", "Source/Movable/Child"),
+      (error: unknown) => error instanceof DomainError && error.code === ERROR_CODES.UNSAFE_OPERATION,
+    );
+    await assert.rejects(
+      () => preview("Source/Movable", "Source"),
+      (error: unknown) => error instanceof DomainError && error.code === ERROR_CODES.OPERATION_REJECTED,
+    );
+    await assert.rejects(
+      () => preview("Source/Movable", "Target"),
+      (error: unknown) => error instanceof DomainError && error.code === ERROR_CODES.VALIDATION_FAILED,
+    );
+    assert.equal(bridge.applied.length, 0);
+  });
+
   test("previews a node creation without applying it", async () => {
     const bridge = new FakeGodotBridge();
     const coordinator = new ChangeCoordinator(bridge);
@@ -222,6 +430,88 @@ describe("ChangeCoordinator", () => {
     assert.equal(plan.operations[0]?.kind, "scene.create_node");
     assert.match(plan.diff[0]?.summary ?? "", /SafeMarker/);
     assert.equal(bridge.applied.length, 0);
+  });
+
+  test("previews deleting a bounded scene subtree and rejects unsafe targets", async () => {
+    const bridge = new FakeGodotBridge();
+    bridge.context = {
+      ...bridge.context,
+      currentScene: {
+        ...bridge.context.currentScene,
+        nodes: [
+          ...bridge.context.currentScene.nodes,
+          {
+            path: "Canvas",
+            name: "Canvas",
+            type: "Control",
+            properties: { visible: true, size: { x: 320, y: 180 } },
+          },
+          {
+            path: "Canvas/Title",
+            name: "Title",
+            type: "Label",
+            properties: { visible: true, text: "Fixture label" },
+          },
+          {
+            path: "CanvasOther",
+            name: "CanvasOther",
+            type: "Node2D",
+            properties: { visible: true, position: { x: 0, y: 0 } },
+          },
+        ],
+      },
+    };
+    const coordinator = new ChangeCoordinator(bridge);
+
+    const plan = await coordinator.previewSceneChange({
+      projectRoot,
+      reason: "Remove the obsolete canvas subtree.",
+      operation: { kind: "scene.delete_node", nodePath: "Canvas" },
+    });
+
+    assert.equal(plan.operations[0]?.kind, "scene.delete_node");
+    const diff = plan.diff[0] as {
+      kind: string;
+      nodePath: string;
+      deletedNodes: Array<{ path: string; name: string; type: string }>;
+    };
+    assert.equal(diff.kind, "scene.delete_node");
+    assert.equal(diff.nodePath, "Canvas");
+    assert.deepEqual(diff.deletedNodes.map((node) => node.path), ["Canvas", "Canvas/Title"]);
+    assert.match(plan.diff[0]?.summary ?? "", /Canvas/);
+    assert.equal(bridge.applied.length, 0);
+    await coordinator.confirmChange({ projectRoot, planId: plan.planId, expectedRevision: plan.expectedRevision });
+    const applied = await coordinator.applyChange({ projectRoot, planId: plan.planId });
+    assert.equal(applied.status, "applied");
+    assert.equal(bridge.applied[0]?.operations[0]?.kind, "scene.delete_node");
+    const rolledBack = await coordinator.rollbackChange({ projectRoot, planId: plan.planId });
+    assert.equal(rolledBack.status, "rolled_back");
+
+    await assert.rejects(
+      () =>
+        coordinator.previewSceneChange({
+          projectRoot,
+          reason: "Do not remove the scene root.",
+          operation: { kind: "scene.delete_node", nodePath: "." },
+        }),
+      (error: unknown) => error instanceof DomainError && error.code === ERROR_CODES.UNSAFE_OPERATION,
+    );
+    await assert.rejects(
+      () =>
+        coordinator.previewSceneChange({
+          projectRoot,
+          reason: "Reject a missing node.",
+          operation: { kind: "scene.delete_node", nodePath: "Canvas/Missing" },
+        }),
+      (error: unknown) => error instanceof DomainError && error.code === ERROR_CODES.VALIDATION_FAILED,
+    );
+    await assert.rejects(() =>
+      coordinator.previewSceneChange({
+        projectRoot,
+        reason: "Reject traversal.",
+        operation: { kind: "scene.delete_node", nodePath: "../Canvas" },
+      }),
+    );
   });
 
   test("previews a bounded scene property change", async () => {

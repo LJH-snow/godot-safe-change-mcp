@@ -221,6 +221,16 @@ npm run build
 
 2026-10-01 已增加真实多进程 lease 回归：独立 worker 进程验证并发 owner 稳定返回 `PROJECT_BUSY`，过期 lease 只允许一个进程接管，并在 owner 被 kill 后恢复 running task step，保留 `step_interrupted`、`lease_reclaimed` 和新旧 operation ID 证据。
 
+2026-10-01 已将多进程验收接入真实 Godot smoke：两个独立 MCP 进程共享同一 EditorPlugin 桥接和 state 目录，验证 lease 冲突、强制终止、TTL 接管，并由接管进程运行真实场景。
+
+2026-10-01 已补真实桥接写入边界：第二进程持有 task lease 时，第一进程的 scene apply 返回 PROJECT_BUSY 且场景不变；TTL 接管后 apply/rollback 均成功。
+
+2026-10-01 已完成 scene.delete_node preview/apply/rollback：校验安全相对 NodePath、拒绝场景根、不存在或非当前场景拥有的节点；UndoRedo 保留被删节点并按原父级和 child index 恢复，真实 Godot smoke 覆盖子树属性与 sibling 顺序。
+
+2026-10-02 已新增 scene.reparent_node preview/apply/rollback：仅当前场景拥有的非根节点可移到当前场景内其他父节点，拒绝循环、同父级无效操作和重名节点；保留全局变换选项、目标路径与 sibling index，使用 EditorUndoRedoManager 恢复原父级和顺序。
+
+2026-10-02 已新增 scene.rename_node preview/apply/rollback：只允许当前场景拥有的非根节点改名，拒绝非法、重复或无变化名称；preview 返回子树 NodePath 映射，EditorUndoRedoManager 恢复名称并由 revision/history 守卫限制回滚。
+
 ## 7. 待决定问题
 
 - 本地桥接使用 HTTP、WebSocket，还是两个都提供；
