@@ -230,6 +230,8 @@ npm run package:check
 推荐先阅读：
 
 - [贡献指南](CONTRIBUTING.md)
+- [行为准则](CODE_OF_CONDUCT.md)
+- [安全策略](SECURITY.md)
 - [增长与社区采用计划](docs/GROWTH.md)
 - [Agent 示例](docs/EXAMPLES.md)
 - [60 秒演示脚本](docs/DEMO.md)

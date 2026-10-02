@@ -1,5 +1,10 @@
 # 进度记录
 
+## 2026-10-03 community trust documents
+
+- 新增 CODE_OF_CONDUCT.md 和 SECURITY.md，并在双语 README 加入入口。
+- 明确贡献讨论、隐私信息、漏洞披露和项目安全边界，等待默认分支合并后对外生效。
+
 ## 2026-10-03 community launch kit
 
 - 新增 docs/ANNOUNCEMENTS.md，提供中英文发布文案、Godot/MCP/Reddit/博客/X 渠道适配和反馈问题模板。

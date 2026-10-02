@@ -271,6 +271,7 @@
 - [x] 录制真实 starter fixture GIF，覆盖 context、search、preview、confirm、apply 和 rollback。
 - [x] 准备中英文社区发布文案和反馈问题，发布前先由用户选择渠道并确认发送。
 - [x] 为外部反馈和新贡献者准备 GitHub 标签：starter、release-feedback、growth 和 Godot 版本标签。
+- [x] 增加 Code of Conduct 和 Security policy，降低外部贡献和安全反馈的信任门槛。
 - [x] 创建第一个 GitHub Release/tag，并保留四项 CI 证据和安装说明。
 - [ ] 提供可复制的 starter fixture、5 个示例请求和 60 秒演示素材。
 - [ ] 获取至少 3 个外部安装/测试反馈和 1 个外部 issue 或 PR，并根据反馈迭代。
