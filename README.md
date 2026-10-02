@@ -1,117 +1,211 @@
-# Godot Safe Change MCP
+<p align="center">
+  <img src="public/icon.svg" alt="Godot Safe Change MCP" width="96">
+</p>
 
-[English](README.en.md) | 简体中文
+<h1 align="center">Godot Safe Change MCP</h1>
 
-一个让 Agent 通过 MCP 参与 Godot 开发的 MCP Server。TypeScript MCP Server 负责工具契约、计划、确认和报告；GDScript Godot EditorPlugin 负责编辑器上下文、UndoRedo、运行控制和诊断采集。
+<p align="center">
+  让 Agent 以可预览、可确认、可回滚的方式参与 Godot 开发。
+</p>
 
-当前已经打通第一条安全垂直链路：
+<p align="center">
+  <a href="https://github.com/LJH-snow/godot-safe-change-mcp/actions/workflows/ci.yml?query=branch%3Afeature%2Frun-scene-project-leases"><img src="https://github.com/LJH-snow/godot-safe-change-mcp/actions/workflows/ci.yml/badge.svg?branch=feature/run-scene-project-leases" alt="CI"></a>
+  <a href="https://github.com/LJH-snow/godot-safe-change-mcp/blob/feature/run-scene-project-leases/LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT License"></a>
+  <a href="https://nodejs.org/"><img src="https://img.shields.io/badge/Node.js-%3E%3D22.22.2-339933.svg?logo=node.js&logoColor=white" alt="Node.js 22.22.2 or newer"></a>
+  <a href="https://godotengine.org/"><img src="https://img.shields.io/badge/Godot-4.x-478CBF.svg?logo=godot-engine&logoColor=white" alt="Godot 4.x"></a>
+</p>
 
-> 读取编辑器上下文 → 本地 loopback HTTP 桥接 → 预览场景节点变更 → 用户确认 → Godot UndoRedo 应用 → 运行当前场景并返回诊断
+<p align="center"><a href="README.en.md">English</a> · 简体中文</p>
 
-## 已实现能力
+Godot Safe Change MCP 是一个面向 Agent 的 MCP Server：TypeScript 负责工具契约、预览计划、确认、任务编排和审计；Godot EditorPlugin 负责真实编辑器上下文、UndoRedo、运行控制和诊断采集。
 
-- project_overview：读取项目 overview 和编辑器连接状态，并基于本地只读索引统计真实的场景、脚本、资源和设置文件数量（编辑器离线时同样可用）。
-- editor_context：读取当前项目、场景、选中节点、打开资源、运行状态和诊断。
-- preview_diagnostic_repair：仅根据诊断中明确的受限 repair hint 生成下一份 preview plan。
-- operation_history：查询最近的 preview、confirm、apply、rollback、run 操作及其输入、输出、revision 和错误证据；审计事件持久化在用户状态目录，支持重启后恢复。
-- project lease：apply/rollback 自动获取短租约，多个窗口同时写入同一项目时返回 PROJECT_BUSY；租约状态存放在用户状态目录，不写入 Godot 项目。
-- search_project：统一的只读项目搜索，覆盖场景、节点、脚本、资源、信号连接和输入映射。场景/节点/脚本/资源优先由连接的 Godot 编辑器返回（编辑中场景的实时状态），编辑器离线时自动回退到本地只读索引；信号与输入结果始终来自本地索引。每条结果带 `source` 标记来源。
-- find_references：反向引用查找，回答“哪些场景、资源或脚本引用了这个脚本、贴图或资源”。支持场景/资源 ext_resource、GDScript `preload()` / `load()`，可按 res:// 路径或 uid:// 标识匹配，能解析 Godot 4.4+ 中省略路径、只写 uid 的引用（纯本地只读）。
-- preview_scene_change：生成受限 scene.create_node、scene.delete_node、scene.reparent_node、scene.rename_node、scene.duplicate_node、scene.instantiate_scene、scene.set_property、scene.attach_script、scene.detach_script、resource.replace_reference、project.input_action.add_key/remove_key/replace_key 或 script.replace_range 计划和 diff。
-- scene.duplicate_node：只允许复制当前场景拥有的非根节点子树到当前场景其他父节点；拒绝循环、重名和外部实例节点，preview 返回源/目标路径映射，apply/rollback 通过 Godot UndoRedo 保持 owner 和全局变换策略。
-- scene.instantiate_scene：只允许把项目内已有 `.tscn` 作为实例挂载到当前场景的安全父节点；拒绝自引用、路径遍历和名称冲突，preview 绑定源场景文件 revision，apply/rollback 通过 Godot UndoRedo 管理实例根节点。
-- scene.rename_node：只允许重命名当前场景拥有的非根节点；拒绝同名 no-op、非法名称和同级重名，preview 显示该子树所有受影响 NodePath；apply/rollback 通过 Godot UndoRedo 恢复名称及路径。
-- scene.reparent_node：只允许当前场景拥有的非根节点移动到当前场景内其他父节点；拒绝循环、同父级无效移动和重名节点。preview 展示 NodePath、父节点、child index 和全局变换策略，默认保留全局变换，apply/rollback 通过 Godot UndoRedo 恢复原层级和顺序。
-- scene.delete_node：只允许删除当前场景内由当前场景拥有的非根节点；preview 返回完整待删除子树快照，apply/rollback 通过 Godot UndoRedo 保持原父级和节点顺序。
-- scene.set_property：仅允许 visible、position、size、text、color，并绑定节点类型、严格对象字段、finite 数值范围和当前属性快照。
-- scene.attach_script：仅允许给当前场景节点挂载项目内现有 `.gd` 脚本，不执行或修改脚本内容。
-- scene.detach_script：仅允许移除当前场景节点已有的项目内 `.gd` 脚本；apply/rollback 通过 Godot UndoRedo 恢复原脚本资源，预览会返回原脚本路径。
-- resource.replace_reference / project.input_action.add_key/remove_key/replace_key：分别通过文件 revision 或 project.godot revision guard 执行受限替换/设置保存，并支持安全 rollback；按键删除和替换只接受唯一匹配的 InputEventKey，替换会保留原修饰键。
-- confirm_scene_change：检查 expected revision 并确认计划。
-- apply_scene_change：只把已确认且 revision 未过期的计划交给 Godot UndoRedo 或对应的受限文件/设置写入路径；同一项目同时只允许一个已应用计划。
-- rollback_scene_change：只回滚仍处于最新 revision、文件 revision 或 UndoRedo history 的已应用计划。
-- run_current_scene：运行当前场景，并轮询插件返回 stopped 或 failed 诊断。
-- run_scene：运行一个经过 `res://` 和 `.tscn` 路径校验的指定场景，并通过 run ID 轮询长时运行状态。
-- create_task / get_task / advance_task / pause_task / resume_task / cancel_task：把受限的 apply、rollback、run、scene-state/diagnostics 验收和诊断修复预览/应用步骤组成一个可审查的多步骤任务；每个任务的 `stepId` 必须唯一，修复预览后暂停等用户确认，apply 仍走既有 revision/confirmation 守卫。
+它不把 Godot 暴露成任意 RPC，而是把一次变更约束成一条可验证的闭环：
 
-- acquire_task_lease / renew_task_lease / release_task_lease：管理跨多个 task 步骤的项目 lease，返回 owner、过期时间和 recoverable 状态；多个 MCP 进程并发接管时通过原子文件 lease 保证单一 owner。
-- task_status：只读返回任务状态、lease owner、expiresAt 和可恢复状态。
-- task_timeline：只读查询完整任务时间线，可按 stepId、operationId、事件类型和 ISO 时间范围过滤。
+> 读取上下文 → 生成 Diff → 用户确认 → 获取项目 Lease → 通过 Godot UndoRedo 应用 → 运行/验证 → 安全回滚
 
-当前只支持在当前场景内创建一个 allowlist 中的节点类型：Node、Node2D、Control、Label、ColorRect；场景属性修改、脚本挂载/卸载、节点删除、重挂和重命名只针对当前场景内的相对 NodePath 和 allowlisted 属性。
+<p align="center">
+  <img src="docs/assets/mcp-inspector-tools.jpg" alt="MCP Inspector showing Godot Safe Change MCP tools" width="100%">
+</p>
 
-## 本地运行
+<p align="center"><sub>真实本地 MCP Inspector 工具面板；Godot EditorPlugin 连接后，工具会读取当前场景和编辑器状态。</sub></p>
 
-安装依赖并启动 MCP 开发服务器：
+## 为什么使用它
+
+- **面向意图，而不是任意 RPC**：Agent 请求的是创建、移动、实例化、修改属性、运行和验证等受限操作。
+- **每次写入都有证据**：Preview Diff、expected revision、用户确认、operation ID、Godot UndoRedo 和 rollback report 串成完整记录。
+- **适合多窗口协作**：项目 Lease、heartbeat、TTL 接管和稳定的 PROJECT_BUSY 防止两个 MCP 进程互相覆盖。
+- **真实 Godot 验证**：GitHub Actions 在 Godot 4.5.1 与 4.7.2 上运行同一套 EditorPlugin fixture smoke。
+
+## Quick Start
+
+### 环境要求
+
+- Node.js 22.22.2 或更新版本
+- Godot 4.x 编辑器；CI 当前验证 4.5.1 与 4.7.2
+- 一个支持 MCP 的 Agent 客户端
+
+### 1. 安装并启动 MCP Server
 
 ~~~bash
-npm install
+git clone https://github.com/LJH-snow/godot-safe-change-mcp.git
+cd godot-safe-change-mcp
+npm ci
+npm run build
 npm run dev
 ~~~
 
-然后打开 http://localhost:3000/mcp/inspector，在 Inspector 中查看工具、资源和错误结果。
+开发服务器提供：
 
-默认情况下 MCP Server 连接 http://127.0.0.1:8765 的 Godot EditorPlugin 桥接；可通过 GODOT_BRIDGE_URL 覆盖地址。
+- MCP endpoint：<code>http://127.0.0.1:3000/mcp</code>
+- Inspector：<code>http://127.0.0.1:3000/mcp/inspector</code>
+- Godot bridge：默认 <code>http://127.0.0.1:8765</code>
 
-常用检查：
+如需更换桥接地址，设置 <code>GODOT_BRIDGE_URL</code>：
 
 ~~~bash
-npm run typecheck
-npm test
-npm run build
-npm run package:check
+GODOT_BRIDGE_URL=http://127.0.0.1:8765 npm run dev
 ~~~
 
-## 发布前检查
+### 2. 安装 Godot 插件
 
-发布前必须在干净工作区执行完整检查，并确认当前提交已推送：
+把本仓库的 <code>godot-plugin</code> 复制到目标项目：
+
+~~~text
+your-godot-project/addons/godot-safe-change-bridge/
+~~~
+
+打开 Godot 后，在 Project → Project Settings → Plugins 中启用 **Godot Safe Change Bridge**。插件只监听 loopback 地址 <code>127.0.0.1:8765</code>，不会向公网暴露编辑器。
+
+### 3. 连接 MCP 客户端
+
+在客户端添加 Streamable HTTP MCP Server：
+
+~~~text
+http://127.0.0.1:3000/mcp
+~~~
+
+也可以直接运行已构建的入口：
 
 ~~~bash
-npm ci
+npm run build
+node bin/mcp-server.mjs
+~~~
+
+## 第一次尝试
+
+连接成功后，可以从只读操作开始：
+
+~~~text
+读取当前 Godot 编辑器上下文和完整场景树。
+搜索项目中所有与 Player 或 PackedScene 相关的节点、脚本和资源。
+查找哪些场景或脚本引用了 res://scripts/player.gd。
+~~~
+
+一个完整的安全写入流程如下：
+
+1. 调用 <code>preview_scene_change</code> 生成计划和 Diff。
+2. 检查 target、NodePath、属性变化和 expected revision。
+3. 调用 <code>confirm_scene_change</code> 明确确认。
+4. 调用 <code>apply_scene_change</code>，由插件通过 Godot UndoRedo 执行。
+5. 调用 <code>run_current_scene</code>、<code>verify_scene_state</code> 或 <code>verify_diagnostics</code> 收集证据。
+6. 需要撤销时调用 <code>rollback_scene_change</code>；revision 不一致时系统会拒绝覆盖用户修改。
+
+## 工作流
+
+~~~mermaid
+flowchart LR
+    A[Agent / MCP Client] --> B[Godot Safe Change MCP]
+    B --> C[Read context and search]
+    C --> D[Preview + Diff]
+    D --> E[User confirmation]
+    E --> F[Task lease + revision guard]
+    F --> G[Loopback EditorPlugin]
+    G --> H[Godot UndoRedo / bounded file change]
+    H --> I[Run scene and collect diagnostics]
+    I --> J[Verify state or diagnostics]
+    J --> K[Rollback or continue]
+    K --> F
+~~~
+
+## 能力地图
+
+| 领域 | 能力 | 说明 |
+| --- | --- | --- |
+| 项目理解 | <code>project_overview</code>、<code>search_project</code>、<code>find_references</code> | 搜索场景、节点、脚本、资源、信号、输入和反向引用；编辑器离线时使用本地只读索引。 |
+| 编辑器上下文 | <code>editor_context</code> | 返回完整当前场景树、选中节点安全属性、打开资源、运行状态和诊断。 |
+| 场景结构 | create、delete、reparent、rename、duplicate、instantiate | 所有 NodePath、名称、父子关系和实例源路径都经过边界校验。 |
+| 场景内容 | <code>scene.set_property</code>、<code>scene.attach_script</code>、<code>scene.detach_script</code> | 仅开放 visible、position、size、text、color，以及项目内现有 GDScript 的挂载/卸载。 |
+| 文件/设置 | resource reference、input action、script range | 使用文件或 project.godot revision guard，原子写入并支持 rollback。 |
+| 运行诊断 | <code>run_current_scene</code>、<code>run_scene</code> | 返回 run ID、状态、输出、warning、error、source、line 和 NodePath。 |
+| 多步骤任务 | create/get/advance/pause/resume/cancel | 支持 verify_scene_state、verify_diagnostics、诊断修复预览和 step-level operation ID。 |
+| 并发恢复 | acquire/renew/release task lease、<code>task_status</code>、<code>task_timeline</code> | Lease 持有期间 heartbeat 续租；进程崩溃后按 TTL 接管，并保留审计时间线。 |
+
+## 安全模型
+
+### 写操作生命周期
+
+~~~text
+preview → confirm → lease/revision check → apply → verify → rollback (when needed)
+~~~
+
+### 明确禁止
+
+- 任意 Agent 生成的 GDScript 执行
+- shell、Python worker 或任意系统命令执行
+- 任意 Godot RPC、方法名或对象反射
+- 不受限制的文件系统写入
+- 绕过 preview、confirm、revision、lease 或 rollback 的写入
+
+### 并发行为
+
+同一项目的短期 apply/rollback lease 和跨步骤 task lease 都存放在用户状态目录，不写入 Godot 项目。另一个窗口持有有效 lease 时，操作稳定返回 <code>PROJECT_BUSY</code>；owner 进程崩溃后，其他窗口只能在 TTL 到期后接管。
+
+## 测试与 CI
+
+本地质量门禁：
+
+~~~bash
 npm test
 npm run typecheck
 npm run build
 npm run package:check
+git diff --check
+~~~
+
+本地有 Godot 编辑器时运行真实 bridge smoke：
+
+~~~bash
 GODOT_BIN=/path/to/Godot node tests/godot-runtime-smoke.mjs
 ~~~
 
-GitHub Actions 还必须通过 `check`、`npm package boundary`、Godot `4.5.1 runtime` 和 Godot `4.7.2 runtime` 四个 job。Godot smoke 会在同一真实 EditorPlugin 桥接上启动两个 MCP 进程，验证 lease 冲突和 TTL 接管。`npm run package:check` 会用实际 tarball 的显式发布清单检查包边界，拒绝源码、测试、文档、CI、脚本和锁文件进入包。
+GitHub Actions 对每个推送运行四个 job：
 
-## 通过 npx 运行
+- <code>check</code>：Node.js typecheck、回归测试和 build
+- <code>npm package boundary</code>：验证实际发布 tarball 不包含源码、测试和内部文档
+- <code>Godot 4.5.1 runtime</code>：真实 EditorPlugin fixture smoke
+- <code>Godot 4.7.2 runtime</code>：同一 fixture 的第二版本验证
 
-无需克隆仓库即可启动（需要 Node >= 22.22.2，首次运行会自动构建）：
+Smoke 覆盖 search、context、场景属性/结构/实例化/脚本 apply-rollback、资源和输入设置、diagnostics、task lease、双 MCP 进程并发和 TTL 接管。
+
+## 开发者入口
 
 ~~~bash
-npx github:LJH-snow/godot-safe-change-mcp
+npm ci
+npm run dev          # Inspector + MCP endpoint
+npm run typecheck
+npm test
+npm run build
+npm run package:check
 ~~~
 
-发布到 npm 后也可以：
+推荐先阅读：
 
-~~~bash
-npx godot-safe-change-mcp
-~~~
+- [发布清单](docs/RELEASE.md)
+- [测试边界与 Godot 手工验收](tests/README.md)
+- [完整产品计划](docs/PLAN.md)
+- [Godot 插件说明](godot-plugin/README.md)
+- [英文 README](README.en.md)
 
-服务器在 `http://127.0.0.1:3000/mcp` 提供 MCP Streamable HTTP 端点；可用 `PORT`、`HOST` 和 `GODOT_BRIDGE_URL` 环境变量覆盖默认值。
+## License
 
-## Godot 插件
-
-将 godot-plugin 目录复制到目标 Godot 项目：
-
-~~~text
-res://addons/godot-safe-change-bridge/
-~~~
-
-在 Godot 编辑器中启用 Godot Safe Change Bridge 插件。插件只绑定 127.0.0.1:8765，并只提供固定的 context、changes/apply、changes/rollback、search、受限 snapshot/read 和 run 路由。
-
-没有 Godot 编辑器连接时，MCP 工具返回稳定的 EDITOR_UNAVAILABLE，而不会伪造成功。
-
-## 安全边界
-
-- 写操作必须经过 preview、confirmation 和 expected revision 检查。
-- 场景创建、属性修改和脚本挂载只能由 GDScript 插件通过 Godot EditorUndoRedoManager 执行；scene rollback 会校验 history、version、action 和 label。
-- 文件和项目设置修改只走受限 `.gd` 原子替换、资源引用替换或 ProjectSettings 路径，并保留 file revision guard。
-- 不执行 Agent 生成的任意 GDScript、shell、Python 或任意 Godot RPC。
-- 插件只接受固定路由、allowlist 节点类型、safe relative NodePath 和项目内路径，并校验当前项目根目录。
-- 运行诊断只返回插件采集的输出、warning、error 和运行状态。
-
-完整产品计划见 docs/PLAN.md；测试边界和 Godot 手工验收见 tests/README.md；发布前清单见 docs/RELEASE.md。
+[MIT](LICENSE)

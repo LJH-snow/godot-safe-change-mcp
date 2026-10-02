@@ -1,103 +1,197 @@
-# Godot Safe Change MCP
+<p align="center">
+  <img src="public/icon.svg" alt="Godot Safe Change MCP" width="96">
+</p>
 
-English | [简体中文](README.md)
+<h1 align="center">Godot Safe Change MCP</h1>
 
-An MCP server that lets AI Agents participate in Godot development through MCP. The TypeScript MCP server owns tool contracts, planning, confirmation and reporting; the GDScript Godot EditorPlugin owns editor context, UndoRedo, run control and diagnostics collection.
+<p align="center">
+  Reviewable, confirmable, and rollback-safe Godot changes for AI agents.
+</p>
 
-The first safe vertical workflow is now fully connected:
+<p align="center">
+  <a href="https://github.com/LJH-snow/godot-safe-change-mcp/actions/workflows/ci.yml?query=branch%3Afeature%2Frun-scene-project-leases"><img src="https://github.com/LJH-snow/godot-safe-change-mcp/actions/workflows/ci.yml/badge.svg?branch=feature/run-scene-project-leases" alt="CI"></a>
+  <a href="https://github.com/LJH-snow/godot-safe-change-mcp/blob/feature/run-scene-project-leases/LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT License"></a>
+  <a href="https://nodejs.org/"><img src="https://img.shields.io/badge/Node.js-%3E%3D22.22.2-339933.svg?logo=node.js&logoColor=white" alt="Node.js 22.22.2 or newer"></a>
+  <a href="https://godotengine.org/"><img src="https://img.shields.io/badge/Godot-4.x-478CBF.svg?logo=godot-engine&logoColor=white" alt="Godot 4.x"></a>
+</p>
 
-> Read editor context → local loopback HTTP bridge → preview a scene node change → user confirmation → apply via Godot UndoRedo → run the current scene and return diagnostics
+<p align="center"><a href="README.en.md">English</a> · <a href="README.md">简体中文</a></p>
 
-## Implemented capabilities
+Godot Safe Change MCP is an MCP server for AI-assisted Godot development. TypeScript owns contracts, preview plans, confirmation, task orchestration, and audit evidence; the Godot EditorPlugin owns live editor context, UndoRedo, run control, and diagnostics.
 
-- project_overview: read the project overview and editor connection status, with real scene, script, resource and settings file counts from the local read-only index (also available while the editor is offline).
-- editor_context: read the current project, scene, selected nodes, open resources, run state and diagnostics.
-- search_project: unified read-only project search covering scenes, nodes, scripts, resources, signal connections and input actions. Scene, node, script and resource results come from the connected Godot editor when available (live state of the edited scene) and fall back to a local read-only index otherwise; signal and input results always come from the local index. Every result is tagged with its `source`.
-- find_references: reverse reference lookup answering "which scenes, resources or scripts reference this script, texture or resource". It scans scene/resource ext_resource entries and GDScript `preload()` / `load()` calls, matches by res:// path or uid:// identifier, and resolves uid-only references where Godot 4.4+ omits the path (purely local and read-only).
-- preview_scene_change: produce a plan and diff for restricted scene.create_node, scene.delete_node, scene.reparent_node, scene.rename_node, scene.duplicate_node, scene.instantiate_scene, scene.set_property, scene.attach_script, scene.detach_script, resource.replace_reference, project.input_action.add_key/remove_key/replace_key or script.replace_range operations.
-- scene.delete_node: delete only a non-root node owned by the current scene; preview returns the complete subtree snapshot and apply/rollback use Godot UndoRedo while restoring the original parent and child order.
-- scene.reparent_node: move only a non-root node owned by the current scene to another parent in that scene; reject cycles, same-parent no-ops and duplicate child names. Preview reports paths, parent nodes, child indexes and transform policy; global transform preservation defaults to true; apply/rollback use Godot UndoRedo.
-- scene.rename_node: rename only a non-root node owned by the current scene; reject no-op names, invalid names and sibling collisions. Preview lists the affected subtree NodePaths; apply/rollback use Godot UndoRedo to restore the name and paths.
-- scene.duplicate_node: duplicate only a non-root, current-scene-owned subtree into another parent in that scene; reject cycles, duplicate names and external instance nodes. Preview maps source to target paths; apply/rollback use Godot UndoRedo while preserving ownership and transform policy.
-- scene.instantiate_scene: instantiate only an existing project-local `.tscn` under a safe parent in the current scene; reject self-reference, traversal and name collisions. Preview binds the source scene file revision; apply/rollback manage the instance root through Godot UndoRedo.
-- scene.set_property: allow only visible, position, size, text and color with node-type checks, exact object keys, finite numeric ranges and a current property snapshot.
-- scene.attach_script: attach only an existing project-local `.gd` script to a node in the current scene; it never executes or edits the script.
-- scene.detach_script: remove only an existing project-local `.gd` script from a current-scene node; apply/rollback use Godot UndoRedo to restore the original script resource, and preview reports the script path.
-- resource.replace_reference / project.input_action.add_key/remove_key/replace_key: use file or project.godot revision guards, bounded writes and safe rollback; key removal/replacement requires exactly one matching physical InputEventKey and replacement preserves modifiers.
-- preview_diagnostic_repair: create the next restricted preview only from an explicit scene.create_node repair hint; task repair previews pause for review and never auto-confirm.
-- confirm_scene_change: check the expected revision and confirm the plan.
-- apply_scene_change: hand only a confirmed, non-expired plan to Godot UndoRedo or its bounded file/settings path; only one applied plan is allowed per project.
-- rollback_scene_change: roll back only an applied plan whose scene, file or UndoRedo history revision is still current.
-- run_current_scene: run the current scene and poll the plugin until it returns stopped or failed diagnostics.
-- run_scene: run one validated `res://` `.tscn` scene through the editor and poll its run ID until it returns terminal diagnostics.
-- create_task / get_task / advance_task / pause_task / resume_task / cancel_task: compose bounded apply, rollback, run, scene/diagnostic verification and diagnostic-repair preview/apply steps into an auditable task with leases, pause/resume/cancel, retry and restart recovery. Every task must use unique `stepId` values. Repair apply requires a separate confirm_scene_change call.
-- acquire_task_lease / renew_task_lease / release_task_lease / task_status / task_timeline: coordinate multi-window ownership, heartbeat recovery and filtered evidence timelines; atomic file acquisition keeps a single owner across concurrent MCP processes.
+The server does not expose arbitrary Godot RPC. Every write follows a bounded lifecycle:
 
-The current scene can create only allowlisted node types—Node, Node2D, Control, Label and ColorRect—and property/script/delete/reparent/rename operations accept only safe relative NodePaths and allowlisted properties.
+> Inspect context → preview a diff → confirm → acquire a project lease → apply through Godot UndoRedo → verify → rollback safely when needed
 
-## Running locally
+<p align="center">
+  <img src="docs/assets/mcp-inspector-tools.jpg" alt="MCP Inspector showing Godot Safe Change MCP tools" width="100%">
+</p>
 
-Install dependencies and start the MCP dev server:
+<p align="center"><sub>A real local MCP Inspector view of the server tools.</sub></p>
+
+## Why this project
+
+- **Intent-level tools, not arbitrary RPC**: create, move, instantiate, edit, run, and verify bounded Godot operations.
+- **Evidence for every write**: preview diff, expected revision, explicit confirmation, operation ID, UndoRedo report, and rollback evidence.
+- **Safe multi-window work**: project leases, heartbeat renewal, TTL takeover, and stable PROJECT_BUSY responses.
+- **Real Godot verification**: GitHub Actions runs the same EditorPlugin fixture against Godot 4.5.1 and 4.7.2.
+
+## Quick Start
+
+### Requirements
+
+- Node.js 22.22.2 or newer
+- A Godot 4.x editor; CI currently verifies 4.5.1 and 4.7.2
+- An MCP-capable agent client
+
+### 1. Install and start the MCP server
 
 ~~~bash
-npm install
+git clone https://github.com/LJH-snow/godot-safe-change-mcp.git
+cd godot-safe-change-mcp
+npm ci
+npm run build
 npm run dev
 ~~~
 
-Then open http://localhost:3000/mcp/inspector to inspect tools, resources and error results in the Inspector.
+The development server exposes:
 
-By default the MCP server connects to the Godot EditorPlugin bridge at http://127.0.0.1:8765; override the address with GODOT_BRIDGE_URL.
+- MCP endpoint: <code>http://127.0.0.1:3000/mcp</code>
+- Inspector: <code>http://127.0.0.1:3000/mcp/inspector</code>
+- Godot bridge: <code>http://127.0.0.1:8765</code> by default
 
-Common checks:
+Override the bridge with <code>GODOT_BRIDGE_URL</code> when needed.
+
+### 2. Install the Godot plugin
+
+Copy <code>godot-plugin</code> into the target project:
+
+~~~text
+your-godot-project/addons/godot-safe-change-bridge/
+~~~
+
+Enable **Godot Safe Change Bridge** in Project → Project Settings → Plugins. The plugin listens only on loopback at <code>127.0.0.1:8765</code>.
+
+### 3. Connect an MCP client
+
+Add this Streamable HTTP server to the client:
+
+~~~text
+http://127.0.0.1:3000/mcp
+~~~
+
+Or run the built entry point directly:
 
 ~~~bash
+npm run build
+node bin/mcp-server.mjs
+~~~
+
+## First workflow
+
+Start with read-only requests:
+
+~~~text
+Read the current Godot editor context and complete scene tree.
+Search the project for Player or PackedScene nodes, scripts, and resources.
+Find which scenes or scripts reference res://scripts/player.gd.
+~~~
+
+For a write, keep the states separate:
+
+1. Call <code>preview_scene_change</code> and inspect the diff.
+2. Check the target, NodePath, property changes, and expected revision.
+3. Call <code>confirm_scene_change</code> explicitly.
+4. Call <code>apply_scene_change</code>; the plugin performs the real UndoRedo action.
+5. Run the scene or verify scene state and diagnostics.
+6. Call <code>rollback_scene_change</code> only while the revision and history guards remain valid.
+
+## Workflow
+
+~~~mermaid
+flowchart LR
+    A[Agent / MCP Client] --> B[Godot Safe Change MCP]
+    B --> C[Read context and search]
+    C --> D[Preview + Diff]
+    D --> E[User confirmation]
+    E --> F[Task lease + revision guard]
+    F --> G[Loopback EditorPlugin]
+    G --> H[Godot UndoRedo / bounded file change]
+    H --> I[Run scene and collect diagnostics]
+    I --> J[Verify state or diagnostics]
+    J --> K[Rollback or continue]
+    K --> F
+~~~
+
+## Capability map
+
+| Area | Tools and operations | What it covers |
+| --- | --- | --- |
+| Project intelligence | <code>project_overview</code>, <code>search_project</code>, <code>find_references</code> | Scenes, nodes, scripts, resources, signals, input actions, and reverse references. |
+| Editor context | <code>editor_context</code> | Full current scene tree, selected-node properties, open resources, run state, and diagnostics. |
+| Scene structure | create, delete, reparent, rename, duplicate, instantiate | Safe NodePaths, ownership, names, parent relationships, and instance source paths. |
+| Scene content | <code>scene.set_property</code>, <code>scene.attach_script</code>, <code>scene.detach_script</code> | Allowlisted properties and project-local GDScript attachment/detachment. |
+| Files and settings | resource references, input actions, script ranges | File or project-settings revision guards, atomic writes, and rollback. |
+| Runtime evidence | <code>run_current_scene</code>, <code>run_scene</code> | Run IDs, terminal state, output, warnings, errors, source, line, and NodePath evidence. |
+| Multi-step work | create/get/advance/pause/resume/cancel | Verification steps, diagnostics repair preview, and step-level operation IDs. |
+| Recovery | task leases, <code>task_status</code>, <code>task_timeline</code> | Heartbeats, TTL takeover, owner visibility, and auditable recovery events. |
+
+## Safety model
+
+~~~text
+preview → confirm → lease/revision check → apply → verify → rollback (when needed)
+~~~
+
+The server never executes agent-generated GDScript, shell commands, Python workers, arbitrary Godot RPC, or unrestricted filesystem writes. The plugin independently validates the project root, safe paths, operation allowlists, active-plan identity, and UndoRedo history.
+
+Short apply/rollback leases and long-lived task leases live in the user state directory, not inside the Godot project. A live lease held by another MCP process returns PROJECT_BUSY; a crashed owner can be replaced only after TTL expiry.
+
+## Tests and CI
+
+Run local quality gates:
+
+~~~bash
+npm test
+npm run typecheck
+npm run build
+npm run package:check
+git diff --check
+~~~
+
+Run the real bridge smoke when a local Godot editor is available:
+
+~~~bash
+GODOT_BIN=/path/to/Godot node tests/godot-runtime-smoke.mjs
+~~~
+
+Every push runs four GitHub Actions jobs:
+
+- <code>check</code>: Node.js typecheck, regression tests, and build
+- <code>npm package boundary</code>: verifies the actual release tarball
+- <code>Godot 4.5.1 runtime</code>: real EditorPlugin fixture smoke
+- <code>Godot 4.7.2 runtime</code>: the same fixture on the second supported version
+
+The smoke covers search, context, scene/property/structure/instance/script apply-rollback, resources, input settings, diagnostics, task leases, two-process contention, and TTL takeover.
+
+## Developer commands
+
+~~~bash
+npm ci
+npm run dev
 npm run typecheck
 npm test
 npm run build
 npm run package:check
 ~~~
 
-## Running with npx
+More detail:
 
-Start without cloning the repository (requires Node >= 22.22.2; the first run builds automatically):
+- [Release checklist](docs/RELEASE.md)
+- [Test boundaries and Godot acceptance](tests/README.md)
+- [Product plan](docs/PLAN.md)
+- [Godot plugin guide](godot-plugin/README.md)
+- [简体中文 README](README.md)
 
-~~~bash
-npx github:LJH-snow/godot-safe-change-mcp
-~~~
+## License
 
-Once published to npm, this will also work:
-
-~~~bash
-npx godot-safe-change-mcp
-~~~
-
-The server exposes an MCP Streamable HTTP endpoint at `http://127.0.0.1:3000/mcp`; override the defaults with the `PORT`, `HOST` and `GODOT_BRIDGE_URL` environment variables.
-
-## Godot plugin
-
-Copy the godot-plugin directory into the target Godot project:
-
-~~~text
-res://addons/godot-safe-change-bridge/
-~~~
-
-Enable the Godot Safe Change Bridge plugin in the Godot editor. The plugin binds only to 127.0.0.1:8765 and serves only fixed context, changes/apply, changes/rollback, search, bounded snapshot/read and run routes.
-
-When no Godot editor is connected, MCP tools return a stable EDITOR_UNAVAILABLE instead of faking success.
-
-## Release preflight
-
-Run `npm run package:check` before publishing. It builds the server, creates a real npm tarball, installs it in a temporary consumer when permitted, and verifies the packaged MCP entry point and Godot plugin files. GitHub Actions repeats this package boundary check alongside Node tests and Godot 4.5.1/4.7.2 runtime smoke.
-For a local editor-backed release check, also run `GODOT_BIN=/path/to/Godot node tests/godot-runtime-smoke.mjs`. The Godot smoke starts two MCP processes against the same real EditorPlugin bridge to verify lease contention and TTL takeover. The workflow must finish the `check`, `npm package boundary`, `Godot 4.5.1 runtime`, and `Godot 4.7.2 runtime` jobs successfully. The package smoke uses an explicit release allowlist and rejects source, test, documentation, CI, script, and lock files.
-
-## Safety boundaries
-
-- Write operations must pass preview, confirmation and expected-revision checks.
-- Scene creation, property changes and script attachment are executed only by the GDScript plugin through Godot's EditorUndoRedoManager; scene rollback checks history, version, action and label.
-- File and project-setting changes use only bounded `.gd` atomic replacement, resource replacement or ProjectSettings paths with file revision guards.
-- No agent-generated GDScript, shell, Python or arbitrary Godot RPC is ever executed.
-- The plugin accepts only fixed routes, allowlisted node types, safe relative NodePaths and project-local paths, and validates the current project root.
-- Run diagnostics return only plugin-collected output, warnings, errors and run state.
-- Task repair previews never execute diagnostic text; they use only schema-validated allowlisted hints and require explicit confirmation before applying.
-
-See docs/PLAN.md for the full product plan, tests/README.md for test boundaries and manual Godot acceptance steps, and docs/RELEASE.md for the release checklist.
+[MIT](LICENSE)
