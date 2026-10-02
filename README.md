@@ -233,6 +233,7 @@ npm run package:check
 - [增长与社区采用计划](docs/GROWTH.md)
 - [Agent 示例](docs/EXAMPLES.md)
 - [60 秒演示脚本](docs/DEMO.md)
+- [社区发布文案](docs/ANNOUNCEMENTS.md)
 - [Starter fixture](examples/starter/README.md)
 - [更新记录](CHANGELOG.md)
 - [发布清单](docs/RELEASE.md)

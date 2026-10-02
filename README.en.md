@@ -219,6 +219,7 @@ More detail:
 - [Growth and adoption plan](docs/GROWTH.md)
 - [Agent examples](docs/EXAMPLES.md)
 - [60-second demo storyboard](docs/DEMO.md)
+- [Community launch kit](docs/ANNOUNCEMENTS.md)
 - [Starter fixture](examples/starter/README.md)
 - [Changelog](CHANGELOG.md)
 - [Release checklist](docs/RELEASE.md)

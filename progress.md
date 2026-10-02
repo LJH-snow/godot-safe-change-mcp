@@ -1,5 +1,10 @@
 # 进度记录
 
+## 2026-10-03 community launch kit
+
+- 新增 docs/ANNOUNCEMENTS.md，提供中英文发布文案、Godot/MCP/Reddit/博客/X 渠道适配和反馈问题模板。
+- 所有文案统一指向 v1.1.0、starter、GIF 和 issue 标签；不自动代用户发布外部消息。
+
 ## 2026-10-03 real workflow demo
 
 - 在临时 Godot 4.7.2 starter 项目中实际操作 Inspector，录制 context → search → preview → confirm → apply → rollback 六帧。

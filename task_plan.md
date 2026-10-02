@@ -269,6 +269,7 @@
 - [x] 在双版本 Godot CI 中打开并验证 examples/starter 项目。
 - [x] 增加 60 秒 demo storyboard，固定录制步骤、旁白和发布前检查。
 - [x] 录制真实 starter fixture GIF，覆盖 context、search、preview、confirm、apply 和 rollback。
+- [x] 准备中英文社区发布文案和反馈问题，发布前先由用户选择渠道并确认发送。
 - [x] 为外部反馈和新贡献者准备 GitHub 标签：starter、release-feedback、growth 和 Godot 版本标签。
 - [x] 创建第一个 GitHub Release/tag，并保留四项 CI 证据和安装说明。
 - [ ] 提供可复制的 starter fixture、5 个示例请求和 60 秒演示素材。

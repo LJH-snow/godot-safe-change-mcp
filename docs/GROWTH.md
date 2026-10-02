@@ -31,6 +31,7 @@
 - [x] 贡献指南和可复现的 issue 入口。
 - [x] 创建第一个 GitHub Release/tag，并在 Release 页面固定安装方式、兼容版本和 CI 证据。
 - [x] 提供真实 GIF 演示：搜索 → preview → confirm → apply → rollback；后续可扩展为带 verify/run 的 60 秒视频。
+- [x] 准备中英文社区发布文案、渠道适配和反馈问题模板。
 
 ### Phase B：让第一次成功变得简单（2–4 周）
 
