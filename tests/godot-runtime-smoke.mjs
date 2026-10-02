@@ -499,11 +499,11 @@ try {
     arguments: {
       projectRoot: fixtureRoot,
       reason: "CI scene reparent apply and rollback smoke test.",
-      operation: { kind: "scene.reparent_node", nodePath: "Canvas/Title", newParentPath: "Canvas/ColorPanel" },
+      operation: { kind: "scene.reparent_node", nodePath: "Canvas", newParentPath: "Scriptless" },
     },
   }));
-  assert.equal(reparentPlan.diff[0]?.fromNodePath, "Canvas/Title");
-  assert.equal(reparentPlan.diff[0]?.toNodePath, "Canvas/ColorPanel/Title");
+  assert.equal(reparentPlan.diff[0]?.fromNodePath, "Canvas");
+  assert.equal(reparentPlan.diff[0]?.toNodePath, "Scriptless/Canvas");
   assert.equal(reparentPlan.diff[0]?.fromIndex, 0);
   assert.equal(reparentPlan.diff[0]?.toIndex, 0);
   assert.equal(reparentPlan.diff[0]?.keepGlobalTransform, true);
@@ -518,15 +518,15 @@ try {
   assert.equal(reparentApply.status, "applied");
   assert.equal(reparentApply.undoLabel, "Godot Safe Change: Reparent node");
   const afterReparentContext = await readEditorContext(fixtureRoot);
-  assert.equal(sceneNode(afterReparentContext, "Canvas/Title"), undefined);
-  assert.equal(sceneNode(afterReparentContext, "Canvas/ColorPanel/Title")?.properties.text, "Fixture label");
+  assert.equal(sceneNode(afterReparentContext, "Canvas"), undefined);
+  assert.equal(sceneNode(afterReparentContext, "Scriptless/Canvas/Title")?.properties.text, "Fixture label");
   const reparentRollback = structured(await request("tools/call", {
     name: "rollback_scene_change",
     arguments: { projectRoot: fixtureRoot, planId: reparentPlan.planId },
   }));
   assert.equal(reparentRollback.status, "rolled_back");
   const afterReparentRollback = await readEditorContext(fixtureRoot);
-  assert.equal(sceneNode(afterReparentRollback, "Canvas/ColorPanel/Title"), undefined);
+  assert.equal(sceneNode(afterReparentRollback, "Scriptless/Canvas"), undefined);
   assert.deepEqual(afterReparentRollback.currentScene.nodes, beforeReparentContext.currentScene.nodes);
   stage("scene reparent apply and rollback complete");
 
