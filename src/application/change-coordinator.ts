@@ -972,6 +972,9 @@ export class ChangeCoordinator {
     if (property === "position") {
       return nodeType === "Node2D";
     }
+    if (property === "rotation_degrees" || property === "scale") {
+      return nodeType === "Node2D";
+    }
     if (property === "size") {
       return ["Control", "Label", "ColorRect"].includes(nodeType);
     }
@@ -1010,6 +1013,22 @@ export class ChangeCoordinator {
         return x >= 0 && x <= 1_000_000 && y >= 0 && y <= 1_000_000;
       }
       return x >= -1_000_000 && x <= 1_000_000 && y >= -1_000_000 && y <= 1_000_000;
+    }
+    if (property === "rotation_degrees") {
+      return typeof value === "number" && Number.isFinite(value) && value >= -360_000 && value <= 360_000;
+    }
+    if (property === "scale") {
+      if (!this.hasExactKeys(value, ["x", "y"])) {
+        return false;
+      }
+      const scale = value as { x: unknown; y: unknown };
+      return [scale.x, scale.y].every(
+        (component) =>
+          typeof component === "number" &&
+          Number.isFinite(component) &&
+          component >= -1_000 &&
+          component <= 1_000,
+      );
     }
     if (property === "color") {
       if (!this.hasExactKeys(value, ["r", "g", "b", "a"])) {

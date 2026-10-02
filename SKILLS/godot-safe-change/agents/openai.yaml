@@ -1,0 +1,3 @@
+interface:
+  display_name: "Godot Safe Change"
+  short_description: "Guard Godot changes with preview, revision, rollback, and verification"

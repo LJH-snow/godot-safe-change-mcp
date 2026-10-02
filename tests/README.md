@@ -48,7 +48,7 @@ The real EditorPlugin check uses godot-fixture and requires a local Godot 4.x ed
 9. Call confirm_scene_change with the returned planId and expectedRevision.
 10. Call apply_scene_change and verify the node appears in the scene tree and the report contains an undo label and new revision.
 11. Call rollback_scene_change while the applied revision is current and verify the node is undone with a rolled_back report.
-12. For `scene.set_property`, round-trip visible, position, size, text and color on compatible fixture nodes; verify each revision changes on apply, the property value changes, the UndoRedo label is specific, and rollback restores the prior value.
+12. For `scene.set_property`, round-trip visible, position, rotation_degrees, scale, size, text and color on compatible fixture nodes; verify each revision changes on apply, the property value changes, the UndoRedo label is specific, and rollback restores the prior value.
 13. Instantiate `res://instance_source.tscn` under the current scene root, verify the instance and child NodePaths appear after apply and disappear after rollback; a source-file revision change before apply must be rejected.
 14. Attach `res://diagnostic_scene.gd` to the fixture's scriptless node, verify the script path appears after apply and returns to null after rollback; then detach the scene root's existing script and verify apply returns its path to null and rollback restores it; a second rollback must be rejected.
 15. Run run_current_scene and verify the returned run ID, status and diagnostics.

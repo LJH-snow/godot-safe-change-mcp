@@ -1,0 +1,3 @@
+interface:
+  display_name: "MCP Package Boundary"
+  short_description: "Check the npm tarball boundary and release gates"

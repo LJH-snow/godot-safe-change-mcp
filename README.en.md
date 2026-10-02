@@ -87,6 +87,29 @@ npm run build
 node bin/mcp-server.mjs
 ~~~
 
+## Using the Inspector
+
+The Inspector is the local MCP debugging UI provided by mcp-use. Running <code>npm ci</code> or <code>npm install</code> installs the locked <code>@mcp-use/inspector</code> package into <code>node_modules</code>; starting the server does not download it again on every run.
+
+Use it as follows:
+
+1. Start Godot and enable Godot Safe Change Bridge.
+2. Run <code>npm run dev</code> from the project root; this starts the development server and loads the Inspector.
+3. Open <code>http://127.0.0.1:3000/mcp/inspector</code> if the browser does not open automatically.
+4. In **Tools**, call <code>editor_context</code> first and check the current scene, full node tree, and connection state.
+5. Use <code>search_project</code> or <code>find_references</code> to verify read-only project intelligence.
+6. For writes, keep the lifecycle explicit: <code>preview_scene_change</code> → <code>confirm_scene_change</code> → <code>apply_scene_change</code> → <code>rollback_scene_change</code>.
+7. Use <code>operation_history</code>, <code>task_status</code>, and <code>task_timeline</code> to inspect audit, lease, and recovery evidence.
+
+To debug without opening a browser, or to disable the UI entirely:
+
+~~~bash
+npm run dev -- --no-open
+npm run dev -- --no-inspector
+~~~
+
+The Inspector is for local development, manual acceptance, and demos; CI and the production entry point do not depend on it. The development server binds to <code>127.0.0.1</code> by default. Do not expose the development Inspector publicly or enter sensitive credentials into tool forms.
+
 ## First workflow
 
 Start with read-only requests:
@@ -130,7 +153,7 @@ flowchart LR
 | Project intelligence | <code>project_overview</code>, <code>search_project</code>, <code>find_references</code> | Scenes, nodes, scripts, resources, signals, input actions, and reverse references. |
 | Editor context | <code>editor_context</code> | Full current scene tree, selected-node properties, open resources, run state, and diagnostics. |
 | Scene structure | create, delete, reparent, rename, duplicate, instantiate | Safe NodePaths, ownership, names, parent relationships, and instance source paths. |
-| Scene content | <code>scene.set_property</code>, <code>scene.attach_script</code>, <code>scene.detach_script</code> | Allowlisted properties and project-local GDScript attachment/detachment. |
+| Scene content | <code>scene.set_property</code>, <code>scene.attach_script</code>, <code>scene.detach_script</code> | Allowlisted visible, position, rotation_degrees, scale, size, text, and color properties plus project-local GDScript attachment/detachment. |
 | Files and settings | resource references, input actions, script ranges | File or project-settings revision guards, atomic writes, and rollback. |
 | Runtime evidence | <code>run_current_scene</code>, <code>run_scene</code> | Run IDs, terminal state, output, warnings, errors, source, line, and NodePath evidence. |
 | Multi-step work | create/get/advance/pause/resume/cancel | Verification steps, diagnostics repair preview, and step-level operation IDs. |
