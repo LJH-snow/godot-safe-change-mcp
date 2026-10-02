@@ -1,5 +1,11 @@
 import { z } from "zod";
-import { createNodeOperationSchema, type ChangeOperation } from "./change-contracts.js";
+import {
+  createNodeOperationSchema,
+  methodNameSchema,
+  nodePathSchema,
+  signalNameSchema,
+  type ChangeOperation,
+} from "./change-contracts.js";
 
 export const projectSectionSchema = z.enum([
   "scenes",
@@ -216,6 +222,27 @@ export const inputActionSnapshotSchema = z.object({
 });
 
 export type InputActionSnapshot = z.infer<typeof inputActionSnapshotSchema>;
+
+export const sceneSignalConnectionSchema = z.object({
+  signalName: signalNameSchema,
+  targetPath: nodePathSchema,
+  methodName: methodNameSchema,
+}).strict();
+
+export const sceneSignalNodeSchema = z.object({
+  nodePath: nodePathSchema,
+  signals: z.array(signalNameSchema),
+  methods: z.array(methodNameSchema),
+  connections: z.array(sceneSignalConnectionSchema),
+}).strict();
+
+export const sceneSignalsSnapshotSchema = z.object({
+  path: z.string().min(1),
+  revision: z.string().min(1),
+  nodes: z.array(sceneSignalNodeSchema),
+}).strict();
+
+export type SceneSignalsSnapshot = z.infer<typeof sceneSignalsSnapshotSchema>;
 
 export interface ApplyChangeRequest {
   planId: string;

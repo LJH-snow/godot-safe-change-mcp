@@ -191,6 +191,10 @@ class SearchBridgeStub implements GodotBridge {
   async readInputAction(_projectRoot: string, actionName: string): Promise<InputActionSnapshot> {
     return { actionName, revision: "test", exists: false, deadzone: null, events: [] };
   }
+
+  async readSceneSignals(): Promise<{ path: string; revision: string; nodes: never[] }> {
+    return { path: "res://main.tscn", revision: "test", nodes: [] };
+  }
 }
 
 describe("ProjectIndexCache", () => {
@@ -284,6 +288,10 @@ class OverviewBridgeStub implements GodotBridge {
 
   async readInputAction(_projectRoot: string, actionName: string): Promise<InputActionSnapshot> {
     return { actionName, revision: "test", exists: false, deadzone: null, events: [] };
+  }
+
+  async readSceneSignals(): Promise<{ path: string; revision: string; nodes: never[] }> {
+    return { path: "res://main.tscn", revision: "test", nodes: [] };
   }
 }
 

@@ -212,6 +212,7 @@
 - [x] 增加资源引用 snapshot/preview diff、revision guard、原子 apply 和 rollback。
 - [x] 增加挂载已有脚本的 preview/apply/rollback。
 - [x] 增加 scene.instantiate_scene：校验项目内 `.tscn`、父节点和名称冲突，绑定源场景 revision，并通过 UndoRedo apply/rollback。
+- [x] 增加 scene.connect_signal preview-only：读取当前场景 signal/method/connection 快照，拒绝无信号、无方法、重复连接和不安全 NodePath；apply/rollback 留待下一步。
 
 ## Phase 15 — task-level scene verification
 

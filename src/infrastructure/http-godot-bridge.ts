@@ -14,9 +14,11 @@ import {
   type RunDiagnostics,
   searchProjectReportSchema,
   resourceSnapshotSchema,
+  sceneSignalsSnapshotSchema,
   type SearchProjectReport,
   type SearchProjectRequest,
   type ResourceSnapshot,
+  type SceneSignalsSnapshot,
   scriptSnapshotSchema,
   type ScriptSnapshot,
 } from "../domain/contracts.js";
@@ -126,6 +128,17 @@ export class HttpGodotBridge implements GodotBridge {
       .safeParse(payload);
     if (!parsed.success) {
       throw this.protocolError("The bridge returned an invalid input action snapshot.", parsed.error);
+    }
+    return parsed.data.snapshot;
+  }
+
+  async readSceneSignals(projectRoot: string): Promise<SceneSignalsSnapshot> {
+    const payload = await this.post("/v1/signals/read", { projectRoot });
+    const parsed = z
+      .object({ ok: z.literal(true), snapshot: sceneSignalsSnapshotSchema })
+      .safeParse(payload);
+    if (!parsed.success) {
+      throw this.protocolError("The bridge returned an invalid scene signal snapshot.", parsed.error);
     }
     return parsed.data.snapshot;
   }

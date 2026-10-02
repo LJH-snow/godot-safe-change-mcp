@@ -98,6 +98,8 @@ func handle_bridge_request(method: String, path: String, body: Variant) -> Dicti
             return _read_resource(body)
         "/v1/input-actions/read":
             return _read_input_action(body)
+        "/v1/signals/read":
+            return _read_scene_signals()
         "/v1/run/current":
             return _run_current_scene()
         "/v1/run/scene":
@@ -262,6 +264,67 @@ func _read_input_action(body: Variant) -> Dictionary:
         "deadzone": deadzone,
         "events": events,
     })
+
+func _read_scene_signals() -> Dictionary:
+    var scene_root := EditorInterface.get_edited_scene_root()
+    if scene_root == null:
+        return _failure("VALIDATION_FAILED", "A current scene is required before reading signals.")
+    var scene_path := String(scene_root.scene_file_path)
+    return _success("snapshot", _scene_signals_snapshot(scene_root, scene_path))
+
+func _scene_signals_snapshot(scene_root: Node, scene_path: String) -> Dictionary:
+    var nodes: Array = []
+    _append_scene_signal_node(scene_root, scene_root, nodes)
+    return {
+        "path": scene_path,
+        "revision": _current_revision(scene_root, scene_path),
+        "nodes": nodes,
+    }
+
+func _append_scene_signal_node(scene_root: Node, node: Node, nodes: Array) -> void:
+    var signal_names: Array[String] = []
+    for signal_info in node.get_signal_list():
+        var signal_name := String(signal_info.get("name", ""))
+        if signal_name != "":
+            signal_names.append(signal_name)
+    signal_names.sort()
+
+    var method_names: Array[String] = []
+    for method_info in node.get_method_list():
+        var method_name := String(method_info.get("name", ""))
+        if method_name != "":
+            method_names.append(method_name)
+    method_names.sort()
+
+    var connections: Array = []
+    for signal_name in signal_names:
+        for raw_connection in node.get_signal_connection_list(signal_name):
+            if typeof(raw_connection) != TYPE_DICTIONARY:
+                continue
+            var callable_variant: Variant = raw_connection.get("callable")
+            if not callable_variant is Callable:
+                continue
+            var callable: Callable = callable_variant as Callable
+            var target_variant: Variant = callable.get_object()
+            if not target_variant is Node:
+                continue
+            var target_node: Node = target_variant as Node
+            if target_node != scene_root and not scene_root.is_ancestor_of(target_node):
+                continue
+            connections.append({
+                "signalName": signal_name,
+                "targetPath": String(scene_root.get_path_to(target_node)),
+                "methodName": callable.get_method(),
+            })
+
+    nodes.append({
+        "nodePath": String(scene_root.get_path_to(node)),
+        "signals": signal_names,
+        "methods": method_names,
+        "connections": connections,
+    })
+    for child in node.get_children():
+        _append_scene_signal_node(scene_root, child, nodes)
 
 func _is_safe_input_action_name(action_name: String) -> bool:
     if action_name.length() < 1 or action_name.length() > 128:

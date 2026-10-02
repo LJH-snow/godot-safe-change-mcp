@@ -389,6 +389,63 @@ try {
     arguments: { projectRoot: fixtureRoot, query: "diagnostic", kinds: ["script"] },
   }));
   assert.ok(scriptSearch.results.length > 0);
+  const signalPlan = structured(await request("tools/call", {
+    name: "preview_scene_change",
+    arguments: {
+      projectRoot: fixtureRoot,
+      reason: "CI signal connection preview validation smoke test.",
+      operation: {
+        kind: "scene.connect_signal",
+        sourcePath: "Canvas/Title",
+        signalName: "visibility_changed",
+        targetPath: ".",
+        methodName: "_ready",
+      },
+    },
+  }));
+  assert.deepEqual(signalPlan.diff[0], {
+    kind: "scene.connect_signal",
+    target: "res://main.tscn:Canvas/Title.visibility_changed -> ._ready",
+    summary: "Connect Canvas/Title.visibility_changed to ._ready in res://main.tscn",
+    sourcePath: "Canvas/Title",
+    signalName: "visibility_changed",
+    targetPath: ".",
+    methodName: "_ready",
+  });
+  await expectToolError("preview_scene_change", {
+    projectRoot: fixtureRoot,
+    reason: "Reject an unknown signal.",
+    operation: {
+      kind: "scene.connect_signal",
+      sourcePath: "Canvas/Title",
+      signalName: "missing_signal",
+      targetPath: ".",
+      methodName: "_ready",
+    },
+  }, /VALIDATION_FAILED/);
+  await expectToolError("preview_scene_change", {
+    projectRoot: fixtureRoot,
+    reason: "Reject a missing target method.",
+    operation: {
+      kind: "scene.connect_signal",
+      sourcePath: "Canvas/Title",
+      signalName: "visibility_changed",
+      targetPath: ".",
+      methodName: "missing_method",
+    },
+  }, /VALIDATION_FAILED/);
+  await expectToolError("preview_scene_change", {
+    projectRoot: fixtureRoot,
+    reason: "Reject an unsafe signal source path.",
+    operation: {
+      kind: "scene.connect_signal",
+      sourcePath: "../Canvas/Title",
+      signalName: "visibility_changed",
+      targetPath: ".",
+      methodName: "_ready",
+    },
+  });
+  stage("signal preview validation complete");
   const initialCurrentSceneRun = structured(await request("tools/call", {
     name: "run_current_scene",
     arguments: { projectRoot: fixtureRoot, timeoutMs: 30000 },
