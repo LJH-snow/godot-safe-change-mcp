@@ -359,6 +359,8 @@ try {
     { operation: { kind: "scene.duplicate_node", nodePath: ".", newParentPath: "Scriptless", newName: "RootCopy", keepGlobalTransform: true }, errorCode: "UNSAFE_OPERATION" },
     { operation: { kind: "scene.duplicate_node", nodePath: "Canvas/Missing", newParentPath: "Scriptless", newName: "Copy", keepGlobalTransform: true }, errorCode: "VALIDATION_FAILED" },
     { operation: { kind: "scene.duplicate_node", nodePath: "Canvas", newParentPath: "Canvas/Title", newName: "Copy", keepGlobalTransform: true }, errorCode: "UNSAFE_OPERATION" },
+    { operation: { kind: "scene.instantiate_scene", parentPath: "../", scenePath: "res://instance_source.tscn", nodeName: "Copy" }, errorCode: "VALIDATION_FAILED" },
+    { operation: { kind: "scene.instantiate_scene", parentPath: ".", scenePath: "res://../outside.tscn", nodeName: "Copy" }, errorCode: "UNSAFE_OPERATION" },
     { operation: { kind: "scene.set_property", nodePath: ".", property: "script", value: null }, errorCode: "UNSAFE_OPERATION" },
     { operation: { kind: "scene.attach_script", nodePath: ".", scriptPath: "res://../outside.gd" }, errorCode: "UNSAFE_OPERATION" },
     { operation: { kind: "scene.detach_script", nodePath: "Scriptless" }, errorCode: "VALIDATION_FAILED" },
@@ -618,6 +620,80 @@ try {
   );
   assert.equal(sceneNode(afterDuplicateRollback, "Scriptless/CanvasCopy"), undefined);
   stage("scene subtree duplicate apply and rollback complete");
+
+  const beforeInstantiateContext = await readEditorContext(fixtureRoot);
+  assert.equal(sceneNode(beforeInstantiateContext, "InstanceCopy"), undefined);
+  const instanceSourcePath = path.join(fixtureRoot, "instance_source.tscn");
+  const originalInstanceSource = await readFile(instanceSourcePath, "utf8");
+  const staleInstantiatePlan = structured(await request("tools/call", {
+    name: "preview_scene_change",
+    arguments: {
+      projectRoot: fixtureRoot,
+      reason: "Reject a stale instanced scene source.",
+      operation: {
+        kind: "scene.instantiate_scene",
+        parentPath: ".",
+        scenePath: "res://instance_source.tscn",
+        nodeName: "StaleInstance",
+      },
+    },
+  }));
+  await writeFile(instanceSourcePath, originalInstanceSource + "\n; external source edit\n", "utf8");
+  await expectToolError("confirm_scene_change", {
+    projectRoot: fixtureRoot,
+    planId: staleInstantiatePlan.planId,
+    expectedRevision: staleInstantiatePlan.expectedRevision,
+  }, /REVISION_CONFLICT/);
+  await writeFile(instanceSourcePath, originalInstanceSource, "utf8");
+  const instantiatePlan = structured(await request("tools/call", {
+    name: "preview_scene_change",
+    arguments: {
+      projectRoot: fixtureRoot,
+      reason: "CI scene instantiation apply and rollback smoke test.",
+      operation: {
+        kind: "scene.instantiate_scene",
+        parentPath: ".",
+        scenePath: "res://instance_source.tscn",
+        nodeName: "InstanceCopy",
+      },
+    },
+  }));
+  assert.ok(instantiatePlan.expectedFileRevision);
+  assert.deepEqual(instantiatePlan.diff[0], {
+    kind: "scene.instantiate_scene",
+    target: "res://main.tscn:InstanceCopy",
+    summary: "Instantiate res://instance_source.tscn under . as InstanceCopy in res://main.tscn",
+    parentPath: ".",
+    scenePath: "res://instance_source.tscn",
+    instancePath: "InstanceCopy",
+    nodeName: "InstanceCopy",
+  });
+  structured(await request("tools/call", {
+    name: "confirm_scene_change",
+    arguments: { projectRoot: fixtureRoot, planId: instantiatePlan.planId, expectedRevision: instantiatePlan.expectedRevision },
+  }));
+  const instantiateApply = structured(await request("tools/call", {
+    name: "apply_scene_change",
+    arguments: { projectRoot: fixtureRoot, planId: instantiatePlan.planId },
+  }));
+  assert.equal(instantiateApply.status, "applied");
+  assert.equal(instantiateApply.undoLabel, "Godot Safe Change: Instantiate scene");
+  const afterInstantiateContext = await readEditorContext(fixtureRoot);
+  assert.equal(sceneNode(afterInstantiateContext, "InstanceCopy")?.type, "Node2D");
+  assert.equal(sceneNode(afterInstantiateContext, "InstanceCopy/Badge")?.properties.text, "Instanced fixture");
+  const instantiateRollback = structured(await request("tools/call", {
+    name: "rollback_scene_change",
+    arguments: { projectRoot: fixtureRoot, planId: instantiatePlan.planId },
+  }));
+  assert.equal(instantiateRollback.status, "rolled_back");
+  assert.equal(instantiateRollback.undoLabel, "Godot Safe Change: Instantiate scene");
+  const afterInstantiateRollback = await readEditorContext(fixtureRoot);
+  assert.deepEqual(afterInstantiateRollback.currentScene.nodes, beforeInstantiateContext.currentScene.nodes);
+  await expectToolError("rollback_scene_change", {
+    projectRoot: fixtureRoot,
+    planId: instantiatePlan.planId,
+  }, /PLAN_NOT_APPLIED|PLAN_ALREADY_ROLLED_BACK/);
+  stage("scene instantiation apply and rollback complete");
 
   await roundTripSceneProperty(fixtureRoot, ".", "visible", false);
   await roundTripSceneProperty(fixtureRoot, ".", "position", { x: 12, y: 8 });

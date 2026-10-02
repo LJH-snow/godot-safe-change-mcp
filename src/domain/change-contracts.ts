@@ -48,6 +48,18 @@ const resourcePathSchema = z
     "resourcePath must not contain traversal segments.",
   );
 
+export const scenePathSchema = z
+  .string()
+  .min(1)
+  .max(256)
+  .regex(projectRelativePathPattern, "scenePath must be a project-relative path.")
+  .regex(/\.tscn$/, "scenePath must target a Godot scene.")
+  .refine(
+    (value) =>
+      !value.includes("..") && value.split("/").every((segment) => segment !== "." && segment !== ".."),
+    "scenePath must not contain traversal segments.",
+  );
+
 const resourceIdentifierSchema = z
   .string()
   .min(1)
@@ -122,6 +134,15 @@ export const sceneDuplicateNodeSchema = z
     newParentPath: nodePathSchema,
     newName: nodeNameSchema,
     keepGlobalTransform: z.boolean().default(true),
+  })
+  .strict();
+
+export const sceneInstantiateSceneSchema = z
+  .object({
+    kind: z.literal("scene.instantiate_scene"),
+    parentPath: nodePathSchema,
+    scenePath: scenePathSchema,
+    nodeName: nodeNameSchema,
   })
   .strict();
 
@@ -254,6 +275,7 @@ export const changeOperationSchema = z.union([
   sceneReparentNodeSchema,
   sceneRenameNodeSchema,
   sceneDuplicateNodeSchema,
+  sceneInstantiateSceneSchema,
   sceneSetPropertySchema,
   sceneAttachScriptSchema,
   sceneDetachScriptSchema,
@@ -361,6 +383,18 @@ export const sceneDuplicateNodeDiffSchema = z
   })
   .strict();
 
+export const sceneInstantiateSceneDiffSchema = z
+  .object({
+    kind: z.literal("scene.instantiate_scene"),
+    target: z.string().min(1),
+    summary: z.string().min(1),
+    parentPath: nodePathSchema,
+    scenePath: scenePathSchema,
+    instancePath: nodePathSchema,
+    nodeName: nodeNameSchema,
+  })
+  .strict();
+
 export const scriptChangeDiffSchema = z.object({
   kind: z.literal("script.replace_range"),
   target: z.string().min(1),
@@ -462,6 +496,7 @@ export const changeDiffSchema = z.union([
   sceneReparentNodeDiffSchema,
   sceneRenameNodeDiffSchema,
   sceneDuplicateNodeDiffSchema,
+  sceneInstantiateSceneDiffSchema,
   scenePropertyDiffSchema,
   sceneAttachScriptDiffSchema,
   sceneDetachScriptDiffSchema,

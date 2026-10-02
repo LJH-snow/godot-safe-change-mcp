@@ -1,5 +1,10 @@
 # 进度记录
 
+## 2026-10-02 instantiate existing scene
+
+- 新增 `scene.instantiate_scene`，preview 校验项目内 `.tscn`、父节点、自引用和名称冲突，并绑定源场景文件 revision。
+- 通过 Godot PackedScene.instantiate() 和 UndoRedo 管理实例根节点，smoke 已覆盖实例子树和 rollback；等待双版本远程 CI 验证。
+
 ## 2026-10-02 detach existing script
 
 - 新增 `scene.detach_script`，只允许移除当前场景节点已有的项目内 `.gd` 脚本；preview 返回原脚本路径和 diff。

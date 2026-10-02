@@ -644,6 +644,17 @@ func _validate_change_request(request_body: Dictionary) -> Dictionary:
             return _failure("VALIDATION_FAILED", "keepGlobalTransform must be a boolean.")
         if new_parent_path == node_path or new_parent_path.begins_with(node_path + "/"):
             return _failure("UNSAFE_OPERATION", "A node cannot be duplicated beneath itself or one of its descendants.")
+    elif kind == "scene.instantiate_scene":
+        if not _has_exact_keys(operation, ["kind", "parentPath", "scenePath", "nodeName"]):
+            return _failure("VALIDATION_FAILED", "scene.instantiate_scene contains unsupported or missing fields.")
+        if not _is_safe_node_path(String(operation["parentPath"])):
+            return _failure("VALIDATION_FAILED", "parentPath must be a safe relative NodePath.")
+        if not _is_safe_scene_path(String(operation["scenePath"])):
+            return _failure("UNSAFE_OPERATION", "Only project-relative .tscn scenes can be instantiated.")
+        var instance_name_regex := RegEx.new()
+        instance_name_regex.compile("^[A-Za-z_][A-Za-z0-9_]*$")
+        if instance_name_regex.search(String(operation["nodeName"])) == null:
+            return _failure("VALIDATION_FAILED", "nodeName contains unsupported characters.")
     elif kind == "scene.set_property":
         if not _has_exact_keys(operation, ["kind", "nodePath", "property", "value"]):
             return _failure("VALIDATION_FAILED", "scene.set_property contains unsupported or missing fields.")
@@ -807,6 +818,8 @@ func _apply_change(body: Variant) -> Dictionary:
             "operationCount": 1,
             "undoLabel": last_applied_undo_label,
         })
+    if String(operation.get("kind", "")) == "scene.instantiate_scene":
+        return _apply_instantiate_scene(request_body, scene_root, scene_path)
     if String(operation.get("kind", "")) == "resource.replace_reference":
         return _apply_resource_change(request_body, scene_root, scene_path)
     if String(operation.get("kind", "")) in ["project.input_action.add_key", "project.input_action.remove_key", "project.input_action.replace_key"]:
@@ -1639,6 +1652,70 @@ func _apply_duplicate_node(scene_root: Node, operation: Dictionary) -> Dictionar
     EditorInterface.mark_scene_as_unsaved()
     return {}
 
+func _apply_instantiate_scene(request_body: Dictionary, scene_root: Node, scene_path: String) -> Dictionary:
+    var operation: Dictionary = request_body["operations"][0]
+    var parent_path := String(operation.get("parentPath", ""))
+    var source_scene_path := String(operation.get("scenePath", ""))
+    var node_name := String(operation.get("nodeName", ""))
+    if not _is_safe_node_path(parent_path):
+        return _failure("VALIDATION_FAILED", "parentPath must be a safe relative NodePath.")
+    if not _is_safe_scene_path(source_scene_path):
+        return _failure("UNSAFE_OPERATION", "Only project-relative .tscn scenes can be instantiated.")
+    if source_scene_path == scene_path:
+        return _failure("UNSAFE_OPERATION", "The current scene cannot be instantiated into itself.")
+    var instance_name_regex := RegEx.new()
+    instance_name_regex.compile("^[A-Za-z_][A-Za-z0-9_]*$")
+    if instance_name_regex.search(node_name) == null:
+        return _failure("VALIDATION_FAILED", "nodeName contains unsupported characters.")
+
+    var parent: Node = _scene_node(scene_root, parent_path)
+    if parent == null:
+        return _failure("VALIDATION_FAILED", "The requested instance parent does not exist.")
+    if parent.get_node_or_null(NodePath(node_name)) != null:
+        return _failure("VALIDATION_FAILED", "A node with the requested instance name already exists under the target parent.")
+
+    var snapshot_result := _read_resource_snapshot(source_scene_path)
+    if snapshot_result.is_empty() or not snapshot_result.get("ok", false):
+        return snapshot_result
+    var expected_file_revision := String(request_body.get("expectedFileRevision", ""))
+    var snapshot: Dictionary = snapshot_result["snapshot"]
+    if expected_file_revision == "" or expected_file_revision != String(snapshot["revision"]):
+        return _failure(
+            "REVISION_CONFLICT",
+            "The source scene changed after preview.",
+            409,
+            {"expectedFileRevision": expected_file_revision, "actualFileRevision": snapshot["revision"]},
+        )
+
+    var packed_scene: Variant = ResourceLoader.load(source_scene_path)
+    if packed_scene == null or not packed_scene is PackedScene:
+        return _failure("OPERATION_REJECTED", "The requested resource is not an instantiable scene.")
+    var instance: Variant = (packed_scene as PackedScene).instantiate()
+    if instance == null or not instance is Node:
+        return _failure("OPERATION_REJECTED", "Godot could not instantiate the requested scene.")
+    var instance_node: Node = instance as Node
+    instance_node.name = node_name
+
+    var undo_redo := get_undo_redo()
+    undo_redo.create_action("Godot Safe Change: Instantiate scene", 0, scene_root)
+    undo_redo.add_do_method(self, "_add_instanced_scene", parent, instance_node, scene_root)
+    undo_redo.add_undo_method(self, "_remove_instanced_scene", parent, instance_node)
+    undo_redo.add_do_reference(instance_node)
+    undo_redo.commit_action()
+    EditorInterface.mark_scene_as_unsaved()
+    last_applied_plan_id = String(request_body.get("planId", ""))
+    last_applied_revision = _current_revision(scene_root, scene_path)
+    _clear_file_action_state()
+    _record_scene_action(scene_root, scene_path, "scene.instantiate_scene", "Godot Safe Change: Instantiate scene")
+    return _success("report", {
+        "schemaVersion": "0.2",
+        "planId": last_applied_plan_id,
+        "status": "applied",
+        "revision": last_applied_revision,
+        "operationCount": 1,
+        "undoLabel": last_applied_undo_label,
+    })
+
 func _scene_subtree_owned_by(node: Node, scene_root: Node) -> bool:
     if node != scene_root and node.owner != null and node.owner != scene_root:
         return false
@@ -1662,6 +1739,20 @@ func _remove_duplicate_node(parent: Node, duplicate: Node) -> void:
         return
     if duplicate.get_parent() == parent:
         parent.remove_child(duplicate)
+
+func _add_instanced_scene(parent: Node, instance: Node, scene_root: Node) -> void:
+    if not is_instance_valid(parent) or not is_instance_valid(instance) or not is_instance_valid(scene_root):
+        return
+    if instance.get_parent() != null:
+        return
+    parent.add_child(instance)
+    instance.owner = scene_root
+
+func _remove_instanced_scene(parent: Node, instance: Node) -> void:
+    if not is_instance_valid(parent) or not is_instance_valid(instance):
+        return
+    if instance.get_parent() == parent:
+        parent.remove_child(instance)
 
 func _set_owner_recursive(node: Node, scene_root: Node) -> void:
     if not is_instance_valid(node) or not is_instance_valid(scene_root):

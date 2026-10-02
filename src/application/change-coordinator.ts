@@ -375,6 +375,44 @@ export class ChangeCoordinator {
         keepGlobalTransform: operation.keepGlobalTransform,
         duplicatedNodes,
       };
+    } else if (operation.kind === "scene.instantiate_scene") {
+      const parent = context.currentScene.nodes.find((candidate) => candidate.path === operation.parentPath);
+      if (parent === undefined) {
+        throw new DomainError(
+          ERROR_CODES.VALIDATION_FAILED,
+          "The requested scene instance parent does not exist.",
+          { parentPath: operation.parentPath },
+        );
+      }
+      if (operation.scenePath === scenePath) {
+        throw new DomainError(
+          ERROR_CODES.UNSAFE_OPERATION,
+          "The current scene cannot be instantiated into itself.",
+          { scenePath: operation.scenePath },
+        );
+      }
+      const targetPath = operation.parentPath === "."
+        ? operation.nodeName
+        : operation.parentPath + "/" + operation.nodeName;
+      if (context.currentScene.nodes.some((candidate) => candidate.path === targetPath)) {
+        throw new DomainError(
+          ERROR_CODES.VALIDATION_FAILED,
+          "A node with the requested instance name already exists under the target parent.",
+          { targetPath },
+        );
+      }
+      const snapshot = await this.bridge.readResource(projectRoot, operation.scenePath);
+      expectedFileRevision = snapshot.revision;
+      diff = {
+        kind: "scene.instantiate_scene" as const,
+        target: scenePath + ":" + targetPath,
+        summary:
+          "Instantiate " + operation.scenePath + " under " + operation.parentPath + " as " + operation.nodeName + " in " + scenePath,
+        parentPath: operation.parentPath,
+        scenePath: operation.scenePath,
+        instancePath: targetPath,
+        nodeName: operation.nodeName,
+      };
     } else if (operation.kind === "scene.set_property") {
       const parsedOperation = sceneSetPropertySchema.parse(operation);
       const node = context.currentScene.nodes.find((candidate) => candidate.path === parsedOperation.nodePath);
@@ -738,7 +776,8 @@ export class ChangeCoordinator {
         operation.kind !== "resource.replace_reference" &&
         operation.kind !== "project.input_action.add_key" &&
         operation.kind !== "project.input_action.remove_key" &&
-        operation.kind !== "project.input_action.replace_key"
+        operation.kind !== "project.input_action.replace_key" &&
+        operation.kind !== "scene.instantiate_scene"
       ) {
         throw new DomainError(
           ERROR_CODES.VALIDATION_FAILED,
@@ -750,7 +789,9 @@ export class ChangeCoordinator {
           ? await this.bridge.readScript(storedPlan.plan.projectRoot, operation.scriptPath)
           : operation.kind === "resource.replace_reference"
             ? await this.bridge.readResource(storedPlan.plan.projectRoot, operation.resourcePath)
-            : await this.bridge.readInputAction(storedPlan.plan.projectRoot, operation.actionName);
+            : operation.kind === "scene.instantiate_scene"
+              ? await this.bridge.readResource(storedPlan.plan.projectRoot, operation.scenePath)
+              : await this.bridge.readInputAction(storedPlan.plan.projectRoot, operation.actionName);
       if (snapshot.revision !== storedPlan.appliedFileRevision) {
         throw new DomainError(
           ERROR_CODES.REVISION_CONFLICT,
@@ -895,7 +936,8 @@ export class ChangeCoordinator {
         operation.kind !== "resource.replace_reference" &&
         operation.kind !== "project.input_action.add_key" &&
         operation.kind !== "project.input_action.remove_key" &&
-        operation.kind !== "project.input_action.replace_key"
+        operation.kind !== "project.input_action.replace_key" &&
+        operation.kind !== "scene.instantiate_scene"
       ) {
         throw new DomainError(
           ERROR_CODES.VALIDATION_FAILED,
@@ -907,7 +949,9 @@ export class ChangeCoordinator {
           ? await this.bridge.readScript(plan.projectRoot, operation.scriptPath)
           : operation.kind === "resource.replace_reference"
             ? await this.bridge.readResource(plan.projectRoot, operation.resourcePath)
-            : await this.bridge.readInputAction(plan.projectRoot, operation.actionName);
+            : operation.kind === "scene.instantiate_scene"
+              ? await this.bridge.readResource(plan.projectRoot, operation.scenePath)
+              : await this.bridge.readInputAction(plan.projectRoot, operation.actionName);
       if (snapshot.revision !== plan.expectedFileRevision) {
         throw new DomainError(
           ERROR_CODES.REVISION_CONFLICT,

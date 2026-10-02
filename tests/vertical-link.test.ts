@@ -680,6 +680,80 @@ describe("ChangeCoordinator", () => {
     assert.equal(bridge.applied.length, 0);
   });
 
+  test("previews instantiating an existing scene with a source revision guard", async () => {
+    const bridge = new FakeGodotBridge();
+    bridge.resourceSnapshot = {
+      path: "res://instance_source.tscn",
+      revision: "scene-revision-1",
+      content: "instance-source",
+    };
+    const coordinator = new ChangeCoordinator(bridge);
+
+    const plan = await coordinator.previewSceneChange({
+      projectRoot,
+      reason: "Insert the reusable fixture scene.",
+      operation: {
+        kind: "scene.instantiate_scene",
+        parentPath: ".",
+        scenePath: "res://instance_source.tscn",
+        nodeName: "InstanceCopy",
+      } as never,
+    });
+
+    assert.equal(plan.operations[0]?.kind, "scene.instantiate_scene");
+    assert.equal(plan.expectedFileRevision, "scene-revision-1");
+    assert.deepEqual(plan.diff[0], {
+      kind: "scene.instantiate_scene",
+      target: "res://main.tscn:InstanceCopy",
+      summary: "Instantiate res://instance_source.tscn under . as InstanceCopy in res://main.tscn",
+      parentPath: ".",
+      scenePath: "res://instance_source.tscn",
+      instancePath: "InstanceCopy",
+      nodeName: "InstanceCopy",
+    });
+    assert.equal(bridge.applied.length, 0);
+  });
+
+  test("rejects unsafe, self-referential and colliding scene instances", async () => {
+    const bridge = new FakeGodotBridge();
+    bridge.resourceSnapshot = {
+      path: "res://instance_source.tscn",
+      revision: "scene-revision-1",
+      content: "instance-source",
+    };
+    bridge.context = {
+      ...bridge.context,
+      currentScene: {
+        ...bridge.context.currentScene,
+        nodes: [
+          ...bridge.context.currentScene.nodes,
+          { path: "Existing", name: "Existing", type: "Node2D", properties: {} },
+        ],
+      },
+    };
+    const coordinator = new ChangeCoordinator(bridge);
+    const preview = (parentPath: string, scenePath: string, nodeName: string) =>
+      coordinator.previewSceneChange({
+        projectRoot,
+        reason: "Exercise scene instantiation safety validation.",
+        operation: { kind: "scene.instantiate_scene", parentPath, scenePath, nodeName } as never,
+      });
+
+    await assert.rejects(
+      () => preview("../", "res://instance_source.tscn", "Copy"),
+    );
+    await assert.rejects(
+      () => preview(".", "res://main.tscn", "Recursive"),
+      (error: unknown) => error instanceof DomainError && error.code === ERROR_CODES.UNSAFE_OPERATION,
+    );
+    await assert.rejects(
+      () => preview(".", "res://instance_source.tscn", "Existing"),
+      (error: unknown) => error instanceof DomainError && error.code === ERROR_CODES.VALIDATION_FAILED,
+    );
+    await assert.rejects(() => preview(".", "res://outside.res", "Copy"));
+    assert.equal(bridge.applied.length, 0);
+  });
+
   test("requires a separate confirmation before applying and uses UndoRedo through the bridge", async () => {
     const bridge = new FakeGodotBridge();
     const coordinator = new ChangeCoordinator(bridge);
@@ -1472,6 +1546,8 @@ test("the Godot plugin exposes only the bounded vertical-link routes", async () 
   assert.doesNotMatch(source, /execute_gdscript|OS\.execute/);
   assert.match(source, /_is_safe_script_path/);
   assert.match(source, /scene\.set_property/);
+  assert.match(source, /scene\.instantiate_scene/);
+  assert.match(source, /PackedScene/);
   assert.match(source, /add_do_property/);
   assert.match(source, /scene\.attach_script/);
   assert.match(source, /scene\.detach_script/);

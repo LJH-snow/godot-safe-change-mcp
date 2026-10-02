@@ -17,8 +17,9 @@
 - project lease：apply/rollback 自动获取短租约，多个窗口同时写入同一项目时返回 PROJECT_BUSY；租约状态存放在用户状态目录，不写入 Godot 项目。
 - search_project：统一的只读项目搜索，覆盖场景、节点、脚本、资源、信号连接和输入映射。场景/节点/脚本/资源优先由连接的 Godot 编辑器返回（编辑中场景的实时状态），编辑器离线时自动回退到本地只读索引；信号与输入结果始终来自本地索引。每条结果带 `source` 标记来源。
 - find_references：反向引用查找，回答“哪些场景、资源或脚本引用了这个脚本、贴图或资源”。支持场景/资源 ext_resource、GDScript `preload()` / `load()`，可按 res:// 路径或 uid:// 标识匹配，能解析 Godot 4.4+ 中省略路径、只写 uid 的引用（纯本地只读）。
-- preview_scene_change：生成受限 scene.create_node、scene.delete_node、scene.reparent_node、scene.rename_node、scene.duplicate_node、scene.set_property、scene.attach_script、scene.detach_script、resource.replace_reference、project.input_action.add_key/remove_key/replace_key 或 script.replace_range 计划和 diff。
+- preview_scene_change：生成受限 scene.create_node、scene.delete_node、scene.reparent_node、scene.rename_node、scene.duplicate_node、scene.instantiate_scene、scene.set_property、scene.attach_script、scene.detach_script、resource.replace_reference、project.input_action.add_key/remove_key/replace_key 或 script.replace_range 计划和 diff。
 - scene.duplicate_node：只允许复制当前场景拥有的非根节点子树到当前场景其他父节点；拒绝循环、重名和外部实例节点，preview 返回源/目标路径映射，apply/rollback 通过 Godot UndoRedo 保持 owner 和全局变换策略。
+- scene.instantiate_scene：只允许把项目内已有 `.tscn` 作为实例挂载到当前场景的安全父节点；拒绝自引用、路径遍历和名称冲突，preview 绑定源场景文件 revision，apply/rollback 通过 Godot UndoRedo 管理实例根节点。
 - scene.rename_node：只允许重命名当前场景拥有的非根节点；拒绝同名 no-op、非法名称和同级重名，preview 显示该子树所有受影响 NodePath；apply/rollback 通过 Godot UndoRedo 恢复名称及路径。
 - scene.reparent_node：只允许当前场景拥有的非根节点移动到当前场景内其他父节点；拒绝循环、同父级无效移动和重名节点。preview 展示 NodePath、父节点、child index 和全局变换策略，默认保留全局变换，apply/rollback 通过 Godot UndoRedo 恢复原层级和顺序。
 - scene.delete_node：只允许删除当前场景内由当前场景拥有的非根节点；preview 返回完整待删除子树快照，apply/rollback 通过 Godot UndoRedo 保持原父级和节点顺序。
