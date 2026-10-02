@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Godot Safe Change MCP v1.1.0
+    url: https://github.com/LJH-snow/godot-safe-change-mcp/releases/tag/v1.1.0
+    about: Read the verified release notes and installation instructions first.
+  - name: Contribution guide
+    url: https://github.com/LJH-snow/godot-safe-change-mcp/blob/feature/run-scene-project-leases/CONTRIBUTING.md
+    about: Learn the preview, confirmation, lease, verification, and rollback requirements.
+  - name: Community launch kit
+    url: https://github.com/LJH-snow/godot-safe-change-mcp/blob/feature/run-scene-project-leases/docs/ANNOUNCEMENTS.md
+    about: Read the project overview and find the right feedback channel.
