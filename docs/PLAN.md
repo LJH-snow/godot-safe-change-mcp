@@ -231,6 +231,12 @@ npm run build
 
 2026-10-02 已新增 scene.rename_node preview/apply/rollback：只允许当前场景拥有的非根节点改名，拒绝非法、重复或无变化名称；preview 返回子树 NodePath 映射，EditorUndoRedoManager 恢复名称并由 revision/history 守卫限制回滚。
 
+2026-10-02 已新增 scene.duplicate_node preview/apply/rollback：复制当前场景拥有的非根子树到当前场景内其他父节点，拒绝循环、重名和外部实例节点；preview 返回源/目标路径映射，UndoRedo 保留 owner 和变换策略。
+
+2026-10-02 已新增 scene.detach_script preview/apply/rollback：仅允许移除当前场景节点已有的项目内 `.gd` 脚本；preview 返回原脚本路径，Godot UndoRedo 清除并恢复 Script 资源，拒绝无脚本、非项目脚本和不安全 NodePath。
+
+2026-10-02 已新增 scene.instantiate_scene preview/apply/rollback：仅允许把项目内已有 `.tscn` 作为实例挂载到当前场景的安全父节点；preview 绑定源场景文件 revision，Godot UndoRedo 添加/移除实例根节点，拒绝自引用、路径遍历和名称冲突。
+
 ## 7. 待决定问题
 
 - 本地桥接使用 HTTP、WebSocket，还是两个都提供；

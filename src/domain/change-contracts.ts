@@ -24,7 +24,7 @@ export const nodePathSchema = z
   .max(256)
   .regex(relativeNodePathPattern, "NodePath must be relative and contain only safe segments.");
 
-const scriptPathSchema = z
+export const scriptPathSchema = z
   .string()
   .min(1)
   .max(256)
@@ -46,6 +46,18 @@ const resourcePathSchema = z
     (value) =>
       !value.includes("..") && value.split("/").every((segment) => segment !== "." && segment !== ".."),
     "resourcePath must not contain traversal segments.",
+  );
+
+export const scenePathSchema = z
+  .string()
+  .min(1)
+  .max(256)
+  .regex(projectRelativePathPattern, "scenePath must be a project-relative path.")
+  .regex(/\.tscn$/, "scenePath must target a Godot scene.")
+  .refine(
+    (value) =>
+      !value.includes("..") && value.split("/").every((segment) => segment !== "." && segment !== ".."),
+    "scenePath must not contain traversal segments.",
   );
 
 const resourceIdentifierSchema = z
@@ -115,6 +127,25 @@ export const sceneRenameNodeSchema = z
   })
   .strict();
 
+export const sceneDuplicateNodeSchema = z
+  .object({
+    kind: z.literal("scene.duplicate_node"),
+    nodePath: nodePathSchema,
+    newParentPath: nodePathSchema,
+    newName: nodeNameSchema,
+    keepGlobalTransform: z.boolean().default(true),
+  })
+  .strict();
+
+export const sceneInstantiateSceneSchema = z
+  .object({
+    kind: z.literal("scene.instantiate_scene"),
+    parentPath: nodePathSchema,
+    scenePath: scenePathSchema,
+    nodeName: nodeNameSchema,
+  })
+  .strict();
+
 const sceneSetVisiblePropertySchema = z
   .object({
     kind: z.literal("scene.set_property"),
@@ -180,6 +211,13 @@ export const sceneAttachScriptSchema = z
   })
   .strict();
 
+export const sceneDetachScriptSchema = z
+  .object({
+    kind: z.literal("scene.detach_script"),
+    nodePath: nodePathSchema.describe("NodePath of a node inside the current scene."),
+  })
+  .strict();
+
 export const resourceReplaceReferenceSchema = z
   .object({
     kind: z.literal("resource.replace_reference"),
@@ -236,8 +274,11 @@ export const changeOperationSchema = z.union([
   sceneDeleteNodeSchema,
   sceneReparentNodeSchema,
   sceneRenameNodeSchema,
+  sceneDuplicateNodeSchema,
+  sceneInstantiateSceneSchema,
   sceneSetPropertySchema,
   sceneAttachScriptSchema,
+  sceneDetachScriptSchema,
   resourceReplaceReferenceSchema,
   inputActionAddKeySchema,
   inputActionRemoveKeySchema,
@@ -313,6 +354,44 @@ export const sceneRenameNodeDiffSchema = z
     previousName: nodeNameSchema,
     newName: nodeNameSchema,
     affectedPaths: z.array(z.object({ from: nodePathSchema, to: nodePathSchema }).strict()).min(1),
+  })
+  .strict();
+
+export const sceneDuplicateNodeDiffSchema = z
+  .object({
+    kind: z.literal("scene.duplicate_node"),
+    target: z.string().min(1),
+    summary: z.string().min(1),
+    sourcePath: nodePathSchema,
+    newParentPath: nodePathSchema,
+    targetPath: nodePathSchema,
+    newName: nodeNameSchema,
+    keepGlobalTransform: z.boolean(),
+    duplicatedNodes: z
+      .array(
+        z
+          .object({
+            from: nodePathSchema,
+            to: nodePathSchema,
+            name: z.string().min(1),
+            type: z.string().min(1),
+            properties: z.record(z.string(), z.unknown()),
+          })
+          .strict(),
+      )
+      .min(1),
+  })
+  .strict();
+
+export const sceneInstantiateSceneDiffSchema = z
+  .object({
+    kind: z.literal("scene.instantiate_scene"),
+    target: z.string().min(1),
+    summary: z.string().min(1),
+    parentPath: nodePathSchema,
+    scenePath: scenePathSchema,
+    instancePath: nodePathSchema,
+    nodeName: nodeNameSchema,
   })
   .strict();
 
@@ -403,13 +482,24 @@ export const sceneAttachScriptDiffSchema = z.object({
   scriptPath: z.string().min(1),
 });
 
+export const sceneDetachScriptDiffSchema = z.object({
+  kind: z.literal("scene.detach_script"),
+  target: z.string().min(1),
+  summary: z.string().min(1),
+  nodePath: nodePathSchema,
+  scriptPath: scriptPathSchema,
+}).strict();
+
 export const changeDiffSchema = z.union([
   sceneChangeDiffSchema,
   sceneDeleteNodeDiffSchema,
   sceneReparentNodeDiffSchema,
   sceneRenameNodeDiffSchema,
+  sceneDuplicateNodeDiffSchema,
+  sceneInstantiateSceneDiffSchema,
   scenePropertyDiffSchema,
   sceneAttachScriptDiffSchema,
+  sceneDetachScriptDiffSchema,
   resourceReferenceDiffSchema,
   inputActionDiffSchema,
   inputActionRemoveKeyDiffSchema,

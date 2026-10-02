@@ -211,6 +211,7 @@
 - [x] 增加输入动作按键添加/移除的 preview/apply/rollback，使用 project.godot revision guard、重复/歧义键校验和回滚验证。
 - [x] 增加资源引用 snapshot/preview diff、revision guard、原子 apply 和 rollback。
 - [x] 增加挂载已有脚本的 preview/apply/rollback。
+- [x] 增加 scene.instantiate_scene：校验项目内 `.tscn`、父节点和名称冲突，绑定源场景 revision，并通过 UndoRedo apply/rollback。
 
 ## Phase 15 — task-level scene verification
 

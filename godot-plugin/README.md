@@ -18,8 +18,10 @@ Enable Godot Safe Change Bridge in Project Settings > Plugins. The plugin starts
 - POST /v1/search returns read-only matches for scenes, nodes, scripts and resources from the editor filesystem and current scene tree.
 - POST /v1/scripts/read returns a read-only script snapshot and content revision for safe preview generation.
 - Script replace apply uses a bounded .gd path, expected file revision, temporary file and atomic rename; rollback restores the captured original content.
-- POST /v1/changes/apply accepts only one scene.create_node operation and commits it through EditorUndoRedoManager.
+- POST /v1/changes/apply accepts one bounded scene operation, including scene.create_node, scene.instantiate_scene, scene.set_property, scene.attach_script and scene.detach_script, and commits scene changes through EditorUndoRedoManager.
 - POST /v1/changes/rollback undoes only the latest applied plan when its plan ID and revision still match.
+- scene.detach_script clears only a node's existing project-local GDScript and records the original Script resource in UndoRedo for revision-guarded rollback.
+- scene.instantiate_scene loads an existing project-local PackedScene, assigns the instance root to the edited scene owner, and records add/remove callbacks in UndoRedo; the source scene revision is checked before apply.
 - POST /v1/run/current starts the current saved scene and returns a run snapshot.
 - POST /v1/run/status returns the current snapshot for the requested run ID.
 

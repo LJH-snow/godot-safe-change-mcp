@@ -4,6 +4,7 @@ import {
   changePlanSchema,
   confirmChangeInputSchema,
   previewSceneChangeInputSchema,
+  scriptPathSchema,
   sceneSetPropertySchema,
   type ApplyChangeInput,
   type ChangePlan,
@@ -307,6 +308,111 @@ export class ChangeCoordinator {
         newName: operation.newName,
         affectedPaths,
       };
+    } else if (operation.kind === "scene.duplicate_node") {
+      if (operation.nodePath === ".") {
+        throw new DomainError(
+          ERROR_CODES.UNSAFE_OPERATION,
+          "The current scene root cannot be duplicated.",
+          { nodePath: operation.nodePath },
+        );
+      }
+      const node = context.currentScene.nodes.find((candidate) => candidate.path === operation.nodePath);
+      if (node === undefined) {
+        throw new DomainError(
+          ERROR_CODES.VALIDATION_FAILED,
+          "The requested source scene node does not exist.",
+          { nodePath: operation.nodePath },
+        );
+      }
+      if (
+        operation.newParentPath === operation.nodePath ||
+        operation.newParentPath.startsWith(operation.nodePath + "/")
+      ) {
+        throw new DomainError(
+          ERROR_CODES.UNSAFE_OPERATION,
+          "A scene node cannot be duplicated beneath itself or one of its descendants.",
+          { nodePath: operation.nodePath, newParentPath: operation.newParentPath },
+        );
+      }
+      const newParent = context.currentScene.nodes.find((candidate) => candidate.path === operation.newParentPath);
+      if (newParent === undefined) {
+        throw new DomainError(
+          ERROR_CODES.VALIDATION_FAILED,
+          "The requested duplicate parent does not exist in the current scene.",
+          { newParentPath: operation.newParentPath },
+        );
+      }
+      const targetPath = operation.newParentPath === "."
+        ? operation.newName
+        : operation.newParentPath + "/" + operation.newName;
+      if (context.currentScene.nodes.some((candidate) => candidate.path === targetPath)) {
+        throw new DomainError(
+          ERROR_CODES.VALIDATION_FAILED,
+          "A node with the requested duplicate name already exists under the target parent.",
+          { targetPath },
+        );
+      }
+      const duplicatedNodes = context.currentScene.nodes
+        .filter(
+          (candidate) =>
+            candidate.path === operation.nodePath || candidate.path.startsWith(operation.nodePath + "/"),
+        )
+        .map((candidate) => ({
+          from: candidate.path,
+          to: targetPath + candidate.path.slice(operation.nodePath.length),
+          name: candidate.name,
+          type: candidate.type,
+          properties: structuredClone(candidate.properties),
+        }));
+      diff = {
+        kind: "scene.duplicate_node" as const,
+        target: scenePath + ":" + targetPath,
+        summary: "Duplicate " + operation.nodePath + " under " + operation.newParentPath + " as " + operation.newName + " in " + scenePath,
+        sourcePath: operation.nodePath,
+        newParentPath: operation.newParentPath,
+        targetPath,
+        newName: operation.newName,
+        keepGlobalTransform: operation.keepGlobalTransform,
+        duplicatedNodes,
+      };
+    } else if (operation.kind === "scene.instantiate_scene") {
+      const parent = context.currentScene.nodes.find((candidate) => candidate.path === operation.parentPath);
+      if (parent === undefined) {
+        throw new DomainError(
+          ERROR_CODES.VALIDATION_FAILED,
+          "The requested scene instance parent does not exist.",
+          { parentPath: operation.parentPath },
+        );
+      }
+      if (operation.scenePath === scenePath) {
+        throw new DomainError(
+          ERROR_CODES.UNSAFE_OPERATION,
+          "The current scene cannot be instantiated into itself.",
+          { scenePath: operation.scenePath },
+        );
+      }
+      const targetPath = operation.parentPath === "."
+        ? operation.nodeName
+        : operation.parentPath + "/" + operation.nodeName;
+      if (context.currentScene.nodes.some((candidate) => candidate.path === targetPath)) {
+        throw new DomainError(
+          ERROR_CODES.VALIDATION_FAILED,
+          "A node with the requested instance name already exists under the target parent.",
+          { targetPath },
+        );
+      }
+      const snapshot = await this.bridge.readResource(projectRoot, operation.scenePath);
+      expectedFileRevision = snapshot.revision;
+      diff = {
+        kind: "scene.instantiate_scene" as const,
+        target: scenePath + ":" + targetPath,
+        summary:
+          "Instantiate " + operation.scenePath + " under " + operation.parentPath + " as " + operation.nodeName + " in " + scenePath,
+        parentPath: operation.parentPath,
+        scenePath: operation.scenePath,
+        instancePath: targetPath,
+        nodeName: operation.nodeName,
+      };
     } else if (operation.kind === "scene.set_property") {
       const parsedOperation = sceneSetPropertySchema.parse(operation);
       const node = context.currentScene.nodes.find((candidate) => candidate.path === parsedOperation.nodePath);
@@ -346,6 +452,32 @@ export class ChangeCoordinator {
         target: scenePath + ":" + operation.nodePath + ":script",
         summary: "Attach " + operation.scriptPath + " to " + operation.nodePath + " in " + scenePath,
         scriptPath: operation.scriptPath,
+      };
+    } else if (operation.kind === "scene.detach_script") {
+      const node = context.currentScene.nodes.find((candidate) => candidate.path === operation.nodePath);
+      if (node === undefined) {
+        throw new DomainError(
+          ERROR_CODES.VALIDATION_FAILED,
+          "The requested node is not available in the current scene context.",
+          { nodePath: operation.nodePath },
+        );
+      }
+      const scriptPath = node.properties.scriptPath;
+      const parsedScriptPath = scriptPathSchema.safeParse(scriptPath);
+      if (!parsedScriptPath.success) {
+        throw new DomainError(
+          ERROR_CODES.VALIDATION_FAILED,
+          "The requested node does not have an existing project-local GDScript.",
+          { nodePath: operation.nodePath },
+        );
+      }
+      await this.bridge.readScript(projectRoot, parsedScriptPath.data);
+      diff = {
+        kind: "scene.detach_script" as const,
+        target: scenePath + ":" + operation.nodePath + ":script",
+        summary: "Detach " + parsedScriptPath.data + " from " + operation.nodePath + " in " + scenePath,
+        nodePath: operation.nodePath,
+        scriptPath: parsedScriptPath.data,
       };
     } else if (operation.kind === "resource.replace_reference") {
       const snapshot = await this.bridge.readResource(projectRoot, operation.resourcePath);
@@ -644,7 +776,8 @@ export class ChangeCoordinator {
         operation.kind !== "resource.replace_reference" &&
         operation.kind !== "project.input_action.add_key" &&
         operation.kind !== "project.input_action.remove_key" &&
-        operation.kind !== "project.input_action.replace_key"
+        operation.kind !== "project.input_action.replace_key" &&
+        operation.kind !== "scene.instantiate_scene"
       ) {
         throw new DomainError(
           ERROR_CODES.VALIDATION_FAILED,
@@ -656,7 +789,9 @@ export class ChangeCoordinator {
           ? await this.bridge.readScript(storedPlan.plan.projectRoot, operation.scriptPath)
           : operation.kind === "resource.replace_reference"
             ? await this.bridge.readResource(storedPlan.plan.projectRoot, operation.resourcePath)
-            : await this.bridge.readInputAction(storedPlan.plan.projectRoot, operation.actionName);
+            : operation.kind === "scene.instantiate_scene"
+              ? await this.bridge.readResource(storedPlan.plan.projectRoot, operation.scenePath)
+              : await this.bridge.readInputAction(storedPlan.plan.projectRoot, operation.actionName);
       if (snapshot.revision !== storedPlan.appliedFileRevision) {
         throw new DomainError(
           ERROR_CODES.REVISION_CONFLICT,
@@ -801,7 +936,8 @@ export class ChangeCoordinator {
         operation.kind !== "resource.replace_reference" &&
         operation.kind !== "project.input_action.add_key" &&
         operation.kind !== "project.input_action.remove_key" &&
-        operation.kind !== "project.input_action.replace_key"
+        operation.kind !== "project.input_action.replace_key" &&
+        operation.kind !== "scene.instantiate_scene"
       ) {
         throw new DomainError(
           ERROR_CODES.VALIDATION_FAILED,
@@ -813,7 +949,9 @@ export class ChangeCoordinator {
           ? await this.bridge.readScript(plan.projectRoot, operation.scriptPath)
           : operation.kind === "resource.replace_reference"
             ? await this.bridge.readResource(plan.projectRoot, operation.resourcePath)
-            : await this.bridge.readInputAction(plan.projectRoot, operation.actionName);
+            : operation.kind === "scene.instantiate_scene"
+              ? await this.bridge.readResource(plan.projectRoot, operation.scenePath)
+              : await this.bridge.readInputAction(plan.projectRoot, operation.actionName);
       if (snapshot.revision !== plan.expectedFileRevision) {
         throw new DomainError(
           ERROR_CODES.REVISION_CONFLICT,

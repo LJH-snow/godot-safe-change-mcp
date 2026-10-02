@@ -3,7 +3,7 @@
 Automated coverage currently includes:
 
 - contracts and application: preview, explicit confirmation, revision conflicts, property-specific diffs, active-plan identity, apply reports and run diagnostics through a fake bridge;
-- change contracts: strict visible/position/size/text/color value shapes, finite numeric ranges, safe relative NodePaths, scene subtree deletion/reparent/rename preview/apply/rollback checks, and project-local script/resource identifiers;
+- change contracts: strict visible/position/size/text/color value shapes, finite numeric ranges, safe relative NodePaths, scene subtree deletion/reparent/rename/duplicate preview/apply/rollback checks, and project-local script/resource identifiers;
 - search index: read-only scene/script/resource/node matching, signal declarations, input actions, truncation and symlink safety;
 - operation audit: lifecycle operation IDs, inputs, outputs, revisions, failure evidence and JSONL restart recovery;
 - task contract boundaries: unique step IDs, slug-safe task IDs, lease TTL limits, inclusive timeline time ranges and bounded timeline limits;
@@ -49,12 +49,13 @@ The real EditorPlugin check uses godot-fixture and requires a local Godot 4.x ed
 10. Call apply_scene_change and verify the node appears in the scene tree and the report contains an undo label and new revision.
 11. Call rollback_scene_change while the applied revision is current and verify the node is undone with a rolled_back report.
 12. For `scene.set_property`, round-trip visible, position, size, text and color on compatible fixture nodes; verify each revision changes on apply, the property value changes, the UndoRedo label is specific, and rollback restores the prior value.
-13. Attach `res://diagnostic_scene.gd` to the fixture's scriptless node, verify the script path appears after apply and returns to null after rollback; a second rollback must be rejected.
-14. Run run_current_scene and verify the returned run ID, status and diagnostics.
-15. Call run_scene with `res://main.tscn` and verify the custom-scene output, run ID and stopped diagnostics; also verify a `.gd` or traversal path is rejected before the bridge.
-16. Change the scene after apply and verify rollback_scene_change returns REVISION_CONFLICT; change a resource after apply and verify its user edit remains after the rejected rollback.
-17. Call create_task with a run step, preview_diagnostic_repair carrying a bounded repairHint, apply_diagnostic_repair, rerun and verify_diagnostics; verify timeline links the run/diagnostic/plan, preview pauses, and apply succeeds only after confirm_scene_change.
-18. Create a second task, pause it and verify advance_task returns TASK_INVALID_STATUS; resume, advance once, then cancel and verify the remaining steps become "cancelled".
-19. Restart the MCP server and call get_task; verify the task state is restored from `.godot-safe-change/tasks/` inside the project.
+13. Instantiate `res://instance_source.tscn` under the current scene root, verify the instance and child NodePaths appear after apply and disappear after rollback; a source-file revision change before apply must be rejected.
+14. Attach `res://diagnostic_scene.gd` to the fixture's scriptless node, verify the script path appears after apply and returns to null after rollback; then detach the scene root's existing script and verify apply returns its path to null and rollback restores it; a second rollback must be rejected.
+15. Run run_current_scene and verify the returned run ID, status and diagnostics.
+16. Call run_scene with `res://main.tscn` and verify the custom-scene output, run ID and stopped diagnostics; also verify a `.gd` or traversal path is rejected before the bridge.
+17. Change the scene after apply and verify rollback_scene_change returns REVISION_CONFLICT; change a resource after apply and verify its user edit remains after the rejected rollback.
+18. Call create_task with a run step, preview_diagnostic_repair carrying a bounded repairHint, apply_diagnostic_repair, rerun and verify_diagnostics; verify timeline links the run/diagnostic/plan, preview pauses, and apply succeeds only after confirm_scene_change.
+19. Create a second task, pause it and verify advance_task returns TASK_INVALID_STATUS; resume, advance once, then cancel and verify the remaining steps become "cancelled".
+20. Restart the MCP server and call get_task; verify the task state is restored from `.godot-safe-change/tasks/` inside the project.
 
 The first write-operation test must keep preview, confirmation, apply and rollback as separate states.
