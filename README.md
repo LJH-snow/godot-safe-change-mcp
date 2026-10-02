@@ -91,6 +91,29 @@ npm run build
 node bin/mcp-server.mjs
 ~~~
 
+## 使用 Inspector
+
+Inspector 是 mcp-use 提供的本地 MCP 调试界面。执行 <code>npm ci</code> 或 <code>npm install</code> 时，<code>mcp-use</code> 会将锁定版本的 <code>@mcp-use/inspector</code> 安装到 <code>node_modules</code>；之后每次启动不会重复下载。
+
+按以下步骤使用：
+
+1. 启动 Godot 编辑器并启用 Godot Safe Change Bridge。
+2. 在项目根目录运行 <code>npm run dev</code>；它会启动开发服务器并加载 Inspector。
+3. 打开 <code>http://127.0.0.1:3000/mcp/inspector</code>，如果浏览器没有自动打开就手动访问。
+4. 在 **Tools** 中先调用 <code>editor_context</code>，确认当前场景、完整节点树和连接状态。
+5. 用 <code>search_project</code> 或 <code>find_references</code> 验证只读搜索。
+6. 测试写入时严格执行 <code>preview_scene_change</code> → <code>confirm_scene_change</code> → <code>apply_scene_change</code> → <code>rollback_scene_change</code>。
+7. 用 <code>operation_history</code>、<code>task_status</code> 和 <code>task_timeline</code> 查看审计、Lease 和恢复证据。
+
+调试时可以禁止自动打开浏览器，或完全关闭 Inspector：
+
+~~~bash
+npm run dev -- --no-open
+npm run dev -- --no-inspector
+~~~
+
+Inspector 只用于本地开发、手工验收和演示；CI 和生产入口不依赖它。默认只绑定 <code>127.0.0.1</code>，不要用公开地址运行开发 Inspector，也不要在工具表单中输入敏感凭据。
+
 ## 第一次尝试
 
 连接成功后，可以从只读操作开始：
