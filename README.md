@@ -226,6 +226,7 @@ npm run package:check
 - [贡献指南](CONTRIBUTING.md)
 - [增长与社区采用计划](docs/GROWTH.md)
 - [Agent 示例](docs/EXAMPLES.md)
+- [Starter fixture](examples/starter/README.md)
 - [更新记录](CHANGELOG.md)
 - [发布清单](docs/RELEASE.md)
 - [测试边界与 Godot 手工验收](tests/README.md)

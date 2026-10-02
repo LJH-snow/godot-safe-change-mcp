@@ -34,7 +34,7 @@
 
 ### Phase B：让第一次成功变得简单（2–4 周）
 
-- [ ] 提供一个独立 starter fixture，用户无需理解仓库结构即可运行第一条安全变更。
+- [x] 提供 examples/starter fixture，用户无需理解内部实现即可运行第一条安全变更。
 - [ ] 增加 5 个可复制的 Agent 示例请求：搜索、创建节点、实例化场景、脚本/资源安全修改、任务恢复。
 - [x] 增加 docs/EXAMPLES.md，覆盖搜索、场景变更、实例化/信号、任务 Lease 和冲突恢复。
 - [ ] 为 Claude Code、Codex、Cursor 和通用 Streamable HTTP 客户端各写一份最小连接示例。

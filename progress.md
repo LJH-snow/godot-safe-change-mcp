@@ -1,5 +1,10 @@
 # 进度记录
 
+## 2026-10-03 starter fixture
+
+- 新增 examples/starter 最小 Godot 项目和 ui/hud.tscn，覆盖搜索、实例化、属性修改和 rollback 的首次体验。
+- README 和增长路线加入 starter 入口；下一步可录制 60 秒演示并发布第一个 npm/GitHub Release。
+
 ## 2026-10-03 Agent onboarding examples
 
 - 新增 docs/EXAMPLES.md，提供可复制的搜索、preview/confirm/apply/rollback、场景实例化/信号、任务 Lease 和 PROJECT_BUSY 恢复流程。
