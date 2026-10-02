@@ -1,5 +1,10 @@
 # 进度记录
 
+## 2026-10-03 v1.1.0 GitHub Release
+
+- 已创建 GitHub Release v1.1.0，固定到 npm 线上包对应的 commit 256c11dbc19b4be7106a036e3946c97220c0bb92。
+- Release 地址：https://github.com/LJH-snow/godot-safe-change-mcp/releases/tag/v1.1.0；包含安装命令、能力摘要和四项 CI 验证证据。
+
 ## 2026-10-03 starter fixture CI validation
 
 - GitHub Actions Godot 4.5.1/4.7.2 job 新增 starter fixture headless editor load，确保公开示例可启动。
