@@ -352,6 +352,10 @@ try {
     { operation: { kind: "scene.reparent_node", nodePath: "Canvas", newParentPath: "Canvas/Title", keepGlobalTransform: true }, errorCode: "UNSAFE_OPERATION" },
     { operation: { kind: "scene.reparent_node", nodePath: "Canvas/Title", newParentPath: "Canvas/Missing", keepGlobalTransform: true }, errorCode: "VALIDATION_FAILED" },
     { operation: { kind: "scene.reparent_node", nodePath: "Canvas/Title", newParentPath: "Canvas", keepGlobalTransform: true }, errorCode: "OPERATION_REJECTED" },
+    { operation: { kind: "scene.rename_node", nodePath: ".", newName: "RenamedRoot" }, errorCode: "UNSAFE_OPERATION" },
+    { operation: { kind: "scene.rename_node", nodePath: "Canvas/Missing", newName: "Renamed" }, errorCode: "VALIDATION_FAILED" },
+    { operation: { kind: "scene.rename_node", nodePath: "Canvas", newName: "Scriptless" }, errorCode: "VALIDATION_FAILED" },
+    { operation: { kind: "scene.rename_node", nodePath: "Canvas", newName: "bad/name" }, errorCode: "VALIDATION_FAILED" },
     { operation: { kind: "scene.set_property", nodePath: ".", property: "script", value: null }, errorCode: "UNSAFE_OPERATION" },
     { operation: { kind: "scene.attach_script", nodePath: ".", scriptPath: "res://../outside.gd" }, errorCode: "UNSAFE_OPERATION" },
     { operation: { kind: "resource.replace_reference", resourcePath: "res://../outside.tres", from: "res://old.tres", to: "res://new.tres" }, errorCode: "UNSAFE_OPERATION" },
@@ -529,6 +533,42 @@ try {
   assert.equal(sceneNode(afterReparentRollback, "Scriptless/Canvas"), undefined);
   assert.deepEqual(afterReparentRollback.currentScene.nodes, beforeReparentContext.currentScene.nodes);
   stage("scene reparent apply and rollback complete");
+
+  const beforeRenameContext = await readEditorContext(fixtureRoot);
+  const renamePlan = structured(await request("tools/call", {
+    name: "preview_scene_change",
+    arguments: {
+      projectRoot: fixtureRoot,
+      reason: "CI scene rename apply and rollback smoke test.",
+      operation: { kind: "scene.rename_node", nodePath: "Canvas", newName: "HUD" },
+    },
+  }));
+  assert.deepEqual(renamePlan.diff[0]?.affectedPaths, [
+    { from: "Canvas", to: "HUD" },
+    { from: "Canvas/Title", to: "HUD/Title" },
+    { from: "Canvas/ColorPanel", to: "HUD/ColorPanel" },
+  ]);
+  structured(await request("tools/call", {
+    name: "confirm_scene_change",
+    arguments: { projectRoot: fixtureRoot, planId: renamePlan.planId, expectedRevision: renamePlan.expectedRevision },
+  }));
+  const renameApply = structured(await request("tools/call", {
+    name: "apply_scene_change",
+    arguments: { projectRoot: fixtureRoot, planId: renamePlan.planId },
+  }));
+  assert.equal(renameApply.status, "applied");
+  assert.equal(renameApply.undoLabel, "Godot Safe Change: Rename node");
+  const afterRenameContext = await readEditorContext(fixtureRoot);
+  assert.equal(sceneNode(afterRenameContext, "Canvas"), undefined);
+  assert.equal(sceneNode(afterRenameContext, "HUD/Title")?.properties.text, "Fixture label");
+  const renameRollback = structured(await request("tools/call", {
+    name: "rollback_scene_change",
+    arguments: { projectRoot: fixtureRoot, planId: renamePlan.planId },
+  }));
+  assert.equal(renameRollback.status, "rolled_back");
+  const afterRenameRollback = await readEditorContext(fixtureRoot);
+  assert.deepEqual(afterRenameRollback.currentScene.nodes, beforeRenameContext.currentScene.nodes);
+  stage("scene rename apply and rollback complete");
 
   await roundTripSceneProperty(fixtureRoot, ".", "visible", false);
   await roundTripSceneProperty(fixtureRoot, ".", "position", { x: 12, y: 8 });

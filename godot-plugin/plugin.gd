@@ -614,6 +614,19 @@ func _validate_change_request(request_body: Dictionary) -> Dictionary:
             return _failure("VALIDATION_FAILED", "keepGlobalTransform must be a boolean.")
         if new_parent_path == node_path or new_parent_path.begins_with(node_path + "/"):
             return _failure("UNSAFE_OPERATION", "A node cannot be reparented beneath itself or one of its descendants.")
+    elif kind == "scene.rename_node":
+        if not _has_exact_keys(operation, ["kind", "nodePath", "newName"]):
+            return _failure("VALIDATION_FAILED", "scene.rename_node contains unsupported or missing fields.")
+        var node_path := String(operation["nodePath"])
+        var new_name := String(operation["newName"])
+        if not _is_safe_node_path(node_path):
+            return _failure("VALIDATION_FAILED", "nodePath must be a safe relative NodePath.")
+        if node_path == ".":
+            return _failure("UNSAFE_OPERATION", "The current scene root cannot be renamed.")
+        var rename_name_regex := RegEx.new()
+        rename_name_regex.compile("^[A-Za-z_][A-Za-z0-9_]*$")
+        if rename_name_regex.search(new_name) == null:
+            return _failure("VALIDATION_FAILED", "newName contains unsupported characters.")
     elif kind == "scene.set_property":
         if not _has_exact_keys(operation, ["kind", "nodePath", "property", "value"]):
             return _failure("VALIDATION_FAILED", "scene.set_property contains unsupported or missing fields.")
@@ -733,6 +746,23 @@ func _apply_change(body: Variant) -> Dictionary:
             "planId": last_applied_plan_id,
             "status": "applied",
             "revision": reparent_revision,
+            "operationCount": 1,
+            "undoLabel": last_applied_undo_label,
+        })
+    if String(operation.get("kind", "")) == "scene.rename_node":
+        var rename_result := _apply_rename_node(scene_root, operation)
+        if not rename_result.is_empty():
+            return rename_result
+        var rename_revision := _current_revision(scene_root, scene_path)
+        last_applied_plan_id = String(request_body.get("planId", ""))
+        last_applied_revision = rename_revision
+        _clear_file_action_state()
+        _record_scene_action(scene_root, scene_path, "scene.rename_node", "Godot Safe Change: Rename node")
+        return _success("report", {
+            "schemaVersion": "0.2",
+            "planId": last_applied_plan_id,
+            "status": "applied",
+            "revision": rename_revision,
             "operationCount": 1,
             "undoLabel": last_applied_undo_label,
         })
@@ -1462,6 +1492,37 @@ func _move_scene_node(node: Node, parent: Node, child_index: int, keep_global_tr
     node.reparent(parent, keep_global_transform)
     parent.move_child(node, mini(child_index, parent.get_child_count() - 1))
     node.owner = scene_root
+
+func _apply_rename_node(scene_root: Node, operation: Dictionary) -> Dictionary:
+    var node_path := String(operation.get("nodePath", ""))
+    var new_name := String(operation.get("newName", ""))
+    if not _is_safe_node_path(node_path) or node_path == ".":
+        return _failure("UNSAFE_OPERATION", "Only a safe non-root scene node can be renamed.")
+    var node_name_regex := RegEx.new()
+    node_name_regex.compile("^[A-Za-z_][A-Za-z0-9_]*$")
+    if node_name_regex.search(new_name) == null:
+        return _failure("VALIDATION_FAILED", "newName contains unsupported characters.")
+    var node := _scene_node(scene_root, node_path)
+    if node == null:
+        return _failure("VALIDATION_FAILED", "The requested scene node does not exist.")
+    if node.owner != scene_root:
+        return _failure("UNSAFE_OPERATION", "Only nodes owned by the current scene can be renamed.")
+    if String(node.name) == new_name:
+        return _failure("OPERATION_REJECTED", "The requested node already has that name.")
+    var parent := node.get_parent()
+    if parent == null:
+        return _failure("UNSAFE_OPERATION", "The requested node has no parent in the current scene.")
+    if parent.get_node_or_null(NodePath(new_name)) != null:
+        return _failure("VALIDATION_FAILED", "A sibling node already uses the requested name.")
+
+    var previous_name := String(node.name)
+    var undo_redo := get_undo_redo()
+    undo_redo.create_action("Godot Safe Change: Rename node", 0, scene_root)
+    undo_redo.add_do_property(node, "name", new_name)
+    undo_redo.add_undo_property(node, "name", previous_name)
+    undo_redo.commit_action()
+    EditorInterface.mark_scene_as_unsaved()
+    return {}
 
 func _restore_deleted_node(parent: Node, node: Node, child_index: int, scene_root: Node) -> void:
     if not is_instance_valid(parent) or not is_instance_valid(node) or not is_instance_valid(scene_root):

@@ -255,6 +255,58 @@ export class ChangeCoordinator {
         toIndex,
         keepGlobalTransform: operation.keepGlobalTransform,
       };
+    } else if (operation.kind === "scene.rename_node") {
+      if (operation.nodePath === ".") {
+        throw new DomainError(
+          ERROR_CODES.UNSAFE_OPERATION,
+          "The current scene root cannot be renamed.",
+          { nodePath: operation.nodePath },
+        );
+      }
+      const node = context.currentScene.nodes.find((candidate) => candidate.path === operation.nodePath);
+      if (node === undefined) {
+        throw new DomainError(
+          ERROR_CODES.VALIDATION_FAILED,
+          "The requested scene node does not exist.",
+          { nodePath: operation.nodePath },
+        );
+      }
+      if (node.name === operation.newName) {
+        throw new DomainError(
+          ERROR_CODES.OPERATION_REJECTED,
+          "The requested node already has that name.",
+          { nodePath: operation.nodePath, newName: operation.newName },
+        );
+      }
+      const lastSeparator = operation.nodePath.lastIndexOf("/");
+      const parentPath = lastSeparator < 0 ? "." : operation.nodePath.slice(0, lastSeparator);
+      const newNodePath = parentPath === "." ? operation.newName : parentPath + "/" + operation.newName;
+      if (context.currentScene.nodes.some((candidate) => candidate.path === newNodePath)) {
+        throw new DomainError(
+          ERROR_CODES.VALIDATION_FAILED,
+          "A sibling node already uses the requested name.",
+          { newNodePath },
+        );
+      }
+      const affectedPaths = context.currentScene.nodes
+        .filter(
+          (candidate) =>
+            candidate.path === operation.nodePath || candidate.path.startsWith(operation.nodePath + "/"),
+        )
+        .map((candidate) => ({
+          from: candidate.path,
+          to: newNodePath + candidate.path.slice(operation.nodePath.length),
+        }));
+      diff = {
+        kind: "scene.rename_node" as const,
+        target: scenePath + ":" + operation.nodePath,
+        summary: "Rename " + node.name + " to " + operation.newName + " in " + scenePath,
+        nodePath: operation.nodePath,
+        newNodePath,
+        previousName: node.name,
+        newName: operation.newName,
+        affectedPaths,
+      };
     } else if (operation.kind === "scene.set_property") {
       const parsedOperation = sceneSetPropertySchema.parse(operation);
       const node = context.currentScene.nodes.find((candidate) => candidate.path === parsedOperation.nodePath);

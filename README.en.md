@@ -17,6 +17,7 @@ The first safe vertical workflow is now fully connected:
 - preview_scene_change: produce a plan and diff for restricted scene.create_node, scene.delete_node, scene.reparent_node, scene.set_property, scene.attach_script, resource.replace_reference, project.input_action.add_key/remove_key/replace_key or script.replace_range operations.
 - scene.delete_node: delete only a non-root node owned by the current scene; preview returns the complete subtree snapshot and apply/rollback use Godot UndoRedo while restoring the original parent and child order.
 - scene.reparent_node: move only a non-root node owned by the current scene to another parent in that scene; reject cycles, same-parent no-ops and duplicate child names. Preview reports paths, parent nodes, child indexes and transform policy; global transform preservation defaults to true; apply/rollback use Godot UndoRedo.
+- scene.rename_node: rename only a non-root node owned by the current scene; reject no-op names, invalid names and sibling collisions. Preview lists the affected subtree NodePaths; apply/rollback use Godot UndoRedo to restore the name and paths.
 - scene.set_property: allow only visible, position, size, text and color with node-type checks, exact object keys, finite numeric ranges and a current property snapshot.
 - scene.attach_script: attach only an existing project-local `.gd` script to a node in the current scene; it never executes or edits the script.
 - resource.replace_reference / project.input_action.add_key/remove_key/replace_key: use file or project.godot revision guards, bounded writes and safe rollback; key removal/replacement requires exactly one matching physical InputEventKey and replacement preserves modifiers.
@@ -29,7 +30,7 @@ The first safe vertical workflow is now fully connected:
 - create_task / get_task / advance_task / pause_task / resume_task / cancel_task: compose bounded apply, rollback, run, scene/diagnostic verification and diagnostic-repair preview/apply steps into an auditable task with leases, pause/resume/cancel, retry and restart recovery. Every task must use unique `stepId` values. Repair apply requires a separate confirm_scene_change call.
 - acquire_task_lease / renew_task_lease / release_task_lease / task_status / task_timeline: coordinate multi-window ownership, heartbeat recovery and filtered evidence timelines; atomic file acquisition keeps a single owner across concurrent MCP processes.
 
-The current scene can create only allowlisted node types—Node, Node2D, Control, Label and ColorRect—and property/script/delete operations accept only safe relative NodePaths and allowlisted properties.
+The current scene can create only allowlisted node types—Node, Node2D, Control, Label and ColorRect—and property/script/delete/reparent/rename operations accept only safe relative NodePaths and allowlisted properties.
 
 ## Running locally
 

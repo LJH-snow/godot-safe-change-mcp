@@ -107,6 +107,14 @@ export const sceneReparentNodeSchema = z
   })
   .strict();
 
+export const sceneRenameNodeSchema = z
+  .object({
+    kind: z.literal("scene.rename_node"),
+    nodePath: nodePathSchema,
+    newName: nodeNameSchema,
+  })
+  .strict();
+
 const sceneSetVisiblePropertySchema = z
   .object({
     kind: z.literal("scene.set_property"),
@@ -227,6 +235,7 @@ export const changeOperationSchema = z.union([
   createNodeOperationSchema,
   sceneDeleteNodeSchema,
   sceneReparentNodeSchema,
+  sceneRenameNodeSchema,
   sceneSetPropertySchema,
   sceneAttachScriptSchema,
   resourceReplaceReferenceSchema,
@@ -291,6 +300,19 @@ export const sceneReparentNodeDiffSchema = z
     toParentPath: nodePathSchema,
     toIndex: z.number().int().nonnegative(),
     keepGlobalTransform: z.boolean(),
+  })
+  .strict();
+
+export const sceneRenameNodeDiffSchema = z
+  .object({
+    kind: z.literal("scene.rename_node"),
+    target: z.string().min(1),
+    summary: z.string().min(1),
+    nodePath: nodePathSchema,
+    newNodePath: nodePathSchema,
+    previousName: nodeNameSchema,
+    newName: nodeNameSchema,
+    affectedPaths: z.array(z.object({ from: nodePathSchema, to: nodePathSchema }).strict()).min(1),
   })
   .strict();
 
@@ -385,6 +407,7 @@ export const changeDiffSchema = z.union([
   sceneChangeDiffSchema,
   sceneDeleteNodeDiffSchema,
   sceneReparentNodeDiffSchema,
+  sceneRenameNodeDiffSchema,
   scenePropertyDiffSchema,
   sceneAttachScriptDiffSchema,
   resourceReferenceDiffSchema,

@@ -203,6 +203,87 @@ class FakeGodotBridge implements GodotBridge {
 }
 
 describe("ChangeCoordinator", () => {
+  test("previews a scene node rename with descendant NodePath changes", async () => {
+    const bridge = new FakeGodotBridge();
+    bridge.context = {
+      ...bridge.context,
+      currentScene: {
+        ...bridge.context.currentScene,
+        nodes: [
+          ...bridge.context.currentScene.nodes,
+          { path: "Canvas", name: "Canvas", type: "Control", properties: { visible: true } },
+          { path: "Canvas/Title", name: "Title", type: "Label", properties: { text: "Fixture" } },
+          { path: "Canvas/Title/Badge", name: "Badge", type: "Label", properties: { text: "New" } },
+          { path: "Scriptless", name: "Scriptless", type: "Node2D", properties: {} },
+        ],
+      },
+    };
+    const coordinator = new ChangeCoordinator(bridge);
+    const plan = await coordinator.previewSceneChange({
+      projectRoot,
+      reason: "Give the canvas a stable descriptive name.",
+      operation: { kind: "scene.rename_node", nodePath: "Canvas", newName: "HUD" } as never,
+    });
+
+    assert.equal(plan.operations[0]?.kind, "scene.rename_node");
+    assert.deepEqual(plan.diff[0], {
+      kind: "scene.rename_node",
+      target: "res://main.tscn:Canvas",
+      summary: "Rename Canvas to HUD in res://main.tscn",
+      nodePath: "Canvas",
+      newNodePath: "HUD",
+      previousName: "Canvas",
+      newName: "HUD",
+      affectedPaths: [
+        { from: "Canvas", to: "HUD" },
+        { from: "Canvas/Title", to: "HUD/Title" },
+        { from: "Canvas/Title/Badge", to: "HUD/Title/Badge" },
+      ],
+    });
+    assert.equal(bridge.applied.length, 0);
+  });
+
+  test("rejects root, missing, unchanged and colliding scene rename targets", async () => {
+    const bridge = new FakeGodotBridge();
+    bridge.context = {
+      ...bridge.context,
+      currentScene: {
+        ...bridge.context.currentScene,
+        nodes: [
+          ...bridge.context.currentScene.nodes,
+          { path: "Canvas", name: "Canvas", type: "Control", properties: {} },
+          { path: "Scriptless", name: "Scriptless", type: "Node2D", properties: {} },
+        ],
+      },
+    };
+    const coordinator = new ChangeCoordinator(bridge);
+    const preview = (nodePath: string, newName: string) =>
+      coordinator.previewSceneChange({
+        projectRoot,
+        reason: "Exercise rename safety validation.",
+        operation: { kind: "scene.rename_node", nodePath, newName } as never,
+      });
+
+    await assert.rejects(
+      () => preview(".", "RenamedRoot"),
+      (error: unknown) => error instanceof DomainError && error.code === ERROR_CODES.UNSAFE_OPERATION,
+    );
+    await assert.rejects(
+      () => preview("Missing", "Renamed"),
+      (error: unknown) => error instanceof DomainError && error.code === ERROR_CODES.VALIDATION_FAILED,
+    );
+    await assert.rejects(
+      () => preview("Canvas", "Canvas"),
+      (error: unknown) => error instanceof DomainError && error.code === ERROR_CODES.OPERATION_REJECTED,
+    );
+    await assert.rejects(
+      () => preview("Canvas", "Scriptless"),
+      (error: unknown) => error instanceof DomainError && error.code === ERROR_CODES.VALIDATION_FAILED,
+    );
+    await assert.rejects(() => preview("Canvas", "bad/name"));
+    assert.equal(bridge.applied.length, 0);
+  });
+
   test("accepts the bounded scene.reparent_node contract and defaults transform preservation on", () => {
     const parsed = changeOperationSchema.parse({
       kind: "scene.reparent_node",
