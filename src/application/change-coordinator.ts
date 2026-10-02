@@ -719,14 +719,6 @@ export class ChangeCoordinator {
       );
     }
 
-    if (storedPlan.plan.operations[0]?.kind === "scene.connect_signal") {
-      throw new DomainError(
-        ERROR_CODES.OPERATION_REJECTED,
-        "scene.connect_signal is preview-only until its UndoRedo apply and rollback path is enabled.",
-        { planId: storedPlan.plan.planId },
-      );
-    }
-
     if (parsedInput.expectedRevision !== storedPlan.plan.expectedRevision) {
       throw new DomainError(
         ERROR_CODES.REVISION_CONFLICT,

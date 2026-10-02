@@ -361,6 +361,7 @@ try {
     { operation: { kind: "scene.duplicate_node", nodePath: "Canvas", newParentPath: "Canvas/Title", newName: "Copy", keepGlobalTransform: true }, errorCode: "UNSAFE_OPERATION" },
     { operation: { kind: "scene.instantiate_scene", parentPath: "../", scenePath: "res://instance_source.tscn", nodeName: "Copy" }, errorCode: "VALIDATION_FAILED" },
     { operation: { kind: "scene.instantiate_scene", parentPath: ".", scenePath: "res://../outside.tscn", nodeName: "Copy" }, errorCode: "UNSAFE_OPERATION" },
+    { operation: { kind: "scene.connect_signal", sourcePath: "Canvas/Missing", signalName: "visibility_changed", targetPath: ".", methodName: "_ready" }, errorCode: "VALIDATION_FAILED" },
     { operation: { kind: "scene.set_property", nodePath: ".", property: "script", value: null }, errorCode: "UNSAFE_OPERATION" },
     { operation: { kind: "scene.attach_script", nodePath: ".", scriptPath: "res://../outside.gd" }, errorCode: "UNSAFE_OPERATION" },
     { operation: { kind: "scene.detach_script", nodePath: "Scriptless" }, errorCode: "VALIDATION_FAILED" },
@@ -412,6 +413,37 @@ try {
     targetPath: ".",
     methodName: "_ready",
   });
+  structured(await request("tools/call", {
+    name: "confirm_scene_change",
+    arguments: { projectRoot: fixtureRoot, planId: signalPlan.planId, expectedRevision: signalPlan.expectedRevision },
+  }));
+  const signalApply = structured(await request("tools/call", {
+    name: "apply_scene_change",
+    arguments: { projectRoot: fixtureRoot, planId: signalPlan.planId },
+  }));
+  assert.equal(signalApply.status, "applied");
+  assert.equal(signalApply.undoLabel, "Godot Safe Change: Connect signal");
+  const signalAfterApply = await bridgeRequest("/v1/signals/read", { projectRoot: fixtureRoot });
+  assert.equal(signalAfterApply.body.ok, true, JSON.stringify(signalAfterApply.body));
+  const appliedSignalNode = signalAfterApply.body.snapshot.nodes.find((node) => node.nodePath === "Canvas/Title");
+  assert.ok(appliedSignalNode?.connections.some((connection) =>
+    connection.signalName === "visibility_changed" &&
+    connection.targetPath === "." &&
+    connection.methodName === "_ready",
+  ));
+  const signalRollback = structured(await request("tools/call", {
+    name: "rollback_scene_change",
+    arguments: { projectRoot: fixtureRoot, planId: signalPlan.planId },
+  }));
+  assert.equal(signalRollback.status, "rolled_back");
+  assert.equal(signalRollback.undoLabel, "Godot Safe Change: Connect signal");
+  const signalAfterRollback = await bridgeRequest("/v1/signals/read", { projectRoot: fixtureRoot });
+  const restoredSignalNode = signalAfterRollback.body.snapshot.nodes.find((node) => node.nodePath === "Canvas/Title");
+  assert.equal(restoredSignalNode?.connections.some((connection) =>
+    connection.signalName === "visibility_changed" &&
+    connection.targetPath === "." &&
+    connection.methodName === "_ready",
+  ), false);
   await expectToolError("preview_scene_change", {
     projectRoot: fixtureRoot,
     reason: "Reject an unknown signal.",

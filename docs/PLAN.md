@@ -237,7 +237,7 @@ npm run build
 
 2026-10-02 已新增 scene.instantiate_scene preview/apply/rollback：仅允许把项目内已有 `.tscn` 作为实例挂载到当前场景的安全父节点；preview 绑定源场景文件 revision，Godot UndoRedo 添加/移除实例根节点，拒绝自引用、路径遍历和名称冲突。
 
-2026-10-02 已新增 scene.connect_signal preview-only：通过只读 bridge 快照读取当前场景 signal、method 和已有 connection，校验安全 NodePath、信号存在、目标方法存在和重复连接；confirm 会明确拒绝，apply/rollback 留待下一阶段。
+2026-10-02 已新增 scene.connect_signal preview/apply/rollback：通过只读 bridge 快照读取当前场景 signal、method 和已有 connection，校验安全 NodePath、信号存在、目标方法存在和重复连接；Godot UndoRedo 记录连接/断开并保留 scene revision guard。
 
 ## 7. 待决定问题
 

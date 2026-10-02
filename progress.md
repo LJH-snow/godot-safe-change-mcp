@@ -2,8 +2,8 @@
 
 ## 2026-10-02 signal connection preview
 
-- 新增 `scene.connect_signal` preview-only：读取 Godot 当前场景的 signal、method 和已有 connection 快照，校验源/目标 NodePath、信号、目标方法和重复连接。
-- confirm 明确拒绝尚未实现 UndoRedo apply/rollback 的 signal connection；单测和真实双版本 smoke 已加入校验覆盖，等待 CI。
+- 新增 `scene.connect_signal` preview/apply/rollback：读取 Godot 当前场景的 signal、method 和已有 connection 快照，校验源/目标 NodePath、信号、目标方法和重复连接。
+- Godot UndoRedo 记录连接/断开，单测和真实双版本 smoke 覆盖 apply、rollback、非法输入和重复连接；等待最终 CI 验证。
 
 ## 2026-10-02 Node2D transform properties
 

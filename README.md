@@ -156,7 +156,7 @@ flowchart LR
 | --- | --- | --- |
 | 项目理解 | <code>project_overview</code>、<code>search_project</code>、<code>find_references</code> | 搜索场景、节点、脚本、资源、信号、输入和反向引用；编辑器离线时使用本地只读索引。 |
 | 编辑器上下文 | <code>editor_context</code> | 返回完整当前场景树、选中节点安全属性、打开资源、运行状态和诊断。 |
-| 场景结构 | create、delete、reparent、rename、duplicate、instantiate、connect signal preview | 所有 NodePath、名称、父子关系、实例源路径和 signal/method 都经过边界校验；signal 当前只生成预览。 |
+| 场景结构 | create、delete、reparent、rename、duplicate、instantiate、connect signal | 所有 NodePath、名称、父子关系、实例源路径和 signal/method 都经过边界校验；连接通过 Godot UndoRedo apply/rollback。 |
 | 场景内容 | <code>scene.set_property</code>、<code>scene.attach_script</code>、<code>scene.detach_script</code> | 仅开放 visible、position、rotation_degrees、scale、size、text、color，以及项目内现有 GDScript 的挂载/卸载。 |
 | 文件/设置 | resource reference、input action、script range | 使用文件或 project.godot revision guard，原子写入并支持 rollback。 |
 | 运行诊断 | <code>run_current_scene</code>、<code>run_scene</code> | 返回 run ID、状态、输出、warning、error、source、line 和 NodePath。 |
