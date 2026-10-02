@@ -1,0 +1,3 @@
+interface:
+  display_name: "Godot Runtime Smoke"
+  short_description: "Verify the Godot bridge with real fixture and CI smoke runs"
