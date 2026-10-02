@@ -17,13 +17,14 @@
 - project lease：apply/rollback 自动获取短租约，多个窗口同时写入同一项目时返回 PROJECT_BUSY；租约状态存放在用户状态目录，不写入 Godot 项目。
 - search_project：统一的只读项目搜索，覆盖场景、节点、脚本、资源、信号连接和输入映射。场景/节点/脚本/资源优先由连接的 Godot 编辑器返回（编辑中场景的实时状态），编辑器离线时自动回退到本地只读索引；信号与输入结果始终来自本地索引。每条结果带 `source` 标记来源。
 - find_references：反向引用查找，回答“哪些场景、资源或脚本引用了这个脚本、贴图或资源”。支持场景/资源 ext_resource、GDScript `preload()` / `load()`，可按 res:// 路径或 uid:// 标识匹配，能解析 Godot 4.4+ 中省略路径、只写 uid 的引用（纯本地只读）。
-- preview_scene_change：生成受限 scene.create_node、scene.delete_node、scene.reparent_node、scene.rename_node、scene.duplicate_node、scene.set_property、scene.attach_script、resource.replace_reference、project.input_action.add_key/remove_key/replace_key 或 script.replace_range 计划和 diff。
+- preview_scene_change：生成受限 scene.create_node、scene.delete_node、scene.reparent_node、scene.rename_node、scene.duplicate_node、scene.set_property、scene.attach_script、scene.detach_script、resource.replace_reference、project.input_action.add_key/remove_key/replace_key 或 script.replace_range 计划和 diff。
 - scene.duplicate_node：只允许复制当前场景拥有的非根节点子树到当前场景其他父节点；拒绝循环、重名和外部实例节点，preview 返回源/目标路径映射，apply/rollback 通过 Godot UndoRedo 保持 owner 和全局变换策略。
 - scene.rename_node：只允许重命名当前场景拥有的非根节点；拒绝同名 no-op、非法名称和同级重名，preview 显示该子树所有受影响 NodePath；apply/rollback 通过 Godot UndoRedo 恢复名称及路径。
 - scene.reparent_node：只允许当前场景拥有的非根节点移动到当前场景内其他父节点；拒绝循环、同父级无效移动和重名节点。preview 展示 NodePath、父节点、child index 和全局变换策略，默认保留全局变换，apply/rollback 通过 Godot UndoRedo 恢复原层级和顺序。
 - scene.delete_node：只允许删除当前场景内由当前场景拥有的非根节点；preview 返回完整待删除子树快照，apply/rollback 通过 Godot UndoRedo 保持原父级和节点顺序。
 - scene.set_property：仅允许 visible、position、size、text、color，并绑定节点类型、严格对象字段、finite 数值范围和当前属性快照。
 - scene.attach_script：仅允许给当前场景节点挂载项目内现有 `.gd` 脚本，不执行或修改脚本内容。
+- scene.detach_script：仅允许移除当前场景节点已有的项目内 `.gd` 脚本；apply/rollback 通过 Godot UndoRedo 恢复原脚本资源，预览会返回原脚本路径。
 - resource.replace_reference / project.input_action.add_key/remove_key/replace_key：分别通过文件 revision 或 project.godot revision guard 执行受限替换/设置保存，并支持安全 rollback；按键删除和替换只接受唯一匹配的 InputEventKey，替换会保留原修饰键。
 - confirm_scene_change：检查 expected revision 并确认计划。
 - apply_scene_change：只把已确认且 revision 未过期的计划交给 Godot UndoRedo 或对应的受限文件/设置写入路径；同一项目同时只允许一个已应用计划。
@@ -36,7 +37,7 @@
 - task_status：只读返回任务状态、lease owner、expiresAt 和可恢复状态。
 - task_timeline：只读查询完整任务时间线，可按 stepId、operationId、事件类型和 ISO 时间范围过滤。
 
-当前只支持在当前场景内创建一个 allowlist 中的节点类型：Node、Node2D、Control、Label、ColorRect；场景属性修改、脚本挂载、节点删除、重挂和重命名只针对当前场景内的相对 NodePath 和 allowlisted 属性。
+当前只支持在当前场景内创建一个 allowlist 中的节点类型：Node、Node2D、Control、Label、ColorRect；场景属性修改、脚本挂载/卸载、节点删除、重挂和重命名只针对当前场景内的相对 NodePath 和 allowlisted 属性。
 
 ## 本地运行
 

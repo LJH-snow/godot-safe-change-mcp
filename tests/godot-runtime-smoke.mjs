@@ -361,6 +361,7 @@ try {
     { operation: { kind: "scene.duplicate_node", nodePath: "Canvas", newParentPath: "Canvas/Title", newName: "Copy", keepGlobalTransform: true }, errorCode: "UNSAFE_OPERATION" },
     { operation: { kind: "scene.set_property", nodePath: ".", property: "script", value: null }, errorCode: "UNSAFE_OPERATION" },
     { operation: { kind: "scene.attach_script", nodePath: ".", scriptPath: "res://../outside.gd" }, errorCode: "UNSAFE_OPERATION" },
+    { operation: { kind: "scene.detach_script", nodePath: "Scriptless" }, errorCode: "VALIDATION_FAILED" },
     { operation: { kind: "resource.replace_reference", resourcePath: "res://../outside.tres", from: "res://old.tres", to: "res://new.tres" }, errorCode: "UNSAFE_OPERATION" },
     { operation: { kind: "script.replace_range", scriptPath: "res://../outside.gd", startLine: 1, endLine: 1, replacement: "safe" }, errorCode: "VALIDATION_FAILED" },
     { operation: { kind: "project.input_action.add_key", actionName: "bad/name", physicalKeycode: 70 }, errorCode: "VALIDATION_FAILED" },
@@ -840,6 +841,47 @@ try {
     planId: attachPlan.planId,
   }, /PLAN_NOT_APPLIED|PLAN_ALREADY_ROLLED_BACK/);
   stage("script attach rollback complete");
+
+  const detachBefore = await readEditorContext(fixtureRoot);
+  assert.equal(sceneNode(detachBefore, ".")?.properties.scriptPath, "res://diagnostic_scene.gd");
+  const detachPlan = structured(await request("tools/call", {
+    name: "preview_scene_change",
+    arguments: {
+      projectRoot: fixtureRoot,
+      reason: "CI detach script apply and rollback smoke test.",
+      operation: { kind: "scene.detach_script", nodePath: "." },
+    },
+  }));
+  assert.deepEqual(detachPlan.diff[0], {
+    kind: "scene.detach_script",
+    target: "res://main.tscn:.:script",
+    summary: "Detach res://diagnostic_scene.gd from . in res://main.tscn",
+    nodePath: ".",
+    scriptPath: "res://diagnostic_scene.gd",
+  });
+  structured(await request("tools/call", {
+    name: "confirm_scene_change",
+    arguments: { projectRoot: fixtureRoot, planId: detachPlan.planId, expectedRevision: detachPlan.expectedRevision },
+  }));
+  const detachApply = structured(await request("tools/call", {
+    name: "apply_scene_change",
+    arguments: { projectRoot: fixtureRoot, planId: detachPlan.planId },
+  }));
+  assert.equal(detachApply.status, "applied");
+  assert.equal(detachApply.undoLabel, "Godot Safe Change: Detach script");
+  assert.equal(sceneNode(await readEditorContext(fixtureRoot), ".")?.properties.scriptPath, null);
+  const detachRollback = structured(await request("tools/call", {
+    name: "rollback_scene_change",
+    arguments: { projectRoot: fixtureRoot, planId: detachPlan.planId },
+  }));
+  assert.equal(detachRollback.status, "rolled_back");
+  assert.equal(detachRollback.undoLabel, "Godot Safe Change: Detach script");
+  assert.equal(sceneNode(await readEditorContext(fixtureRoot), ".")?.properties.scriptPath, "res://diagnostic_scene.gd");
+  await expectToolError("rollback_scene_change", {
+    projectRoot: fixtureRoot,
+    planId: detachPlan.planId,
+  }, /PLAN_NOT_APPLIED|PLAN_ALREADY_ROLLED_BACK/);
+  stage("script detach rollback complete");
 
   const scriptPlan = structured(await request("tools/call", {
     name: "preview_scene_change",

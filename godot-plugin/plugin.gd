@@ -673,6 +673,11 @@ func _validate_change_request(request_body: Dictionary) -> Dictionary:
             return _failure("VALIDATION_FAILED", "scene.attach_script contains unsupported or missing fields.")
         if not _is_safe_node_path(String(operation["nodePath"])) or not _is_safe_script_path(String(operation["scriptPath"])):
             return _failure("UNSAFE_OPERATION", "Only safe scene node paths and project-relative scripts can be attached.")
+    elif kind == "scene.detach_script":
+        if not _has_exact_keys(operation, ["kind", "nodePath"]):
+            return _failure("VALIDATION_FAILED", "scene.detach_script contains unsupported or missing fields.")
+        if not _is_safe_node_path(String(operation["nodePath"])):
+            return _failure("UNSAFE_OPERATION", "Only safe scene node paths can have scripts detached.")
     elif kind == "resource.replace_reference":
         if not _has_exact_keys(operation, ["kind", "resourcePath", "from", "to"]):
             return _failure("VALIDATION_FAILED", "resource.replace_reference contains unsupported or missing fields.")
@@ -749,6 +754,8 @@ func _apply_change(body: Variant) -> Dictionary:
         return _apply_scene_property_change(request_body, scene_root, scene_path)
     if String(operation.get("kind", "")) == "scene.attach_script":
         return _apply_attach_script(request_body, scene_root, scene_path)
+    if String(operation.get("kind", "")) == "scene.detach_script":
+        return _apply_detach_script(request_body, scene_root, scene_path)
     if String(operation.get("kind", "")) == "scene.reparent_node":
         var reparent_result := _apply_reparent_node(scene_root, operation)
         if not reparent_result.is_empty():
@@ -893,6 +900,40 @@ func _apply_attach_script(request_body: Dictionary, scene_root: Node, scene_path
     last_applied_revision = _current_revision(scene_root, scene_path)
     _clear_file_action_state()
     _record_scene_action(scene_root, scene_path, "scene.attach_script", "Godot Safe Change: Attach script")
+    return _success("report", {
+        "schemaVersion": "0.2",
+        "planId": last_applied_plan_id,
+        "status": "applied",
+        "revision": last_applied_revision,
+        "operationCount": 1,
+        "undoLabel": last_applied_undo_label,
+    })
+
+func _apply_detach_script(request_body: Dictionary, scene_root: Node, scene_path: String) -> Dictionary:
+    var operation: Dictionary = request_body["operations"][0]
+    var node_path := String(operation.get("nodePath", ""))
+    if not _is_safe_node_path(node_path):
+        return _failure("UNSAFE_OPERATION", "Only safe scene node paths can have scripts detached.")
+    var node: Node = _scene_node(scene_root, node_path)
+    if node == null:
+        return _failure("VALIDATION_FAILED", "The requested scene node does not exist.")
+    var script_resource: Variant = node.get_script()
+    if script_resource == null or not script_resource is Script:
+        return _failure("VALIDATION_FAILED", "The requested scene node does not have a script.")
+    var script_path := String(script_resource.resource_path)
+    if not _is_safe_script_path(script_path):
+        return _failure("UNSAFE_OPERATION", "Only existing project-local GDScripts can be detached.")
+
+    var undo_redo := get_undo_redo()
+    undo_redo.create_action("Godot Safe Change: Detach script", 0, scene_root)
+    undo_redo.add_do_property(node, "script", null)
+    undo_redo.add_undo_property(node, "script", script_resource)
+    undo_redo.commit_action()
+    EditorInterface.mark_scene_as_unsaved()
+    last_applied_plan_id = String(request_body.get("planId", ""))
+    last_applied_revision = _current_revision(scene_root, scene_path)
+    _clear_file_action_state()
+    _record_scene_action(scene_root, scene_path, "scene.detach_script", "Godot Safe Change: Detach script")
     return _success("report", {
         "schemaVersion": "0.2",
         "planId": last_applied_plan_id,

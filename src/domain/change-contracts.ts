@@ -24,7 +24,7 @@ export const nodePathSchema = z
   .max(256)
   .regex(relativeNodePathPattern, "NodePath must be relative and contain only safe segments.");
 
-const scriptPathSchema = z
+export const scriptPathSchema = z
   .string()
   .min(1)
   .max(256)
@@ -190,6 +190,13 @@ export const sceneAttachScriptSchema = z
   })
   .strict();
 
+export const sceneDetachScriptSchema = z
+  .object({
+    kind: z.literal("scene.detach_script"),
+    nodePath: nodePathSchema.describe("NodePath of a node inside the current scene."),
+  })
+  .strict();
+
 export const resourceReplaceReferenceSchema = z
   .object({
     kind: z.literal("resource.replace_reference"),
@@ -249,6 +256,7 @@ export const changeOperationSchema = z.union([
   sceneDuplicateNodeSchema,
   sceneSetPropertySchema,
   sceneAttachScriptSchema,
+  sceneDetachScriptSchema,
   resourceReplaceReferenceSchema,
   inputActionAddKeySchema,
   inputActionRemoveKeySchema,
@@ -440,6 +448,14 @@ export const sceneAttachScriptDiffSchema = z.object({
   scriptPath: z.string().min(1),
 });
 
+export const sceneDetachScriptDiffSchema = z.object({
+  kind: z.literal("scene.detach_script"),
+  target: z.string().min(1),
+  summary: z.string().min(1),
+  nodePath: nodePathSchema,
+  scriptPath: scriptPathSchema,
+}).strict();
+
 export const changeDiffSchema = z.union([
   sceneChangeDiffSchema,
   sceneDeleteNodeDiffSchema,
@@ -448,6 +464,7 @@ export const changeDiffSchema = z.union([
   sceneDuplicateNodeDiffSchema,
   scenePropertyDiffSchema,
   sceneAttachScriptDiffSchema,
+  sceneDetachScriptDiffSchema,
   resourceReferenceDiffSchema,
   inputActionDiffSchema,
   inputActionRemoveKeyDiffSchema,

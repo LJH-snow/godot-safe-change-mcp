@@ -4,6 +4,7 @@ import {
   changePlanSchema,
   confirmChangeInputSchema,
   previewSceneChangeInputSchema,
+  scriptPathSchema,
   sceneSetPropertySchema,
   type ApplyChangeInput,
   type ChangePlan,
@@ -413,6 +414,32 @@ export class ChangeCoordinator {
         target: scenePath + ":" + operation.nodePath + ":script",
         summary: "Attach " + operation.scriptPath + " to " + operation.nodePath + " in " + scenePath,
         scriptPath: operation.scriptPath,
+      };
+    } else if (operation.kind === "scene.detach_script") {
+      const node = context.currentScene.nodes.find((candidate) => candidate.path === operation.nodePath);
+      if (node === undefined) {
+        throw new DomainError(
+          ERROR_CODES.VALIDATION_FAILED,
+          "The requested node is not available in the current scene context.",
+          { nodePath: operation.nodePath },
+        );
+      }
+      const scriptPath = node.properties.scriptPath;
+      const parsedScriptPath = scriptPathSchema.safeParse(scriptPath);
+      if (!parsedScriptPath.success) {
+        throw new DomainError(
+          ERROR_CODES.VALIDATION_FAILED,
+          "The requested node does not have an existing project-local GDScript.",
+          { nodePath: operation.nodePath },
+        );
+      }
+      await this.bridge.readScript(projectRoot, parsedScriptPath.data);
+      diff = {
+        kind: "scene.detach_script" as const,
+        target: scenePath + ":" + operation.nodePath + ":script",
+        summary: "Detach " + parsedScriptPath.data + " from " + operation.nodePath + " in " + scenePath,
+        nodePath: operation.nodePath,
+        scriptPath: parsedScriptPath.data,
       };
     } else if (operation.kind === "resource.replace_reference") {
       const snapshot = await this.bridge.readResource(projectRoot, operation.resourcePath);

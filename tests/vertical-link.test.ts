@@ -644,6 +644,42 @@ describe("ChangeCoordinator", () => {
     assert.equal(bridge.applied.length, 0);
   });
 
+  test("previews detaching an existing project script and reports the previous script path", async () => {
+    const bridge = new FakeGodotBridge();
+    bridge.context = {
+      ...bridge.context,
+      currentScene: {
+        ...bridge.context.currentScene,
+        nodes: [
+          ...bridge.context.currentScene.nodes,
+          {
+            path: "Scripted",
+            name: "Scripted",
+            type: "Node2D",
+            properties: { scriptPath: "res://diagnostic_scene.gd" },
+          },
+        ],
+      },
+    };
+    const coordinator = new ChangeCoordinator(bridge);
+
+    const plan = await coordinator.previewSceneChange({
+      projectRoot,
+      reason: "Detach the existing diagnostic script for a clean fixture state.",
+      operation: { kind: "scene.detach_script", nodePath: "Scripted" } as never,
+    });
+
+    assert.equal(plan.operations[0]?.kind, "scene.detach_script");
+    assert.deepEqual(plan.diff[0], {
+      kind: "scene.detach_script",
+      target: "res://main.tscn:Scripted:script",
+      summary: "Detach res://diagnostic_scene.gd from Scripted in res://main.tscn",
+      nodePath: "Scripted",
+      scriptPath: "res://diagnostic_scene.gd",
+    });
+    assert.equal(bridge.applied.length, 0);
+  });
+
   test("requires a separate confirmation before applying and uses UndoRedo through the bridge", async () => {
     const bridge = new FakeGodotBridge();
     const coordinator = new ChangeCoordinator(bridge);
@@ -1438,6 +1474,8 @@ test("the Godot plugin exposes only the bounded vertical-link routes", async () 
   assert.match(source, /scene\.set_property/);
   assert.match(source, /add_do_property/);
   assert.match(source, /scene\.attach_script/);
+  assert.match(source, /scene\.detach_script/);
+  assert.match(source, /Detach script/);
   assert.match(source, /project\.input_action\.remove_key/);
   assert.match(source, /_is_safe_scene_path/);
 });

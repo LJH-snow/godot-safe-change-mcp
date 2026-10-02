@@ -1,5 +1,10 @@
 # 进度记录
 
+## 2026-10-02 detach existing script
+
+- 新增 `scene.detach_script`，只允许移除当前场景节点已有的项目内 `.gd` 脚本；preview 返回原脚本路径和 diff。
+- 通过 Godot UndoRedo 清除并恢复原 Script 资源，补充 scriptless 拒绝、重复 rollback 和真实桥接 apply/rollback smoke；等待双版本远程 CI 验证。
+
 ## 2026-09-30 safe change hardening
 
 - `scene.set_property` 已按属性绑定严格契约：visible、position、size、text、color 分别校验类型、exact keys、finite 数值和范围；路径校验拒绝绝对路径、空段、反斜杠和 traversal。
