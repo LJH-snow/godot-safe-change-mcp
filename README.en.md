@@ -211,6 +211,7 @@ More detail:
 
 - [Contributing](CONTRIBUTING.md)
 - [Growth and adoption plan](docs/GROWTH.md)
+- [Agent examples](docs/EXAMPLES.md)
 - [Changelog](CHANGELOG.md)
 - [Release checklist](docs/RELEASE.md)
 - [Test boundaries and Godot acceptance](tests/README.md)

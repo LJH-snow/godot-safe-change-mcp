@@ -7,6 +7,12 @@ All notable changes to Godot Safe Change MCP will be documented here.
 - Continue the community adoption work tracked in docs/GROWTH.md.
 - Keep the preview, confirmation, lease, revision, verification, and rollback lifecycle stable.
 
+## 1.1.0 - 2026-10-03
+
+- Added safe scene instantiation and signal connection apply/rollback through Godot UndoRedo.
+- Added Node2D rotation and scale property changes with guarded preview and rollback.
+- Added task recovery, project-local skills, contribution guidance, issue templates, and release smoke evidence.
+
 ## 1.0.0 baseline
 
 The current development baseline includes:

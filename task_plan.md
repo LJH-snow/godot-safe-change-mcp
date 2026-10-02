@@ -264,6 +264,7 @@
 
 - [x] 记录 2026-10-03 GitHub baseline、参考项目差异和可验证增长指标。
 - [x] 增加 CONTRIBUTING、bug/feature issue template 和长期增长路线。
+- [x] 增加 5 个可复制的 Agent 示例，覆盖首次搜索、写入闭环、场景实例化/信号、任务 Lease 和冲突恢复。
 - [ ] 创建第一个 GitHub Release/tag，并保留四项 CI 证据和安装说明。
 - [ ] 提供可复制的 starter fixture、5 个示例请求和 60 秒演示素材。
 - [ ] 获取至少 3 个外部安装/测试反馈和 1 个外部 issue 或 PR，并根据反馈迭代。

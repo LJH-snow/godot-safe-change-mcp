@@ -1,5 +1,10 @@
 # 进度记录
 
+## 2026-10-03 Agent onboarding examples
+
+- 新增 docs/EXAMPLES.md，提供可复制的搜索、preview/confirm/apply/rollback、场景实例化/信号、任务 Lease 和 PROJECT_BUSY 恢复流程。
+- README 中加入示例入口；增长 Phase B 的首次成功路径已有可复现文本，下一步是 starter fixture 和短演示素材。
+
 ## 2026-10-02 signal connection preview
 
 - 新增 `scene.connect_signal` preview/apply/rollback：读取 Godot 当前场景的 signal、method 和已有 connection 快照，校验源/目标 NodePath、信号、目标方法和重复连接。
