@@ -1599,7 +1599,7 @@ func _apply_duplicate_node(scene_root: Node, operation: Dictionary) -> Dictionar
     return {}
 
 func _scene_subtree_owned_by(node: Node, scene_root: Node) -> bool:
-    if node.owner != scene_root:
+    if node != scene_root and node.owner != null and node.owner != scene_root:
         return false
     for child in node.get_children():
         if not _scene_subtree_owned_by(child, scene_root):
