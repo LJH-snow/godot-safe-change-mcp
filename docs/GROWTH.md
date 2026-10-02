@@ -30,7 +30,7 @@
 - [x] 项目本地技能、发布边界、Godot 双版本 CI 和真实 smoke。
 - [x] 贡献指南和可复现的 issue 入口。
 - [x] 创建第一个 GitHub Release/tag，并在 Release 页面固定安装方式、兼容版本和 CI 证据。
-- [ ] 提供一段 60 秒以内的 GIF/视频：搜索 → preview → confirm → apply → verify → rollback。
+- [x] 提供真实 GIF 演示：搜索 → preview → confirm → apply → rollback；后续可扩展为带 verify/run 的 60 秒视频。
 
 ### Phase B：让第一次成功变得简单（2–4 周）
 

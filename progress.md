@@ -1,5 +1,10 @@
 # 进度记录
 
+## 2026-10-03 real workflow demo
+
+- 在临时 Godot 4.7.2 starter 项目中实际操作 Inspector，录制 context → search → preview → confirm → apply → rollback 六帧。
+- 生成 docs/assets/mcp-safe-change-demo.gif（1000×573、12 秒），并加入双语 README；未修改用户项目。
+
 ## 2026-10-03 community feedback labels
 
 - GitHub 仓库新增 starter、release-feedback、growth、godot-4.5.1 和 godot-4.7.2 标签；默认的 good first issue/help wanted/documentation 标签已存在。

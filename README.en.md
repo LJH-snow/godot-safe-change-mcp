@@ -29,6 +29,12 @@ The server does not expose arbitrary Godot RPC. Every write follows a bounded li
 
 <p align="center"><sub>A real local MCP Inspector view of the server tools.</sub></p>
 
+<p align="center">
+  <img src="docs/assets/mcp-safe-change-demo.gif" alt="Godot Safe Change MCP context, search, preview, confirm, apply, and rollback workflow" width="100%">
+</p>
+
+<p align="center"><sub>A real starter fixture workflow: context → search → preview → confirm → apply → rollback.</sub></p>
+
 ## Why this project
 
 - **Intent-level tools, not arbitrary RPC**: create, move, instantiate, edit, run, and verify bounded Godot operations.
