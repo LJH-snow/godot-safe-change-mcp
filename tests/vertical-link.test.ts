@@ -203,6 +203,95 @@ class FakeGodotBridge implements GodotBridge {
 }
 
 describe("ChangeCoordinator", () => {
+  test("previews duplicating a scene subtree with target path mapping", async () => {
+    const bridge = new FakeGodotBridge();
+    bridge.context = {
+      ...bridge.context,
+      currentScene: {
+        ...bridge.context.currentScene,
+        nodes: [
+          ...bridge.context.currentScene.nodes,
+          { path: "Source", name: "Source", type: "Node2D", properties: { position: { x: 4, y: 8 } } },
+          { path: "Source/Title", name: "Title", type: "Label", properties: { text: "Copy me" } },
+          { path: "Source/Title/Badge", name: "Badge", type: "Label", properties: { text: "Nested" } },
+          { path: "Target", name: "Target", type: "Node2D", properties: { position: { x: 20, y: 10 } } },
+        ],
+      },
+    };
+    const coordinator = new ChangeCoordinator(bridge);
+    const plan = await coordinator.previewSceneChange({
+      projectRoot,
+      reason: "Duplicate the source subtree for a second panel.",
+      operation: {
+        kind: "scene.duplicate_node",
+        nodePath: "Source",
+        newParentPath: "Target",
+        newName: "SourceCopy",
+      },
+    });
+
+    assert.equal(plan.operations[0]?.kind, "scene.duplicate_node");
+    assert.deepEqual(plan.diff[0], {
+      kind: "scene.duplicate_node",
+      target: "res://main.tscn:Target/SourceCopy",
+      summary: "Duplicate Source under Target as SourceCopy in res://main.tscn",
+      sourcePath: "Source",
+      newParentPath: "Target",
+      targetPath: "Target/SourceCopy",
+      newName: "SourceCopy",
+      keepGlobalTransform: true,
+      duplicatedNodes: [
+        { from: "Source", to: "Target/SourceCopy", name: "Source", type: "Node2D", properties: { position: { x: 4, y: 8 } } },
+        { from: "Source/Title", to: "Target/SourceCopy/Title", name: "Title", type: "Label", properties: { text: "Copy me" } },
+        { from: "Source/Title/Badge", to: "Target/SourceCopy/Title/Badge", name: "Badge", type: "Label", properties: { text: "Nested" } },
+      ],
+    });
+    assert.equal(bridge.applied.length, 0);
+  });
+
+  test("rejects unsafe and colliding duplicate targets", async () => {
+    const bridge = new FakeGodotBridge();
+    bridge.context = {
+      ...bridge.context,
+      currentScene: {
+        ...bridge.context.currentScene,
+        nodes: [
+          ...bridge.context.currentScene.nodes,
+          { path: "Source", name: "Source", type: "Node2D", properties: {} },
+          { path: "Source/Child", name: "Child", type: "Node2D", properties: {} },
+          { path: "Target", name: "Target", type: "Node2D", properties: {} },
+          { path: "Target/Existing", name: "Existing", type: "Node2D", properties: {} },
+        ],
+      },
+    };
+    const coordinator = new ChangeCoordinator(bridge);
+    const preview = (nodePath: string, newParentPath: string, newName: string) =>
+      coordinator.previewSceneChange({
+        projectRoot,
+        reason: "Exercise duplicate safety validation.",
+        operation: { kind: "scene.duplicate_node", nodePath, newParentPath, newName },
+      });
+
+    await assert.rejects(
+      () => preview(".", "Target", "RootCopy"),
+      (error: unknown) => error instanceof DomainError && error.code === ERROR_CODES.UNSAFE_OPERATION,
+    );
+    await assert.rejects(
+      () => preview("Missing", "Target", "Copy"),
+      (error: unknown) => error instanceof DomainError && error.code === ERROR_CODES.VALIDATION_FAILED,
+    );
+    await assert.rejects(
+      () => preview("Source", "Source/Child", "Copy"),
+      (error: unknown) => error instanceof DomainError && error.code === ERROR_CODES.UNSAFE_OPERATION,
+    );
+    await assert.rejects(
+      () => preview("Source", "Target", "Existing"),
+      (error: unknown) => error instanceof DomainError && error.code === ERROR_CODES.VALIDATION_FAILED,
+    );
+    await assert.rejects(() => preview("Source", "Target", "bad/name"));
+    assert.equal(bridge.applied.length, 0);
+  });
+
   test("previews a scene node rename with descendant NodePath changes", async () => {
     const bridge = new FakeGodotBridge();
     bridge.context = {

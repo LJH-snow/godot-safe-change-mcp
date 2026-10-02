@@ -3,7 +3,7 @@
 Automated coverage currently includes:
 
 - contracts and application: preview, explicit confirmation, revision conflicts, property-specific diffs, active-plan identity, apply reports and run diagnostics through a fake bridge;
-- change contracts: strict visible/position/size/text/color value shapes, finite numeric ranges, safe relative NodePaths, scene subtree deletion/reparent/rename preview/apply/rollback checks, and project-local script/resource identifiers;
+- change contracts: strict visible/position/size/text/color value shapes, finite numeric ranges, safe relative NodePaths, scene subtree deletion/reparent/rename/duplicate preview/apply/rollback checks, and project-local script/resource identifiers;
 - search index: read-only scene/script/resource/node matching, signal declarations, input actions, truncation and symlink safety;
 - operation audit: lifecycle operation IDs, inputs, outputs, revisions, failure evidence and JSONL restart recovery;
 - task contract boundaries: unique step IDs, slug-safe task IDs, lease TTL limits, inclusive timeline time ranges and bounded timeline limits;

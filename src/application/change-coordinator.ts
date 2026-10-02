@@ -307,6 +307,73 @@ export class ChangeCoordinator {
         newName: operation.newName,
         affectedPaths,
       };
+    } else if (operation.kind === "scene.duplicate_node") {
+      if (operation.nodePath === ".") {
+        throw new DomainError(
+          ERROR_CODES.UNSAFE_OPERATION,
+          "The current scene root cannot be duplicated.",
+          { nodePath: operation.nodePath },
+        );
+      }
+      const node = context.currentScene.nodes.find((candidate) => candidate.path === operation.nodePath);
+      if (node === undefined) {
+        throw new DomainError(
+          ERROR_CODES.VALIDATION_FAILED,
+          "The requested source scene node does not exist.",
+          { nodePath: operation.nodePath },
+        );
+      }
+      if (
+        operation.newParentPath === operation.nodePath ||
+        operation.newParentPath.startsWith(operation.nodePath + "/")
+      ) {
+        throw new DomainError(
+          ERROR_CODES.UNSAFE_OPERATION,
+          "A scene node cannot be duplicated beneath itself or one of its descendants.",
+          { nodePath: operation.nodePath, newParentPath: operation.newParentPath },
+        );
+      }
+      const newParent = context.currentScene.nodes.find((candidate) => candidate.path === operation.newParentPath);
+      if (newParent === undefined) {
+        throw new DomainError(
+          ERROR_CODES.VALIDATION_FAILED,
+          "The requested duplicate parent does not exist in the current scene.",
+          { newParentPath: operation.newParentPath },
+        );
+      }
+      const targetPath = operation.newParentPath === "."
+        ? operation.newName
+        : operation.newParentPath + "/" + operation.newName;
+      if (context.currentScene.nodes.some((candidate) => candidate.path === targetPath)) {
+        throw new DomainError(
+          ERROR_CODES.VALIDATION_FAILED,
+          "A node with the requested duplicate name already exists under the target parent.",
+          { targetPath },
+        );
+      }
+      const duplicatedNodes = context.currentScene.nodes
+        .filter(
+          (candidate) =>
+            candidate.path === operation.nodePath || candidate.path.startsWith(operation.nodePath + "/"),
+        )
+        .map((candidate) => ({
+          from: candidate.path,
+          to: targetPath + candidate.path.slice(operation.nodePath.length),
+          name: candidate.name,
+          type: candidate.type,
+          properties: structuredClone(candidate.properties),
+        }));
+      diff = {
+        kind: "scene.duplicate_node" as const,
+        target: scenePath + ":" + targetPath,
+        summary: "Duplicate " + operation.nodePath + " under " + operation.newParentPath + " as " + operation.newName + " in " + scenePath,
+        sourcePath: operation.nodePath,
+        newParentPath: operation.newParentPath,
+        targetPath,
+        newName: operation.newName,
+        keepGlobalTransform: operation.keepGlobalTransform,
+        duplicatedNodes,
+      };
     } else if (operation.kind === "scene.set_property") {
       const parsedOperation = sceneSetPropertySchema.parse(operation);
       const node = context.currentScene.nodes.find((candidate) => candidate.path === parsedOperation.nodePath);

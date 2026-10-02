@@ -115,6 +115,16 @@ export const sceneRenameNodeSchema = z
   })
   .strict();
 
+export const sceneDuplicateNodeSchema = z
+  .object({
+    kind: z.literal("scene.duplicate_node"),
+    nodePath: nodePathSchema,
+    newParentPath: nodePathSchema,
+    newName: nodeNameSchema,
+    keepGlobalTransform: z.boolean().default(true),
+  })
+  .strict();
+
 const sceneSetVisiblePropertySchema = z
   .object({
     kind: z.literal("scene.set_property"),
@@ -236,6 +246,7 @@ export const changeOperationSchema = z.union([
   sceneDeleteNodeSchema,
   sceneReparentNodeSchema,
   sceneRenameNodeSchema,
+  sceneDuplicateNodeSchema,
   sceneSetPropertySchema,
   sceneAttachScriptSchema,
   resourceReplaceReferenceSchema,
@@ -313,6 +324,32 @@ export const sceneRenameNodeDiffSchema = z
     previousName: nodeNameSchema,
     newName: nodeNameSchema,
     affectedPaths: z.array(z.object({ from: nodePathSchema, to: nodePathSchema }).strict()).min(1),
+  })
+  .strict();
+
+export const sceneDuplicateNodeDiffSchema = z
+  .object({
+    kind: z.literal("scene.duplicate_node"),
+    target: z.string().min(1),
+    summary: z.string().min(1),
+    sourcePath: nodePathSchema,
+    newParentPath: nodePathSchema,
+    targetPath: nodePathSchema,
+    newName: nodeNameSchema,
+    keepGlobalTransform: z.boolean(),
+    duplicatedNodes: z
+      .array(
+        z
+          .object({
+            from: nodePathSchema,
+            to: nodePathSchema,
+            name: z.string().min(1),
+            type: z.string().min(1),
+            properties: z.record(z.string(), z.unknown()),
+          })
+          .strict(),
+      )
+      .min(1),
   })
   .strict();
 
@@ -408,6 +445,7 @@ export const changeDiffSchema = z.union([
   sceneDeleteNodeDiffSchema,
   sceneReparentNodeDiffSchema,
   sceneRenameNodeDiffSchema,
+  sceneDuplicateNodeDiffSchema,
   scenePropertyDiffSchema,
   sceneAttachScriptDiffSchema,
   resourceReferenceDiffSchema,

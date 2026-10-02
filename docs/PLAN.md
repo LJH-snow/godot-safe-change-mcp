@@ -231,6 +231,8 @@ npm run build
 
 2026-10-02 已新增 scene.rename_node preview/apply/rollback：只允许当前场景拥有的非根节点改名，拒绝非法、重复或无变化名称；preview 返回子树 NodePath 映射，EditorUndoRedoManager 恢复名称并由 revision/history 守卫限制回滚。
 
+2026-10-02 已新增 scene.duplicate_node preview/apply/rollback：复制当前场景拥有的非根子树到当前场景内其他父节点，拒绝循环、重名和外部实例节点；preview 返回源/目标路径映射，UndoRedo 保留 owner 和变换策略。
+
 ## 7. 待决定问题
 
 - 本地桥接使用 HTTP、WebSocket，还是两个都提供；

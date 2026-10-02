@@ -356,6 +356,9 @@ try {
     { operation: { kind: "scene.rename_node", nodePath: "Canvas/Missing", newName: "Renamed" }, errorCode: "VALIDATION_FAILED" },
     { operation: { kind: "scene.rename_node", nodePath: "Canvas", newName: "Scriptless" }, errorCode: "VALIDATION_FAILED" },
     { operation: { kind: "scene.rename_node", nodePath: "Canvas", newName: "bad/name" }, errorCode: "VALIDATION_FAILED" },
+    { operation: { kind: "scene.duplicate_node", nodePath: ".", newParentPath: "Scriptless", newName: "RootCopy", keepGlobalTransform: true }, errorCode: "UNSAFE_OPERATION" },
+    { operation: { kind: "scene.duplicate_node", nodePath: "Canvas/Missing", newParentPath: "Scriptless", newName: "Copy", keepGlobalTransform: true }, errorCode: "VALIDATION_FAILED" },
+    { operation: { kind: "scene.duplicate_node", nodePath: "Canvas", newParentPath: "Canvas/Title", newName: "Copy", keepGlobalTransform: true }, errorCode: "UNSAFE_OPERATION" },
     { operation: { kind: "scene.set_property", nodePath: ".", property: "script", value: null }, errorCode: "UNSAFE_OPERATION" },
     { operation: { kind: "scene.attach_script", nodePath: ".", scriptPath: "res://../outside.gd" }, errorCode: "UNSAFE_OPERATION" },
     { operation: { kind: "resource.replace_reference", resourcePath: "res://../outside.tres", from: "res://old.tres", to: "res://new.tres" }, errorCode: "UNSAFE_OPERATION" },
@@ -569,6 +572,51 @@ try {
   const afterRenameRollback = await readEditorContext(fixtureRoot);
   assert.deepEqual(afterRenameRollback.currentScene.nodes, beforeRenameContext.currentScene.nodes);
   stage("scene rename apply and rollback complete");
+
+  const beforeDuplicateContext = await readEditorContext(fixtureRoot);
+  const duplicateSubtreeBefore = beforeDuplicateContext.currentScene.nodes
+    .filter((node) => node.path === "Canvas" || node.path.startsWith("Canvas/"))
+    .map(({ path: nodePath, name, type, properties }) => ({ path: nodePath, name, type, properties }));
+  const duplicatePlan = structured(await request("tools/call", {
+    name: "preview_scene_change",
+    arguments: {
+      projectRoot: fixtureRoot,
+      reason: "CI scene subtree duplication apply and rollback smoke test.",
+      operation: { kind: "scene.duplicate_node", nodePath: "Canvas", newParentPath: "Scriptless", newName: "CanvasCopy" },
+    },
+  }));
+  assert.deepEqual(duplicatePlan.diff[0]?.duplicatedNodes.map((node) => node.to), [
+    "Scriptless/CanvasCopy",
+    "Scriptless/CanvasCopy/Title",
+    "Scriptless/CanvasCopy/ColorPanel",
+  ]);
+  structured(await request("tools/call", {
+    name: "confirm_scene_change",
+    arguments: { projectRoot: fixtureRoot, planId: duplicatePlan.planId, expectedRevision: duplicatePlan.expectedRevision },
+  }));
+  const duplicateApply = structured(await request("tools/call", {
+    name: "apply_scene_change",
+    arguments: { projectRoot: fixtureRoot, planId: duplicatePlan.planId },
+  }));
+  assert.equal(duplicateApply.status, "applied");
+  assert.equal(duplicateApply.undoLabel, "Godot Safe Change: Duplicate node");
+  const afterDuplicateContext = await readEditorContext(fixtureRoot);
+  assert.equal(sceneNode(afterDuplicateContext, "Scriptless/CanvasCopy/Title")?.properties.text, "Fixture label");
+  assert.equal(sceneNode(afterDuplicateContext, "Scriptless/CanvasCopy/ColorPanel")?.properties.color.a, 1);
+  const duplicateRollback = structured(await request("tools/call", {
+    name: "rollback_scene_change",
+    arguments: { projectRoot: fixtureRoot, planId: duplicatePlan.planId },
+  }));
+  assert.equal(duplicateRollback.status, "rolled_back");
+  const afterDuplicateRollback = await readEditorContext(fixtureRoot);
+  assert.deepEqual(
+    afterDuplicateRollback.currentScene.nodes
+      .filter((node) => node.path === "Canvas" || node.path.startsWith("Canvas/"))
+      .map(({ path: nodePath, name, type, properties }) => ({ path: nodePath, name, type, properties })),
+    duplicateSubtreeBefore,
+  );
+  assert.equal(sceneNode(afterDuplicateRollback, "Scriptless/CanvasCopy"), undefined);
+  stage("scene subtree duplicate apply and rollback complete");
 
   await roundTripSceneProperty(fixtureRoot, ".", "visible", false);
   await roundTripSceneProperty(fixtureRoot, ".", "position", { x: 12, y: 8 });

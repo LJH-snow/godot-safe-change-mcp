@@ -627,6 +627,23 @@ func _validate_change_request(request_body: Dictionary) -> Dictionary:
         rename_name_regex.compile("^[A-Za-z_][A-Za-z0-9_]*$")
         if rename_name_regex.search(new_name) == null:
             return _failure("VALIDATION_FAILED", "newName contains unsupported characters.")
+    elif kind == "scene.duplicate_node":
+        if not _has_exact_keys(operation, ["kind", "nodePath", "newParentPath", "newName", "keepGlobalTransform"]):
+            return _failure("VALIDATION_FAILED", "scene.duplicate_node contains unsupported or missing fields.")
+        var node_path := String(operation["nodePath"])
+        var new_parent_path := String(operation["newParentPath"])
+        if not _is_safe_node_path(node_path) or not _is_safe_node_path(new_parent_path):
+            return _failure("VALIDATION_FAILED", "nodePath and newParentPath must be safe relative NodePaths.")
+        if node_path == ".":
+            return _failure("UNSAFE_OPERATION", "The current scene root cannot be duplicated.")
+        var duplicate_name_regex := RegEx.new()
+        duplicate_name_regex.compile("^[A-Za-z_][A-Za-z0-9_]*$")
+        if duplicate_name_regex.search(String(operation["newName"])) == null:
+            return _failure("VALIDATION_FAILED", "newName contains unsupported characters.")
+        if typeof(operation["keepGlobalTransform"]) != TYPE_BOOL:
+            return _failure("VALIDATION_FAILED", "keepGlobalTransform must be a boolean.")
+        if new_parent_path == node_path or new_parent_path.begins_with(node_path + "/"):
+            return _failure("UNSAFE_OPERATION", "A node cannot be duplicated beneath itself or one of its descendants.")
     elif kind == "scene.set_property":
         if not _has_exact_keys(operation, ["kind", "nodePath", "property", "value"]):
             return _failure("VALIDATION_FAILED", "scene.set_property contains unsupported or missing fields.")
@@ -763,6 +780,23 @@ func _apply_change(body: Variant) -> Dictionary:
             "planId": last_applied_plan_id,
             "status": "applied",
             "revision": rename_revision,
+            "operationCount": 1,
+            "undoLabel": last_applied_undo_label,
+        })
+    if String(operation.get("kind", "")) == "scene.duplicate_node":
+        var duplicate_result := _apply_duplicate_node(scene_root, operation)
+        if not duplicate_result.is_empty():
+            return duplicate_result
+        var duplicate_revision := _current_revision(scene_root, scene_path)
+        last_applied_plan_id = String(request_body.get("planId", ""))
+        last_applied_revision = duplicate_revision
+        _clear_file_action_state()
+        _record_scene_action(scene_root, scene_path, "scene.duplicate_node", "Godot Safe Change: Duplicate node")
+        return _success("report", {
+            "schemaVersion": "0.2",
+            "planId": last_applied_plan_id,
+            "status": "applied",
+            "revision": duplicate_revision,
             "operationCount": 1,
             "undoLabel": last_applied_undo_label,
         })
@@ -1523,6 +1557,77 @@ func _apply_rename_node(scene_root: Node, operation: Dictionary) -> Dictionary:
     undo_redo.commit_action()
     EditorInterface.mark_scene_as_unsaved()
     return {}
+
+func _apply_duplicate_node(scene_root: Node, operation: Dictionary) -> Dictionary:
+    var node_path := String(operation.get("nodePath", ""))
+    var new_parent_path := String(operation.get("newParentPath", ""))
+    var new_name := String(operation.get("newName", ""))
+    var keep_global_transform: bool = operation.get("keepGlobalTransform", true)
+    if not _is_safe_node_path(node_path) or node_path == "." or not _is_safe_node_path(new_parent_path):
+        return _failure("UNSAFE_OPERATION", "Only safe non-root scene paths can be duplicated.")
+    if new_parent_path == node_path or new_parent_path.begins_with(node_path + "/"):
+        return _failure("UNSAFE_OPERATION", "A node cannot be duplicated beneath itself or one of its descendants.")
+    var node_name_regex := RegEx.new()
+    node_name_regex.compile("^[A-Za-z_][A-Za-z0-9_]*$")
+    if node_name_regex.search(new_name) == null:
+        return _failure("VALIDATION_FAILED", "newName contains unsupported characters.")
+
+    var source := _scene_node(scene_root, node_path)
+    if source == null:
+        return _failure("VALIDATION_FAILED", "The requested source scene node does not exist.")
+    if source.owner != scene_root or not _scene_subtree_owned_by(source, scene_root):
+        return _failure("UNSAFE_OPERATION", "Only nodes owned by the current scene can be duplicated.")
+    var new_parent := _scene_node(scene_root, new_parent_path)
+    if new_parent == null:
+        return _failure("VALIDATION_FAILED", "The requested duplicate parent does not exist in the current scene.")
+    if new_parent != scene_root and new_parent.owner != scene_root:
+        return _failure("UNSAFE_OPERATION", "Only nodes owned by the current scene can be duplicate parents.")
+    if new_parent.get_node_or_null(NodePath(new_name)) != null:
+        return _failure("VALIDATION_FAILED", "A node with the requested duplicate name already exists under the target parent.")
+
+    var duplicate := source.duplicate()
+    if duplicate == null:
+        return _failure("OPERATION_REJECTED", "Godot could not duplicate the requested scene node.")
+    duplicate.name = new_name
+    var undo_redo := get_undo_redo()
+    undo_redo.create_action("Godot Safe Change: Duplicate node", 0, scene_root)
+    undo_redo.add_do_method(self, "_add_duplicate_node", new_parent, duplicate, source, keep_global_transform, scene_root)
+    undo_redo.add_undo_method(self, "_remove_duplicate_node", new_parent, duplicate)
+    undo_redo.add_do_reference(duplicate)
+    undo_redo.commit_action()
+    EditorInterface.mark_scene_as_unsaved()
+    return {}
+
+func _scene_subtree_owned_by(node: Node, scene_root: Node) -> bool:
+    if node.owner != scene_root:
+        return false
+    for child in node.get_children():
+        if not _scene_subtree_owned_by(child, scene_root):
+            return false
+    return true
+
+func _add_duplicate_node(parent: Node, duplicate: Node, source: Node, keep_global_transform: bool, scene_root: Node) -> void:
+    if not is_instance_valid(parent) or not is_instance_valid(duplicate) or not is_instance_valid(source) or not is_instance_valid(scene_root):
+        return
+    if duplicate.get_parent() != null:
+        return
+    parent.add_child(duplicate)
+    _set_owner_recursive(duplicate, scene_root)
+    if keep_global_transform and source is CanvasItem and duplicate is CanvasItem:
+        duplicate.global_transform = source.global_transform
+
+func _remove_duplicate_node(parent: Node, duplicate: Node) -> void:
+    if not is_instance_valid(parent) or not is_instance_valid(duplicate):
+        return
+    if duplicate.get_parent() == parent:
+        parent.remove_child(duplicate)
+
+func _set_owner_recursive(node: Node, scene_root: Node) -> void:
+    if not is_instance_valid(node) or not is_instance_valid(scene_root):
+        return
+    node.owner = scene_root
+    for child in node.get_children():
+        _set_owner_recursive(child, scene_root)
 
 func _restore_deleted_node(parent: Node, node: Node, child_index: int, scene_root: Node) -> void:
     if not is_instance_valid(parent) or not is_instance_valid(node) or not is_instance_valid(scene_root):
