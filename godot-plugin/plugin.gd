@@ -1449,7 +1449,7 @@ func _apply_reparent_node(scene_root: Node, operation: Dictionary) -> Dictionary
     var old_index := node.get_index()
     var new_index := new_parent.get_child_count()
     var undo_redo := get_undo_redo()
-    undo_redo.create_action("Godot Safe Change: Reparent node")
+    undo_redo.create_action("Godot Safe Change: Reparent node", 0, scene_root)
     undo_redo.add_do_method(self, "_move_scene_node", node, new_parent, new_index, keep_global_transform, scene_root)
     undo_redo.add_undo_method(self, "_move_scene_node", node, old_parent, old_index, keep_global_transform, scene_root)
     undo_redo.commit_action()
