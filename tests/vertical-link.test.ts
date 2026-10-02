@@ -736,7 +736,7 @@ describe("ChangeCoordinator", () => {
           nodePath: "Canvas/Title",
           signals: ["visibility_changed"],
           methods: ["show", "hide"],
-          connections: [],
+          connections: [{ signalName: "visibility_changed", targetPath: "Canvas/Other", methodName: "@generated" }],
         },
         {
           nodePath: ".",

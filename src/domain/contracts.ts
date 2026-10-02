@@ -226,13 +226,13 @@ export type InputActionSnapshot = z.infer<typeof inputActionSnapshotSchema>;
 export const sceneSignalConnectionSchema = z.object({
   signalName: signalNameSchema,
   targetPath: nodePathSchema,
-  methodName: methodNameSchema,
+  methodName: z.string().min(1).max(256),
 }).strict();
 
 export const sceneSignalNodeSchema = z.object({
   nodePath: nodePathSchema,
   signals: z.array(signalNameSchema),
-  methods: z.array(methodNameSchema),
+  methods: z.array(z.string().min(1).max(256)),
   connections: z.array(sceneSignalConnectionSchema),
 }).strict();
 
