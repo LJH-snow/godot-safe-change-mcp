@@ -406,6 +406,8 @@ func _safe_node_properties(node: Node) -> Dictionary:
         properties["visible"] = node.visible
     if node is Node2D:
         properties["position"] = {"x": node.position.x, "y": node.position.y}
+        properties["rotation_degrees"] = node.rotation_degrees
+        properties["scale"] = {"x": node.scale.x, "y": node.scale.y}
     if node is Control:
         properties["size"] = {"x": node.size.x, "y": node.size.y}
     if node is Label:
@@ -668,6 +670,12 @@ func _validate_change_request(request_body: Dictionary) -> Dictionary:
         elif property == "position":
             if not _is_valid_point(value, -1000000.0, 1000000.0):
                 return _failure("VALIDATION_FAILED", "position must contain finite x and y values in range.")
+        elif property == "rotation_degrees":
+            if not _is_valid_number(value, -360000.0, 360000.0):
+                return _failure("VALIDATION_FAILED", "rotation_degrees must be finite and within range.")
+        elif property == "scale":
+            if not _is_valid_point(value, -1000.0, 1000.0):
+                return _failure("VALIDATION_FAILED", "scale must contain finite x and y values in range.")
         elif property == "size":
             if not _is_valid_point(value, 0.0, 1000000.0):
                 return _failure("VALIDATION_FAILED", "size must contain finite non-negative x and y values.")
@@ -1152,6 +1160,11 @@ func _property_value(node: Node, property: String, value: Variant):
     if property == "position" and node is Node2D and _is_valid_point(value, -1000000.0, 1000000.0):
         var position: Dictionary = value
         return Vector2(float(position["x"]), float(position["y"]))
+    if property == "rotation_degrees" and node is Node2D and _is_valid_number(value, -360000.0, 360000.0):
+        return float(value)
+    if property == "scale" and node is Node2D and _is_valid_point(value, -1000.0, 1000.0):
+        var scale: Dictionary = value
+        return Vector2(float(scale["x"]), float(scale["y"]))
     if property == "size" and node is Control and _is_valid_point(value, 0.0, 1000000.0):
         var size: Dictionary = value
         return Vector2(float(size["x"]), float(size["y"]))
@@ -1172,6 +1185,10 @@ func _property_snapshot(node: Node, property: String):
         return node.text
     if property == "position" and node is Node2D:
         return {"x": node.position.x, "y": node.position.y}
+    if property == "rotation_degrees" and node is Node2D:
+        return node.rotation_degrees
+    if property == "scale" and node is Node2D:
+        return {"x": node.scale.x, "y": node.scale.y}
     if property == "size" and node is Control:
         return {"x": node.size.x, "y": node.size.y}
     if property == "color" and node is ColorRect:

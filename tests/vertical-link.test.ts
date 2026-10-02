@@ -624,6 +624,84 @@ describe("ChangeCoordinator", () => {
     assert.equal(bridge.applied.length, 0);
   });
 
+  test("previews a bounded Node2D rotation change", async () => {
+    const bridge = new FakeGodotBridge();
+    bridge.context = {
+      ...bridge.context,
+      currentScene: {
+        ...bridge.context.currentScene,
+        nodes: [
+          {
+            path: ".",
+            name: "Main",
+            type: "Node2D",
+            properties: { visible: true, position: { x: 0, y: 0 }, rotation_degrees: 10 },
+          },
+        ],
+      },
+    };
+    const coordinator = new ChangeCoordinator(bridge);
+
+    const plan = await coordinator.previewSceneChange({
+      projectRoot,
+      reason: "Rotate the scene root.",
+      operation: {
+        kind: "scene.set_property",
+        nodePath: ".",
+        property: "rotation_degrees",
+        value: 45,
+      } as never,
+    });
+
+    assert.deepEqual(plan.diff[0], {
+      kind: "scene.set_property",
+      target: "res://main.tscn:.:rotation_degrees",
+      summary: "Set rotation_degrees on . in res://main.tscn",
+      property: "rotation_degrees",
+      before: 10,
+      after: 45,
+    });
+    assert.equal(bridge.applied.length, 0);
+  });
+
+  test("previews a bounded Node2D scale change", async () => {
+    const bridge = new FakeGodotBridge();
+    bridge.context = {
+      ...bridge.context,
+      currentScene: {
+        ...bridge.context.currentScene,
+        nodes: [
+          {
+            path: ".",
+            name: "Main",
+            type: "Node2D",
+            properties: { visible: true, position: { x: 0, y: 0 }, scale: { x: 1, y: 1 } },
+          },
+        ],
+      },
+    };
+    const coordinator = new ChangeCoordinator(bridge);
+
+    const plan = await coordinator.previewSceneChange({
+      projectRoot,
+      reason: "Resize the scene root uniformly.",
+      operation: {
+        kind: "scene.set_property",
+        nodePath: ".",
+        property: "scale",
+        value: { x: 1.25, y: 0.8 },
+      } as never,
+    });
+
+    const diff = plan.diff[0];
+    assert.equal(diff?.kind, "scene.set_property");
+    const scaleDiff = diff as unknown as { property: string; before: unknown; after: unknown };
+    assert.equal(scaleDiff.property, "scale");
+    assert.deepEqual(scaleDiff.before, { x: 1, y: 1 });
+    assert.deepEqual(scaleDiff.after, { x: 1.25, y: 0.8 });
+    assert.equal(bridge.applied.length, 0);
+  });
+
   test("previews attaching an existing script without executing or editing it", async () => {
     const bridge = new FakeGodotBridge();
     const coordinator = new ChangeCoordinator(bridge);

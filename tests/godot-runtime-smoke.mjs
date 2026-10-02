@@ -697,6 +697,8 @@ try {
 
   await roundTripSceneProperty(fixtureRoot, ".", "visible", false);
   await roundTripSceneProperty(fixtureRoot, ".", "position", { x: 12, y: 8 });
+  await roundTripSceneProperty(fixtureRoot, ".", "rotation_degrees", 22.5);
+  await roundTripSceneProperty(fixtureRoot, ".", "scale", { x: 1.25, y: 0.8 });
   await roundTripSceneProperty(fixtureRoot, "Canvas", "size", { x: 400, y: 220 });
   await roundTripSceneProperty(fixtureRoot, "Canvas/Title", "text", "Updated fixture title");
   await roundTripSceneProperty(fixtureRoot, "Canvas/ColorPanel", "color", { r: 0.8, g: 0.1, b: 0.3, a: 0.75 });

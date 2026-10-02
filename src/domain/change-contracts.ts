@@ -79,6 +79,13 @@ const positionSchema = z
     y: finiteNumberSchema.min(-1_000_000).max(1_000_000),
   })
   .strict();
+const rotationDegreesSchema = finiteNumberSchema.min(-360_000).max(360_000);
+const scaleSchema = z
+  .object({
+    x: finiteNumberSchema.min(-1_000).max(1_000),
+    y: finiteNumberSchema.min(-1_000).max(1_000),
+  })
+  .strict();
 const sizeSchema = z
   .object({
     x: finiteNumberSchema.min(0).max(1_000_000),
@@ -162,6 +169,22 @@ const sceneSetPositionPropertySchema = z
     value: positionSchema,
   })
   .strict();
+const sceneSetRotationDegreesPropertySchema = z
+  .object({
+    kind: z.literal("scene.set_property"),
+    nodePath: nodePathSchema,
+    property: z.literal("rotation_degrees"),
+    value: rotationDegreesSchema,
+  })
+  .strict();
+const sceneSetScalePropertySchema = z
+  .object({
+    kind: z.literal("scene.set_property"),
+    nodePath: nodePathSchema,
+    property: z.literal("scale"),
+    value: scaleSchema,
+  })
+  .strict();
 const sceneSetSizePropertySchema = z
   .object({
     kind: z.literal("scene.set_property"),
@@ -190,6 +213,8 @@ const sceneSetColorPropertySchema = z
 export const sceneSetPropertySchema = z.discriminatedUnion("property", [
   sceneSetVisiblePropertySchema,
   sceneSetPositionPropertySchema,
+  sceneSetRotationDegreesPropertySchema,
+  sceneSetScalePropertySchema,
   sceneSetSizePropertySchema,
   sceneSetTextPropertySchema,
   sceneSetColorPropertySchema,
@@ -198,6 +223,8 @@ export const sceneSetPropertySchema = z.discriminatedUnion("property", [
 export const scenePropertyAssertionSchema = z.discriminatedUnion("property", [
   z.object({ property: z.literal("visible"), expected: z.boolean() }).strict(),
   z.object({ property: z.literal("position"), expected: positionSchema }).strict(),
+  z.object({ property: z.literal("rotation_degrees"), expected: rotationDegreesSchema }).strict(),
+  z.object({ property: z.literal("scale"), expected: scaleSchema }).strict(),
   z.object({ property: z.literal("size"), expected: sizeSchema }).strict(),
   z.object({ property: z.literal("text"), expected: z.string().max(10000) }).strict(),
   z.object({ property: z.literal("color"), expected: colorSchema }).strict(),
@@ -448,6 +475,18 @@ const scenePropertyDiffPositionSchema = z.object({
   before: positionSchema,
   after: positionSchema,
 }).strict();
+const scenePropertyDiffRotationDegreesSchema = z.object({
+  ...scenePropertyDiffBase,
+  property: z.literal("rotation_degrees"),
+  before: rotationDegreesSchema,
+  after: rotationDegreesSchema,
+}).strict();
+const scenePropertyDiffScaleSchema = z.object({
+  ...scenePropertyDiffBase,
+  property: z.literal("scale"),
+  before: scaleSchema,
+  after: scaleSchema,
+}).strict();
 const scenePropertyDiffSizeSchema = z.object({
   ...scenePropertyDiffBase,
   property: z.literal("size"),
@@ -470,6 +509,8 @@ const scenePropertyDiffColorSchema = z.object({
 export const scenePropertyDiffSchema = z.union([
   scenePropertyDiffVisibleSchema,
   scenePropertyDiffPositionSchema,
+  scenePropertyDiffRotationDegreesSchema,
+  scenePropertyDiffScaleSchema,
   scenePropertyDiffSizeSchema,
   scenePropertyDiffTextSchema,
   scenePropertyDiffColorSchema,
