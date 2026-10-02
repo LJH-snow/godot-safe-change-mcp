@@ -3,7 +3,7 @@
 ## 2026-10-02 Node2D transform properties
 
 - 扩展 scene.set_property 支持 Node2D 的 rotation_degrees 和 scale，保持有限数值、完整对象字段和节点类型校验。
-- 应用层测试和真实 Godot smoke 已加入 apply/rollback 覆盖；等待双版本远程 CI 验证。
+- 应用层测试和真实 Godot smoke 已加入 apply/rollback 覆盖；GitHub Actions run 37014939854 的双版本 runtime 已通过。
 
 ## 2026-10-02 instantiate existing scene
 
