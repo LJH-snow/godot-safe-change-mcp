@@ -3,12 +3,12 @@
 ## 2026-10-02 instantiate existing scene
 
 - 新增 `scene.instantiate_scene`，preview 校验项目内 `.tscn`、父节点、自引用和名称冲突，并绑定源场景文件 revision。
-- 通过 Godot PackedScene.instantiate() 和 UndoRedo 管理实例根节点，smoke 已覆盖实例子树和 rollback；等待双版本远程 CI 验证。
+- 通过 Godot PackedScene.instantiate() 和 UndoRedo 管理实例根节点，smoke 已覆盖实例子树和 rollback；GitHub Actions run \`37005980067\` 的 check、package boundary、Godot 4.5.1 和 4.7.2 全部通过。
 
 ## 2026-10-02 detach existing script
 
 - 新增 `scene.detach_script`，只允许移除当前场景节点已有的项目内 `.gd` 脚本；preview 返回原脚本路径和 diff。
-- 通过 Godot UndoRedo 清除并恢复原 Script 资源，补充 scriptless 拒绝、重复 rollback 和真实桥接 apply/rollback smoke；等待双版本远程 CI 验证。
+- 通过 Godot UndoRedo 清除并恢复原 Script 资源，补充 scriptless 拒绝、重复 rollback 和真实桥接 apply/rollback smoke；GitHub Actions run \`37005980067\` 已验证双版本通过。
 
 ## 2026-09-30 safe change hardening
 
