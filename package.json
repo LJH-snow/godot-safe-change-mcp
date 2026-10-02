@@ -18,7 +18,7 @@
     "manufact"
   ],
   "bin": {
-    "godot-safe-change-mcp": "./bin/mcp-server.mjs"
+    "godot-safe-change-mcp": "bin/mcp-server.mjs"
   },
   "files": [
     "bin",
