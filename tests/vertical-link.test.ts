@@ -75,6 +75,16 @@ class FakeGodotBridge implements GodotBridge {
     deadzone: null,
     events: [],
   };
+  sceneSignalsSnapshot: {
+    path: string;
+    revision: string;
+    nodes: Array<{
+      nodePath: string;
+      signals: string[];
+      methods: string[];
+      connections: Array<{ signalName: string; targetPath: string; methodName: string }>;
+    }>;
+  } = { path: "res://main.tscn", revision: "revision-1", nodes: [] };
   inputActionBeforeApplySnapshot: InputActionSnapshot | null = null;
   runCalls = 0;
   runDiagnosticsResult: RunDiagnostics = {
@@ -199,6 +209,10 @@ class FakeGodotBridge implements GodotBridge {
 
   async readInputAction(_projectRoot: string, actionName: string): Promise<InputActionSnapshot> {
     return { ...this.inputActionSnapshot, actionName };
+  }
+
+  async readSceneSignals() {
+    return this.sceneSignalsSnapshot;
   }
 }
 
@@ -700,6 +714,123 @@ describe("ChangeCoordinator", () => {
     assert.deepEqual(scaleDiff.before, { x: 1, y: 1 });
     assert.deepEqual(scaleDiff.after, { x: 1.25, y: 0.8 });
     assert.equal(bridge.applied.length, 0);
+  });
+
+  test("previews a validated scene signal connection without applying it", async () => {
+    const bridge = new FakeGodotBridge();
+    bridge.context = {
+      ...bridge.context,
+      currentScene: {
+        ...bridge.context.currentScene,
+        nodes: [
+          { path: ".", name: "Main", type: "Node2D", properties: {} },
+          { path: "Canvas/Title", name: "Title", type: "Label", properties: {} },
+        ],
+      },
+    };
+    bridge.sceneSignalsSnapshot = {
+      path: "res://main.tscn",
+      revision: "revision-1",
+      nodes: [
+        {
+          nodePath: "Canvas/Title",
+          signals: ["visibility_changed"],
+          methods: ["show", "hide"],
+          connections: [{ signalName: "visibility_changed", targetPath: "Canvas/Other", methodName: "@generated" }],
+        },
+        {
+          nodePath: ".",
+          signals: ["tree_entered"],
+          methods: ["_ready", "on_title_visibility_changed"],
+          connections: [],
+        },
+      ],
+    };
+    const coordinator = new ChangeCoordinator(bridge);
+
+    const plan = await coordinator.previewSceneChange({
+      projectRoot,
+      reason: "Connect the title visibility signal to the scene handler.",
+      operation: {
+        kind: "scene.connect_signal",
+        sourcePath: "Canvas/Title",
+        signalName: "visibility_changed",
+        targetPath: ".",
+        methodName: "on_title_visibility_changed",
+      } as never,
+    });
+
+    assert.equal(plan.operations[0]?.kind, "scene.connect_signal");
+    assert.deepEqual(plan.diff[0], {
+      kind: "scene.connect_signal",
+      target: "res://main.tscn:Canvas/Title.visibility_changed -> .on_title_visibility_changed",
+      summary: "Connect Canvas/Title.visibility_changed to .on_title_visibility_changed in res://main.tscn",
+      sourcePath: "Canvas/Title",
+      signalName: "visibility_changed",
+      targetPath: ".",
+      methodName: "on_title_visibility_changed",
+    });
+    assert.equal(bridge.applied.length, 0);
+    const confirmation = await coordinator.confirmChange({
+      projectRoot,
+      planId: plan.planId,
+      expectedRevision: plan.expectedRevision,
+    });
+    assert.equal(confirmation.status, "confirmed");
+    const applied = await coordinator.applyChange({ projectRoot, planId: plan.planId });
+    assert.equal(applied.status, "applied");
+    assert.equal(bridge.applied[0]?.operations[0]?.kind, "scene.connect_signal");
+    const rolledBack = await coordinator.rollbackChange({ projectRoot, planId: plan.planId });
+    assert.equal(rolledBack.status, "rolled_back");
+    bridge.context = {
+      ...bridge.context,
+      currentScene: {
+        ...bridge.context.currentScene,
+        nodes: [
+          { path: ".", name: "Main", type: "Node2D", properties: {} },
+          { path: "Canvas/Title", name: "Title", type: "Label", properties: {} },
+        ],
+      },
+    };
+    bridge.sceneSignalsSnapshot.nodes[0].connections = [{
+      signalName: "visibility_changed",
+      targetPath: ".",
+      methodName: "on_title_visibility_changed",
+    }];
+    bridge.sceneSignalsSnapshot.revision = "revision-3";
+    await assert.rejects(
+      () => coordinator.previewSceneChange({
+        projectRoot,
+        reason: "Reject a duplicate signal connection.",
+        operation: {
+          kind: "scene.connect_signal",
+          sourcePath: "Canvas/Title",
+          signalName: "visibility_changed",
+          targetPath: ".",
+          methodName: "on_title_visibility_changed",
+        } as never,
+      }),
+      (error: unknown) => error instanceof DomainError && error.code === ERROR_CODES.OPERATION_REJECTED,
+    );
+
+    const preview = (sourcePath: string, signalName: string, targetPath: string, methodName: string) =>
+      coordinator.previewSceneChange({
+        projectRoot,
+        reason: "Exercise signal connection validation.",
+        operation: { kind: "scene.connect_signal", sourcePath, signalName, targetPath, methodName } as never,
+      });
+    await assert.rejects(
+      () => preview("Canvas/Missing", "visibility_changed", ".", "on_title_visibility_changed"),
+      (error: unknown) => error instanceof DomainError && error.code === ERROR_CODES.VALIDATION_FAILED,
+    );
+    await assert.rejects(
+      () => preview("Canvas/Title", "missing_signal", ".", "on_title_visibility_changed"),
+      (error: unknown) => error instanceof DomainError && error.code === ERROR_CODES.VALIDATION_FAILED,
+    );
+    await assert.rejects(
+      () => preview("Canvas/Title", "visibility_changed", ".", "missing_method"),
+      (error: unknown) => error instanceof DomainError && error.code === ERROR_CODES.VALIDATION_FAILED,
+    );
   });
 
   test("previews attaching an existing script without executing or editing it", async () => {
@@ -1624,6 +1755,7 @@ test("the Godot plugin exposes only the bounded vertical-link routes", async () 
   assert.doesNotMatch(source, /execute_gdscript|OS\.execute/);
   assert.match(source, /_is_safe_script_path/);
   assert.match(source, /scene\.set_property/);
+  assert.match(source, /\/v1\/signals\/read/);
   assert.match(source, /scene\.instantiate_scene/);
   assert.match(source, /PackedScene/);
   assert.match(source, /add_do_property/);

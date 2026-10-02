@@ -14,6 +14,14 @@ export const nodeNameSchema = z
   .max(64)
   .regex(/^[A-Za-z_][A-Za-z0-9_]*$/);
 
+const godotMemberNameSchema = z
+  .string()
+  .min(1)
+  .max(128)
+  .regex(/^[A-Za-z_][A-Za-z0-9_]*$/);
+export const signalNameSchema = godotMemberNameSchema.describe("Godot signal name.");
+export const methodNameSchema = godotMemberNameSchema.describe("Godot target method name.");
+
 const relativeNodePathPattern = /^(?:\.|[A-Za-z_][A-Za-z0-9_]*(?:\/[A-Za-z_][A-Za-z0-9_]*)*)$/;
 const projectRelativePathPattern = /^res:\/\/(?!\/)(?:[^\/\\\0]+\/)*[^\/\\\0]+$/;
 const resourceIdentifierPattern = /^(?:uid:\/\/[A-Za-z0-9_-]+|res:\/\/(?!\/)(?:[^\/\\\0]+\/)*[^\/\\\0]+)$/;
@@ -150,6 +158,16 @@ export const sceneInstantiateSceneSchema = z
     parentPath: nodePathSchema,
     scenePath: scenePathSchema,
     nodeName: nodeNameSchema,
+  })
+  .strict();
+
+export const sceneConnectSignalSchema = z
+  .object({
+    kind: z.literal("scene.connect_signal"),
+    sourcePath: nodePathSchema,
+    signalName: signalNameSchema,
+    targetPath: nodePathSchema,
+    methodName: methodNameSchema,
   })
   .strict();
 
@@ -303,6 +321,7 @@ export const changeOperationSchema = z.union([
   sceneRenameNodeSchema,
   sceneDuplicateNodeSchema,
   sceneInstantiateSceneSchema,
+  sceneConnectSignalSchema,
   sceneSetPropertySchema,
   sceneAttachScriptSchema,
   sceneDetachScriptSchema,
@@ -422,6 +441,18 @@ export const sceneInstantiateSceneDiffSchema = z
   })
   .strict();
 
+export const sceneConnectSignalDiffSchema = z
+  .object({
+    kind: z.literal("scene.connect_signal"),
+    target: z.string().min(1),
+    summary: z.string().min(1),
+    sourcePath: nodePathSchema,
+    signalName: signalNameSchema,
+    targetPath: nodePathSchema,
+    methodName: methodNameSchema,
+  })
+  .strict();
+
 export const scriptChangeDiffSchema = z.object({
   kind: z.literal("script.replace_range"),
   target: z.string().min(1),
@@ -538,6 +569,7 @@ export const changeDiffSchema = z.union([
   sceneRenameNodeDiffSchema,
   sceneDuplicateNodeDiffSchema,
   sceneInstantiateSceneDiffSchema,
+  sceneConnectSignalDiffSchema,
   scenePropertyDiffSchema,
   sceneAttachScriptDiffSchema,
   sceneDetachScriptDiffSchema,

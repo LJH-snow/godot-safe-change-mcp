@@ -98,6 +98,8 @@ func handle_bridge_request(method: String, path: String, body: Variant) -> Dicti
             return _read_resource(body)
         "/v1/input-actions/read":
             return _read_input_action(body)
+        "/v1/signals/read":
+            return _read_scene_signals()
         "/v1/run/current":
             return _run_current_scene()
         "/v1/run/scene":
@@ -262,6 +264,67 @@ func _read_input_action(body: Variant) -> Dictionary:
         "deadzone": deadzone,
         "events": events,
     })
+
+func _read_scene_signals() -> Dictionary:
+    var scene_root := EditorInterface.get_edited_scene_root()
+    if scene_root == null:
+        return _failure("VALIDATION_FAILED", "A current scene is required before reading signals.")
+    var scene_path := String(scene_root.scene_file_path)
+    return _success("snapshot", _scene_signals_snapshot(scene_root, scene_path))
+
+func _scene_signals_snapshot(scene_root: Node, scene_path: String) -> Dictionary:
+    var nodes: Array = []
+    _append_scene_signal_node(scene_root, scene_root, nodes)
+    return {
+        "path": scene_path,
+        "revision": _current_revision(scene_root, scene_path),
+        "nodes": nodes,
+    }
+
+func _append_scene_signal_node(scene_root: Node, node: Node, nodes: Array) -> void:
+    var signal_names: Array[String] = []
+    for signal_info in node.get_signal_list():
+        var signal_name := String(signal_info.get("name", ""))
+        if signal_name != "":
+            signal_names.append(signal_name)
+    signal_names.sort()
+
+    var method_names: Array[String] = []
+    for method_info in node.get_method_list():
+        var method_name := String(method_info.get("name", ""))
+        if method_name != "":
+            method_names.append(method_name)
+    method_names.sort()
+
+    var connections: Array = []
+    for signal_name in signal_names:
+        for raw_connection in node.get_signal_connection_list(signal_name):
+            if typeof(raw_connection) != TYPE_DICTIONARY:
+                continue
+            var callable_variant: Variant = raw_connection.get("callable")
+            if not callable_variant is Callable:
+                continue
+            var callable: Callable = callable_variant as Callable
+            var target_variant: Variant = callable.get_object()
+            if not target_variant is Node:
+                continue
+            var target_node: Node = target_variant as Node
+            if target_node != scene_root and not scene_root.is_ancestor_of(target_node):
+                continue
+            connections.append({
+                "signalName": signal_name,
+                "targetPath": String(scene_root.get_path_to(target_node)),
+                "methodName": callable.get_method(),
+            })
+
+    nodes.append({
+        "nodePath": String(scene_root.get_path_to(node)),
+        "signals": signal_names,
+        "methods": method_names,
+        "connections": connections,
+    })
+    for child in node.get_children():
+        _append_scene_signal_node(scene_root, child, nodes)
 
 func _is_safe_input_action_name(action_name: String) -> bool:
     if action_name.length() < 1 or action_name.length() > 128:
@@ -657,6 +720,17 @@ func _validate_change_request(request_body: Dictionary) -> Dictionary:
         instance_name_regex.compile("^[A-Za-z_][A-Za-z0-9_]*$")
         if instance_name_regex.search(String(operation["nodeName"])) == null:
             return _failure("VALIDATION_FAILED", "nodeName contains unsupported characters.")
+    elif kind == "scene.connect_signal":
+        if not _has_exact_keys(operation, ["kind", "sourcePath", "signalName", "targetPath", "methodName"]):
+            return _failure("VALIDATION_FAILED", "scene.connect_signal contains unsupported or missing fields.")
+        if not _is_safe_node_path(String(operation["sourcePath"])) or not _is_safe_node_path(String(operation["targetPath"])):
+            return _failure("VALIDATION_FAILED", "sourcePath and targetPath must be safe relative NodePaths.")
+        var signal_name_regex := RegEx.new()
+        signal_name_regex.compile("^[A-Za-z_][A-Za-z0-9_]*$")
+        if signal_name_regex.search(String(operation["signalName"])) == null:
+            return _failure("VALIDATION_FAILED", "signalName contains unsupported characters.")
+        if signal_name_regex.search(String(operation["methodName"])) == null:
+            return _failure("VALIDATION_FAILED", "methodName contains unsupported characters.")
     elif kind == "scene.set_property":
         if not _has_exact_keys(operation, ["kind", "nodePath", "property", "value"]):
             return _failure("VALIDATION_FAILED", "scene.set_property contains unsupported or missing fields.")
@@ -828,6 +902,8 @@ func _apply_change(body: Variant) -> Dictionary:
         })
     if String(operation.get("kind", "")) == "scene.instantiate_scene":
         return _apply_instantiate_scene(request_body, scene_root, scene_path)
+    if String(operation.get("kind", "")) == "scene.connect_signal":
+        return _apply_connect_signal(request_body, scene_root, scene_path)
     if String(operation.get("kind", "")) == "resource.replace_reference":
         return _apply_resource_change(request_body, scene_root, scene_path)
     if String(operation.get("kind", "")) in ["project.input_action.add_key", "project.input_action.remove_key", "project.input_action.replace_key"]:
@@ -1732,6 +1808,70 @@ func _apply_instantiate_scene(request_body: Dictionary, scene_root: Node, scene_
         "operationCount": 1,
         "undoLabel": last_applied_undo_label,
     })
+
+func _apply_connect_signal(request_body: Dictionary, scene_root: Node, scene_path: String) -> Dictionary:
+    var operation: Dictionary = request_body["operations"][0]
+    var source_path := String(operation.get("sourcePath", ""))
+    var signal_name := String(operation.get("signalName", ""))
+    var target_path := String(operation.get("targetPath", ""))
+    var method_name := String(operation.get("methodName", ""))
+    if not _is_safe_node_path(source_path) or not _is_safe_node_path(target_path):
+        return _failure("VALIDATION_FAILED", "sourcePath and targetPath must be safe relative NodePaths.")
+    var member_name_regex := RegEx.new()
+    member_name_regex.compile("^[A-Za-z_][A-Za-z0-9_]*$")
+    if member_name_regex.search(signal_name) == null or member_name_regex.search(method_name) == null:
+        return _failure("VALIDATION_FAILED", "signalName and methodName contain unsupported characters.")
+
+    var source: Node = _scene_node(scene_root, source_path)
+    var target: Node = _scene_node(scene_root, target_path)
+    if source == null or target == null:
+        return _failure("VALIDATION_FAILED", "The signal source and target nodes must exist in the current scene.")
+    var source_signal_names: Array[String] = []
+    for signal_info in source.get_signal_list():
+        source_signal_names.append(String(signal_info.get("name", "")))
+    if not source_signal_names.has(signal_name):
+        return _failure("VALIDATION_FAILED", "The requested signal does not exist on the source node.")
+    var target_method_names: Array[String] = []
+    for method_info in target.get_method_list():
+        target_method_names.append(String(method_info.get("name", "")))
+    if not target_method_names.has(method_name):
+        return _failure("VALIDATION_FAILED", "The requested target method does not exist on the target node.")
+    var callable := Callable(target, method_name)
+    if source.is_connected(signal_name, callable):
+        return _failure("OPERATION_REJECTED", "The requested signal connection already exists.")
+
+    var undo_redo := get_undo_redo()
+    undo_redo.create_action("Godot Safe Change: Connect signal", 0, scene_root)
+    undo_redo.add_do_method(self, "_connect_scene_signal", source, signal_name, target, method_name)
+    undo_redo.add_undo_method(self, "_disconnect_scene_signal", source, signal_name, target, method_name)
+    undo_redo.commit_action()
+    EditorInterface.mark_scene_as_unsaved()
+    last_applied_plan_id = String(request_body.get("planId", ""))
+    last_applied_revision = _current_revision(scene_root, scene_path)
+    _clear_file_action_state()
+    _record_scene_action(scene_root, scene_path, "scene.connect_signal", "Godot Safe Change: Connect signal")
+    return _success("report", {
+        "schemaVersion": "0.2",
+        "planId": last_applied_plan_id,
+        "status": "applied",
+        "revision": last_applied_revision,
+        "operationCount": 1,
+        "undoLabel": last_applied_undo_label,
+    })
+
+func _connect_scene_signal(source: Node, signal_name: String, target: Node, method_name: String) -> void:
+    if not is_instance_valid(source) or not is_instance_valid(target):
+        return
+    var callable := Callable(target, method_name)
+    if not source.is_connected(signal_name, callable):
+        source.connect(signal_name, callable)
+
+func _disconnect_scene_signal(source: Node, signal_name: String, target: Node, method_name: String) -> void:
+    if not is_instance_valid(source) or not is_instance_valid(target):
+        return
+    var callable := Callable(target, method_name)
+    if source.is_connected(signal_name, callable):
+        source.disconnect(signal_name, callable)
 
 func _scene_subtree_owned_by(node: Node, scene_root: Node) -> bool:
     if node != scene_root and node.owner != null and node.owner != scene_root:

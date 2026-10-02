@@ -44,6 +44,7 @@ The real EditorPlugin check uses godot-fixture and requires a local Godot 4.x ed
 5. Call search_project for Main, diagnostic, main and theme; verify node, script, scene and resource results include paths and NodePath where applicable.
 6. Verify currentScene.nodes includes the full scene tree and safe properties such as position, visible, text or color.
 7. Call preview_scene_change for a Node2D named SafeMarker under parentPath . Verify that only a diff is returned.
+7a. Preview, confirm, apply, and roll back a signal connection from Canvas/Title.visibility_changed to the scene root method _ready; unknown signals, missing methods, duplicate connections, and unsafe NodePaths must be rejected.
 8. Send a direct loopback `/v1/changes/apply` request with `nodePath: "../Canvas"` and verify the plugin itself returns HTTP 400 with `VALIDATION_FAILED`, without relying on MCP/Zod validation.
 9. Call confirm_scene_change with the returned planId and expectedRevision.
 10. Call apply_scene_change and verify the node appears in the scene tree and the report contains an undo label and new revision.

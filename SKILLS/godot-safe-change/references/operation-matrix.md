@@ -6,6 +6,7 @@ docs/PLAN.md, tests/README.md, and the task records.
 | Operation family | Execution boundary | Required guard | Evidence after apply |
 | --- | --- | --- | --- |
 | scene.create_node, scene.set_property, scene.attach_script | Godot EditorPlugin and EditorUndoRedoManager | Safe relative NodePath, allowlisted node/property/script, active plan, expected editor revision, project lease | Scene tree or property snapshot, specific UndoRedo label, new editor revision, rollback result |
+| scene.connect_signal | Godot EditorPlugin and EditorUndoRedoManager | Safe source/target NodePaths, existing signal, existing target method, duplicate-connection rejection, active plan, expected editor revision, project lease | Signal snapshot, specific UndoRedo label, new scene revision, guarded rollback result |
 | script.replace_range | TypeScript coordinator plus plugin file route | res:// .gd path, bounded 1-based lines, expected file revision, exact before text | Line diff, file revision, atomic replacement result, rollback or conflict evidence |
 | resource.replace_reference | TypeScript coordinator and bounded file route | res:// .tscn/.tres/.res path, explicit from/to reference, expected file revision | Match count, before/after snapshot, file revision, rollback or user-edit conflict |
 | project.input_action.add_key, remove_key, replace_key | Guarded ProjectSettings route | Safe action name, unique physical key match, no logical or occupied key, expected project.godot revision | Action snapshot, settings revision, persistence result, complete rollback snapshot |

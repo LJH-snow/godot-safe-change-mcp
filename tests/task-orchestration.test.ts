@@ -147,6 +147,10 @@ class FakeGodotBridge implements GodotBridge {
     return { actionName, revision: "input-test", exists: false, deadzone: null, events: [] };
   }
 
+  async readSceneSignals(): Promise<{ path: string; revision: string; nodes: never[] }> {
+    return { path: "res://main.tscn", revision: this.context.revision ?? "revision-1", nodes: [] };
+  }
+
   async searchProject(projectRoot: string, request: SearchProjectRequest): Promise<SearchProjectReport> {
     return {
       schemaVersion: "0.3",
