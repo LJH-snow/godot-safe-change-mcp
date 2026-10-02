@@ -1,5 +1,10 @@
 # 进度记录
 
+## 2026-10-03 starter fixture CI validation
+
+- GitHub Actions Godot 4.5.1/4.7.2 job 新增 starter fixture headless editor load，确保公开示例可启动。
+- 等待本次 CI 验证通过后，下一步是录制实际演示素材和完成 npm 2FA 发布。
+
 ## 2026-10-03 demo storyboard
 
 - 新增 docs/DEMO.md，固定 60 秒演示的录制环境、时间线、旁白和安全检查。

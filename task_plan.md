@@ -266,6 +266,7 @@
 - [x] 增加 CONTRIBUTING、bug/feature issue template 和长期增长路线。
 - [x] 增加 5 个可复制的 Agent 示例，覆盖首次搜索、写入闭环、场景实例化/信号、任务 Lease 和冲突恢复。
 - [x] 增加 examples/starter 最小 Godot 项目，提供可复制的首条安全变更体验。
+- [x] 在双版本 Godot CI 中打开并验证 examples/starter 项目。
 - [x] 增加 60 秒 demo storyboard，固定录制步骤、旁白和发布前检查。
 - [ ] 创建第一个 GitHub Release/tag，并保留四项 CI 证据和安装说明。
 - [ ] 提供可复制的 starter fixture、5 个示例请求和 60 秒演示素材。
