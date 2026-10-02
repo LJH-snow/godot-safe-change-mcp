@@ -56,7 +56,7 @@ jobs:
         timeout-minutes: 1
         shell: bash
         run: |
-          timeout --signal=TERM --kill-after=10s 45s +            "$GODOT_BIN" --headless --editor --path examples/starter +            --quit-after 2 --audio-driver Dummy
+          timeout --signal=TERM --kill-after=10s 45s "$GODOT_BIN" --headless --editor --path examples/starter --quit-after 2 --audio-driver Dummy
       - name: Run Godot runtime smoke
         timeout-minutes: 3
         shell: bash
