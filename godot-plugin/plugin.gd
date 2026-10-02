@@ -2030,30 +2030,9 @@ func _scene_fingerprint_at(node: Node, node_path: String) -> String:
     var script_path := String(script_resource.resource_path) if script_resource is Script else ""
     var fingerprint := node_path + ":" + String(node.name) + ":" + String(node.get_class()) + ":script=" + script_path
     fingerprint += ":properties=" + JSON.stringify(_safe_node_properties(node))
-    fingerprint += ":signals=" + _scene_signal_fingerprint(node)
     for child in node.get_children():
         fingerprint += "[" + _scene_fingerprint_at(child, node_path + "/" + String(child.name) if node_path != "." else String(child.name)) + "]"
     return fingerprint
-
-func _scene_signal_fingerprint(node: Node) -> String:
-    var entries: Array[String] = []
-    for signal_info in node.get_signal_list():
-        var signal_name := String(signal_info.get("name", ""))
-        var connections: Array[String] = []
-        for raw_connection in node.get_signal_connection_list(signal_name):
-            if typeof(raw_connection) != TYPE_DICTIONARY:
-                continue
-            var callable_variant: Variant = raw_connection.get("callable")
-            if not callable_variant is Callable:
-                continue
-            var callable: Callable = callable_variant as Callable
-            var target_variant: Variant = callable.get_object()
-            var target_name := String(target_variant.get_path()) if target_variant is Node else ""
-            connections.append(target_name + "." + callable.get_method())
-        connections.sort()
-        entries.append(signal_name + "->" + ",".join(connections))
-    entries.sort()
-    return JSON.stringify(entries)
 
 func _success(key: String, value: Variant) -> Dictionary:
     var body := {"ok": true}
