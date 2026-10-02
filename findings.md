@@ -73,3 +73,10 @@
 
 - Published files are controlled by package.json files; package smoke verifies required runtime assets and rejects source/tests/agent/planning files.
 - docs/RELEASE.md is the human checklist; CI repeats the package smoke plus both Godot runtime versions.
+
+## 2026-10-03 community growth baseline
+
+- GitHub API snapshot for LJH-snow/godot-safe-change-mcp: public repository, 0 stars, 0 forks, 0 open issues, 7 topics, no local tags, and 4 required CI jobs.
+- Reference hi-godot/godot-ai snapshot: 2,747 stars, 164 forks, 8 open issues, and 5 topics; its README combines hero/demo media, Quick Start, client setup, troubleshooting, privacy, migration, and contribution links.
+- The highest-leverage gap is adoption conversion, not raw commit count: release/tag trust, copy-paste starter flow, external feedback entry points, and repeatable demo evidence.
+- Created docs/GROWTH.md, CONTRIBUTING.md, and issue templates; the next measurable gates are a first Release, three external install/test reports, and one external issue or PR.

@@ -258,6 +258,16 @@
 - [x] 将 package boundary check 接入 GitHub Actions 和 `prepublishOnly`。
 - [x] 本地 package smoke、完整测试、typecheck、build 和 Godot runtime smoke 通过。
 
+## Phase 20 — 社区采用与项目增长
+
+状态：`in_progress`
+
+- [x] 记录 2026-10-03 GitHub baseline、参考项目差异和可验证增长指标。
+- [x] 增加 CONTRIBUTING、bug/feature issue template 和长期增长路线。
+- [ ] 创建第一个 GitHub Release/tag，并保留四项 CI 证据和安装说明。
+- [ ] 提供可复制的 starter fixture、5 个示例请求和 60 秒演示素材。
+- [ ] 获取至少 3 个外部安装/测试反馈和 1 个外部 issue 或 PR，并根据反馈迭代。
+
 ## 完成定义
 
 只有在验收标准全部满足、自动化检查通过，并且真实或 fixture Godot 链路有可复现证据后，才将所有阶段标记为 `complete`。

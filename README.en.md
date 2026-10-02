@@ -209,6 +209,9 @@ npm run package:check
 
 More detail:
 
+- [Contributing](CONTRIBUTING.md)
+- [Growth and adoption plan](docs/GROWTH.md)
+- [Changelog](CHANGELOG.md)
 - [Release checklist](docs/RELEASE.md)
 - [Test boundaries and Godot acceptance](tests/README.md)
 - [Product plan](docs/PLAN.md)
