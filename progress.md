@@ -1,5 +1,10 @@
 # 进度记录
 
+## 2026-10-03 community feedback labels
+
+- GitHub 仓库新增 starter、release-feedback、growth、godot-4.5.1 和 godot-4.7.2 标签；默认的 good first issue/help wanted/documentation 标签已存在。
+- 公开 Issue 内容仍保留为用户确认后再创建，避免替用户伪造反馈或制造空 Issue。
+
 ## 2026-10-03 v1.1.0 GitHub Release
 
 - 已创建 GitHub Release v1.1.0，固定到 npm 线上包对应的 commit 256c11dbc19b4be7106a036e3946c97220c0bb92。

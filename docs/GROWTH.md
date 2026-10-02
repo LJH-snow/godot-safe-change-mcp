@@ -45,7 +45,7 @@
 
 ### Phase C：形成外部反馈回路（1–2 个月）
 
-- [ ] 设置 good first issue、help wanted 和 documentation 标签。
+- [x] 设置 good first issue、help wanted、documentation、Godot 版本、starter 和 release-feedback 标签。
 - [ ] 每个小版本至少保留一个适合新贡献者的任务：fixture、文档、测试或一个受限操作。
 - [ ] 每月发布一次 changelog，记录新增工具、兼容 Godot 版本、迁移影响和 CI 结果。
 - [ ] 收集 3 个真实使用案例，优先展示“避免了什么风险”和“如何回滚”，而不是只展示工具数量。
