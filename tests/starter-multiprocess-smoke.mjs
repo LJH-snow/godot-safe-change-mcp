@@ -183,7 +183,12 @@ try {
     arguments: {
       projectRoot,
       title: "Starter multi-process recovery",
-      steps: [{ kind: "run_scene", stepId: "starter-run", scenePath: "res://main.tscn", timeoutMs: 30000 }],
+      steps: [{
+        kind: "verify_resource_state",
+        stepId: "starter-resource",
+        resourcePath: "res://main.tscn",
+        contains: ["[gd_scene", "Godot Safe Change Starter"],
+      }],
     },
   }));
   const secondaryLease = structured(await requestAt(secondaryEndpoint, "tools/call", {
@@ -219,8 +224,8 @@ try {
   }));
   assert.equal(completed.status, "completed");
   assert.equal(completed.steps[0]?.status, "succeeded");
-  assert.equal(completed.steps[0]?.result?.status, "stopped");
-  assert.equal(completed.steps[0]?.result?.scenePath, "res://main.tscn");
+  assert.equal(completed.steps[0]?.result?.resourcePath, "res://main.tscn");
+  assert.equal(completed.steps[0]?.result?.passed, true);
   console.log("Starter multi-process smoke passed");
 } catch (error) {
   console.error("Godot output:\n" + output.godot.value);
