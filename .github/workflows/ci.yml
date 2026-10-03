@@ -52,6 +52,11 @@ jobs:
           echo "GODOT_BIN=$binary" >> "$GITHUB_ENV"
       - name: Install virtual display
         run: sudo apt-get update && sudo apt-get install --yes xvfb
+      - name: Validate starter fixture
+        timeout-minutes: 1
+        shell: bash
+        run: |
+          timeout --signal=TERM --kill-after=10s 45s "$GODOT_BIN" --headless --editor --path examples/starter --quit-after 2 --audio-driver Dummy
       - name: Run Godot runtime smoke
         timeout-minutes: 3
         shell: bash

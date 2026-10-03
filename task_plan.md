@@ -258,6 +258,24 @@
 - [x] 将 package boundary check 接入 GitHub Actions 和 `prepublishOnly`。
 - [x] 本地 package smoke、完整测试、typecheck、build 和 Godot runtime smoke 通过。
 
+## Phase 20 — 社区采用与项目增长
+
+状态：`in_progress`
+
+- [x] 记录 2026-10-03 GitHub baseline、参考项目差异和可验证增长指标。
+- [x] 增加 CONTRIBUTING、bug/feature issue template 和长期增长路线。
+- [x] 增加 5 个可复制的 Agent 示例，覆盖首次搜索、写入闭环、场景实例化/信号、任务 Lease 和冲突恢复。
+- [x] 增加 examples/starter 最小 Godot 项目，提供可复制的首条安全变更体验。
+- [x] 在双版本 Godot CI 中打开并验证 examples/starter 项目。
+- [x] 增加 60 秒 demo storyboard，固定录制步骤、旁白和发布前检查。
+- [x] 录制真实 starter fixture GIF，覆盖 context、search、preview、confirm、apply 和 rollback。
+- [x] 准备中英文社区发布文案和反馈问题，发布前先由用户选择渠道并确认发送。
+- [x] 为外部反馈和新贡献者准备 GitHub 标签：starter、release-feedback、growth 和 Godot 版本标签。
+- [x] 增加 Code of Conduct 和 Security policy，降低外部贡献和安全反馈的信任门槛。
+- [x] 创建第一个 GitHub Release/tag，并保留四项 CI 证据和安装说明。
+- [ ] 提供可复制的 starter fixture、5 个示例请求和 60 秒演示素材。
+- [ ] 获取至少 3 个外部安装/测试反馈和 1 个外部 issue 或 PR，并根据反馈迭代。
+
 ## 完成定义
 
 只有在验收标准全部满足、自动化检查通过，并且真实或 fixture Godot 链路有可复现证据后，才将所有阶段标记为 `complete`。

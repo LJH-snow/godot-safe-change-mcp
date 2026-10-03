@@ -1,5 +1,50 @@
 # 进度记录
 
+## 2026-10-03 community trust documents
+
+- 新增 CODE_OF_CONDUCT.md 和 SECURITY.md，并在双语 README 加入入口。
+- 明确贡献讨论、隐私信息、漏洞披露和项目安全边界，等待默认分支合并后对外生效。
+
+## 2026-10-03 community launch kit
+
+- 新增 docs/ANNOUNCEMENTS.md，提供中英文发布文案、Godot/MCP/Reddit/博客/X 渠道适配和反馈问题模板。
+- 所有文案统一指向 v1.1.0、starter、GIF 和 issue 标签；不自动代用户发布外部消息。
+
+## 2026-10-03 real workflow demo
+
+- 在临时 Godot 4.7.2 starter 项目中实际操作 Inspector，录制 context → search → preview → confirm → apply → rollback 六帧。
+- 生成 docs/assets/mcp-safe-change-demo.gif（1000×573、12 秒），并加入双语 README；未修改用户项目。
+
+## 2026-10-03 community feedback labels
+
+- GitHub 仓库新增 starter、release-feedback、growth、godot-4.5.1 和 godot-4.7.2 标签；默认的 good first issue/help wanted/documentation 标签已存在。
+- 公开 Issue 内容仍保留为用户确认后再创建，避免替用户伪造反馈或制造空 Issue。
+
+## 2026-10-03 v1.1.0 GitHub Release
+
+- 已创建 GitHub Release v1.1.0，固定到 npm 线上包对应的 commit 256c11dbc19b4be7106a036e3946c97220c0bb92。
+- Release 地址：https://github.com/LJH-snow/godot-safe-change-mcp/releases/tag/v1.1.0；包含安装命令、能力摘要和四项 CI 验证证据。
+
+## 2026-10-03 starter fixture CI validation
+
+- GitHub Actions Godot 4.5.1/4.7.2 job 新增 starter fixture headless editor load，确保公开示例可启动。
+- 等待本次 CI 验证通过后，下一步是录制实际演示素材和完成 npm 2FA 发布。
+
+## 2026-10-03 demo storyboard
+
+- 新增 docs/DEMO.md，固定 60 秒演示的录制环境、时间线、旁白和安全检查。
+- 下一步需要在安装 Godot 的环境实际录制 GIF/视频并附到 GitHub Release；当前 npm 1.1.0 发布仍等待 2FA。
+
+## 2026-10-03 starter fixture
+
+- 新增 examples/starter 最小 Godot 项目和 ui/hud.tscn，覆盖搜索、实例化、属性修改和 rollback 的首次体验。
+- README 和增长路线加入 starter 入口；下一步可录制 60 秒演示并发布第一个 npm/GitHub Release。
+
+## 2026-10-03 Agent onboarding examples
+
+- 新增 docs/EXAMPLES.md，提供可复制的搜索、preview/confirm/apply/rollback、场景实例化/信号、任务 Lease 和 PROJECT_BUSY 恢复流程。
+- README 中加入示例入口；增长 Phase B 的首次成功路径已有可复现文本，下一步是 starter fixture 和短演示素材。
+
 ## 2026-10-02 signal connection preview
 
 - 新增 `scene.connect_signal` preview/apply/rollback：读取 Godot 当前场景的 signal、method 和已有 connection 快照，校验源/目标 NodePath、信号、目标方法和重复连接。

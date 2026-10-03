@@ -29,6 +29,12 @@ The server does not expose arbitrary Godot RPC. Every write follows a bounded li
 
 <p align="center"><sub>A real local MCP Inspector view of the server tools.</sub></p>
 
+<p align="center">
+  <img src="docs/assets/mcp-safe-change-demo.gif" alt="Godot Safe Change MCP context, search, preview, confirm, apply, and rollback workflow" width="100%">
+</p>
+
+<p align="center"><sub>A real starter fixture workflow: context → search → preview → confirm → apply → rollback.</sub></p>
+
 ## Why this project
 
 - **Intent-level tools, not arbitrary RPC**: create, move, instantiate, edit, run, and verify bounded Godot operations.
@@ -209,6 +215,15 @@ npm run package:check
 
 More detail:
 
+- [Contributing](CONTRIBUTING.md)
+- [Code of Conduct](CODE_OF_CONDUCT.md)
+- [Security policy](SECURITY.md)
+- [Growth and adoption plan](docs/GROWTH.md)
+- [Agent examples](docs/EXAMPLES.md)
+- [60-second demo storyboard](docs/DEMO.md)
+- [Community launch kit](docs/ANNOUNCEMENTS.md)
+- [Starter fixture](examples/starter/README.md)
+- [Changelog](CHANGELOG.md)
 - [Release checklist](docs/RELEASE.md)
 - [Test boundaries and Godot acceptance](tests/README.md)
 - [Product plan](docs/PLAN.md)

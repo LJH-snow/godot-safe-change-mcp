@@ -29,6 +29,12 @@ Godot Safe Change MCP 是一个面向 Agent 的 MCP Server：TypeScript 负责�
 
 <p align="center"><sub>真实本地 MCP Inspector 工具面板；Godot EditorPlugin 连接后，工具会读取当前场景和编辑器状态。</sub></p>
 
+<p align="center">
+  <img src="docs/assets/mcp-safe-change-demo.gif" alt="Godot Safe Change MCP context, search, preview, confirm, apply, and rollback workflow" width="100%">
+</p>
+
+<p align="center"><sub>真实 starter fixture 工作流：context → search → preview → confirm → apply → rollback。</sub></p>
+
 ## 为什么使用它
 
 - **面向意图，而不是任意 RPC**：Agent 请求的是创建、移动、实例化、修改属性、运行和验证等受限操作。
@@ -223,6 +229,15 @@ npm run package:check
 
 推荐先阅读：
 
+- [贡献指南](CONTRIBUTING.md)
+- [行为准则](CODE_OF_CONDUCT.md)
+- [安全策略](SECURITY.md)
+- [增长与社区采用计划](docs/GROWTH.md)
+- [Agent 示例](docs/EXAMPLES.md)
+- [60 秒演示脚本](docs/DEMO.md)
+- [社区发布文案](docs/ANNOUNCEMENTS.md)
+- [Starter fixture](examples/starter/README.md)
+- [更新记录](CHANGELOG.md)
 - [发布清单](docs/RELEASE.md)
 - [测试边界与 Godot 手工验收](tests/README.md)
 - [完整产品计划](docs/PLAN.md)

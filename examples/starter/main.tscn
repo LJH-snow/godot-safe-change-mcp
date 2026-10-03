@@ -1,0 +1,38 @@
+[gd_scene format=3]
+
+[node name="Main" type="Node2D"]
+
+[node name="Canvas" type="Control" parent="."]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="Title" type="Label" parent="Canvas"]
+layout_mode = 0
+offset_left = 40.0
+offset_top = 36.0
+offset_right = 500.0
+offset_bottom = 80.0
+theme_override_font_sizes/font_size = 28
+text = "Godot Safe Change Starter"
+
+[node name="Description" type="Label" parent="Canvas"]
+layout_mode = 0
+offset_left = 42.0
+offset_top = 92.0
+offset_right = 580.0
+offset_bottom = 132.0
+text = "Preview, confirm, apply, verify, and rollback."
+
+[node name="Accent" type="ColorRect" parent="Canvas"]
+layout_mode = 0
+offset_left = 42.0
+offset_top = 154.0
+offset_right = 598.0
+offset_bottom = 158.0
+color = Color(0.12, 0.85, 0.76, 1)
+
+[node name="Targets" type="Node2D" parent="."]
