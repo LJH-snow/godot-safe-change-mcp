@@ -275,8 +275,16 @@
 - [x] 增加 Code of Conduct 和 Security policy，降低外部贡献和安全反馈的信任门槛。
 - [x] 增加带验收标准的贡献任务清单，覆盖文档、starter、Godot 操作、task verification 和 release 校验。
 - [x] 创建第一个 GitHub Release/tag，并保留四项 CI 证据和安装说明。
-- [ ] 提供可复制的 starter fixture、5 个示例请求和 60 秒演示素材。
+- [x] 提供可复制的 starter fixture、5 个示例请求和 60 秒演示素材。
 - [ ] 获取至少 3 个外部安装/测试反馈和 1 个外部 issue 或 PR，并根据反馈迭代。
+
+## Phase 21 — 发布资产一致性
+
+状态：complete
+
+- [x] 增加 docs/releases/v1.1.0.json，记录发布 tag、精确 commit、四项 CI job、starter 和 demo 资产。
+- [x] 增加 npm run release:check，拒绝 package/lockfile、tag、CI URL、CI job、README 链接和发布资产不一致。
+- [x] 将发布校验接入 prepublishOnly 与 npm package boundary CI job，并覆盖 tag、head、CI URL 和缺失资产边界测试。
 
 ## 完成定义
 

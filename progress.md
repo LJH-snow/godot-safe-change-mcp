@@ -1,5 +1,11 @@
 # 进度记录
 
+## 2026-10-03 release artifact verification
+
+- 新增 docs/releases/v1.1.0.json，固定已发布版本的 tag、精确 commit 256c11dbc19b4be7106a036e3946c97220c0bb92、四项全绿 CI run 37037985489、starter 和 GIF 资产。
+- 新增 npm run release:check，并接入 prepublishOnly 与 GitHub Actions package job；边界测试覆盖 tag/CI URL、expected head 和缺失 onboarding 资产。
+- 修正双语 README 的 CI 徽章指向默认 main；社区发布仍按用户要求暂停。
+
 ## 2026-10-03 contributor task board
 
 - 新增 docs/CONTRIBUTOR_TASKS.md，拆分 good first issue、starter 文档、disconnect_signal、verify_resource_state、双进程 smoke 和 Release 校验任务。

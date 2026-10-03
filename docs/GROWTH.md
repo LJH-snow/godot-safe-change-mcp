@@ -10,7 +10,7 @@
 | Forks | 0 | GitHub 仓库 API 快照 |
 | Open issues | 0 | 还没有形成公开反馈入口 |
 | Topics | 7 | 已包含 godot、mcp、mcp-server、ai-agents 等关键词 |
-| Release tags | 0 | 需要发布第一个可复现版本 |
+| Release tags | 1 | v1.1.0 已发布，并有版本化发布证据 |
 | CI | 4 个 job | Node、package boundary、Godot 4.5.1/4.7.2 |
 
 参考项目 hi-godot/godot-ai 的 GitHub 快照为 2,747 Stars、164 Forks、8 个开放 issue。它的 README 还提供 hero 图、实际演示 GIF、Quick Start、客户端列表、故障排查、隐私说明和完整文档入口。本项目的差异化不应是复制工具数量，而应突出“可审查、可回滚、带 Lease 和证据的 Godot 变更”。
@@ -34,12 +34,13 @@
 - [x] 创建第一个 GitHub Release/tag，并在 Release 页面固定安装方式、兼容版本和 CI 证据。
 - [x] 提供真实 GIF 演示：搜索 → preview → confirm → apply → rollback；后续可扩展为带 verify/run 的 60 秒视频。
 - [x] 准备中英文社区发布文案、渠道适配和反馈问题模板。
+- [x] 增加版本化发布证据，校验 package、tag、CI、starter 和 demo 不漂移。
 
 ### Phase B：让第一次成功变得简单（2–4 周）
 
 - [x] 提供 examples/starter fixture，用户无需理解内部实现即可运行第一条安全变更。
 - [x] GitHub Actions 在 Godot 4.5.1/4.7.2 中打开 starter fixture，防止示例随版本漂移。
-- [ ] 增加 5 个可复制的 Agent 示例请求：搜索、创建节点、实例化场景、脚本/资源安全修改、任务恢复。
+- [x] 增加 5 个可复制的 Agent 示例请求：搜索、创建节点、实例化场景、脚本/资源安全修改、任务恢复。
 - [x] 增加 docs/EXAMPLES.md，覆盖搜索、场景变更、实例化/信号、任务 Lease 和冲突恢复。
 - [x] 增加 docs/DEMO.md，固定 60 秒录制分镜、旁白和验收标准。
 - [ ] 为 Claude Code、Codex、Cursor 和通用 Streamable HTTP 客户端各写一份最小连接示例。
@@ -83,6 +84,7 @@ Godot 插件路径和 MCP endpoint 明确
 安全边界、禁止事项和 rollback 行为明确
 CONTRIBUTING、issue template、CHANGELOG 和 Release notes 已更新
 check、package boundary、Godot 4.5.1、Godot 4.7.2 全部通过
+npm run release:check 通过，且记录了对应 tag、commit、CI run 和演示资产
 ~~~
 
 ## 社区发布文案模板

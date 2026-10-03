@@ -40,10 +40,10 @@
 - Acceptance: 两个 Godot 版本都运行；失败时清理编辑器、MCP 和临时目录进程。
 - Labels: <code>enhancement</code>、<code>godot-4.5.1</code>、<code>godot-4.7.2</code>。
 
-### Add release artifact verification
+### Add release artifact verification — implemented
 
-- Scope: 在 Release checklist 中验证 npm tarball、GitHub Release tag、starter link 和 demo asset 指向同一版本。
-- Acceptance: 发布前脚本能报告 commit SHA、package version、tag 和 CI run URL 不一致的情况。
+- Scope: release:check 验证 npm 元数据、GitHub Release tag、starter link、demo asset 和四项 CI 证据指向同一版本。
+- Acceptance: docs/releases/v1.1.0.json 记录 commit SHA、package version、tag 和 CI run URL；不一致时脚本以非零状态退出并报告具体字段。
 - Labels: <code>documentation</code>、<code>release-feedback</code>。
 
 ## Contribution rule

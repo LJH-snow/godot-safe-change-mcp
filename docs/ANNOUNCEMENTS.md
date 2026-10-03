@@ -7,8 +7,8 @@
 - Repository: https://github.com/LJH-snow/godot-safe-change-mcp
 - Release: https://github.com/LJH-snow/godot-safe-change-mcp/releases/tag/v1.1.0
 - npm: https://www.npmjs.com/package/godot-safe-change-mcp
-- Starter: https://github.com/LJH-snow/godot-safe-change-mcp/tree/feature/run-scene-project-leases/examples/starter
-- Demo asset: https://github.com/LJH-snow/godot-safe-change-mcp/blob/feature/run-scene-project-leases/docs/assets/mcp-safe-change-demo.gif
+- Starter: https://github.com/LJH-snow/godot-safe-change-mcp/tree/main/examples/starter
+- Demo asset: https://github.com/LJH-snow/godot-safe-change-mcp/blob/main/docs/assets/mcp-safe-change-demo.gif
 
 ## English launch post
 

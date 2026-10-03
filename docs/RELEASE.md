@@ -10,6 +10,7 @@ npm test
 npm run typecheck
 npm run build
 npm run package:check
+npm run release:check
 GODOT_BIN=/path/to/Godot node tests/godot-runtime-smoke.mjs
 git diff --check
 ~~~
@@ -21,6 +22,8 @@ The Godot smoke must pass with a Godot 4.x editor. It covers context/search, pre
 The push workflow must pass all four jobs: check, npm package boundary, Godot 4.5.1 runtime, and Godot 4.7.2 runtime.
 
 The package job verifies the actual tarball boundary. Runtime jobs verify the EditorPlugin fixture under both supported Godot versions. A release is not ready until all four jobs are completed successfully for the exact pushed commit.
+
+The release check validates the versioned record under docs/releases: package and lockfile versions, the v<version> tag, the exact release commit, the repository-owned Actions run URL, all four required job names, the starter and demo assets, and both public README links. Pass --head <sha> when checking out the exact commit being released; without it, the check validates the recorded published release independently of the current branch.
 
 ## Package boundary
 
