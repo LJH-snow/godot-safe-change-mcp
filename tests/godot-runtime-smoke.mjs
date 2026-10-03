@@ -362,6 +362,9 @@ try {
     { operation: { kind: "scene.instantiate_scene", parentPath: "../", scenePath: "res://instance_source.tscn", nodeName: "Copy" }, errorCode: "VALIDATION_FAILED" },
     { operation: { kind: "scene.instantiate_scene", parentPath: ".", scenePath: "res://../outside.tscn", nodeName: "Copy" }, errorCode: "UNSAFE_OPERATION" },
     { operation: { kind: "scene.connect_signal", sourcePath: "Canvas/Missing", signalName: "visibility_changed", targetPath: ".", methodName: "_ready" }, errorCode: "VALIDATION_FAILED" },
+    { operation: { kind: "scene.add_group", nodePath: "Canvas/Missing", group: "ci_group_probe" }, errorCode: "VALIDATION_FAILED" },
+    { operation: { kind: "scene.add_group", nodePath: "Canvas/Title", group: "bad/group" }, errorCode: "VALIDATION_FAILED" },
+    { operation: { kind: "scene.remove_group", nodePath: "Canvas/Title", group: "bad/group" }, errorCode: "VALIDATION_FAILED" },
     { operation: { kind: "scene.set_property", nodePath: ".", property: "script", value: null }, errorCode: "UNSAFE_OPERATION" },
     { operation: { kind: "scene.attach_script", nodePath: ".", scriptPath: "res://../outside.gd" }, errorCode: "UNSAFE_OPERATION" },
     { operation: { kind: "scene.detach_script", nodePath: "Scriptless" }, errorCode: "VALIDATION_FAILED" },
@@ -542,6 +545,61 @@ try {
     },
   });
   stage("signal preview validation complete");
+  stage("scene group membership");
+  const addGroupPlan = structured(await request("tools/call", {
+    name: "preview_scene_change",
+    arguments: {
+      projectRoot: fixtureRoot,
+      reason: "Add a gameplay group through UndoRedo.",
+      operation: { kind: "scene.add_group", nodePath: "Canvas/Title", group: "ci_group_probe" },
+    },
+  }));
+  assert.deepEqual(addGroupPlan.diff[0], {
+    kind: "scene.add_group",
+    target: "res://main.tscn:Canvas/Title:ci_group_probe",
+    summary: "Add group ci_group_probe to Canvas/Title in res://main.tscn",
+    nodePath: "Canvas/Title",
+    group: "ci_group_probe",
+  });
+  structured(await request("tools/call", {
+    name: "confirm_scene_change",
+    arguments: { projectRoot: fixtureRoot, planId: addGroupPlan.planId, expectedRevision: addGroupPlan.expectedRevision },
+  }));
+  const addGroupApply = structured(await request("tools/call", {
+    name: "apply_scene_change",
+    arguments: { projectRoot: fixtureRoot, planId: addGroupPlan.planId },
+  }));
+  assert.equal(addGroupApply.status, "applied");
+  assert.equal(addGroupApply.undoLabel, "Godot Safe Change: Add group");
+  const contextAfterAdd = structured(await request("tools/call", {
+    name: "editor_context",
+    arguments: { projectRoot: fixtureRoot },
+  }));
+  const titleAfterAdd = contextAfterAdd.currentScene.nodes.find((node) => node.path === "Canvas/Title");
+  assert.ok(titleAfterAdd?.groups?.includes("ci_group_probe"));
+  const addGroupRollback = structured(await request("tools/call", {
+    name: "rollback_scene_change",
+    arguments: { projectRoot: fixtureRoot, planId: addGroupPlan.planId },
+  }));
+  assert.equal(addGroupRollback.status, "rolled_back");
+  assert.equal(addGroupRollback.undoLabel, "Godot Safe Change: Add group");
+  const contextAfterRollback = structured(await request("tools/call", {
+    name: "editor_context",
+    arguments: { projectRoot: fixtureRoot },
+  }));
+  const titleAfterRollback = contextAfterRollback.currentScene.nodes.find((node) => node.path === "Canvas/Title");
+  assert.equal(titleAfterRollback?.groups?.includes("ci_group_probe"), false);
+  await expectToolError("preview_scene_change", {
+    projectRoot: fixtureRoot,
+    reason: "Reject removing a group the node does not belong to.",
+    operation: { kind: "scene.remove_group", nodePath: "Canvas/Title", group: "ci_group_probe" },
+  }, /OPERATION_REJECTED/);
+  await expectToolError("preview_scene_change", {
+    projectRoot: fixtureRoot,
+    reason: "Reject a group operation on a missing node.",
+    operation: { kind: "scene.add_group", nodePath: "Canvas/Missing", group: "ci_group_probe" },
+  }, /VALIDATION_FAILED/);
+  stage("scene group membership complete");
   const initialCurrentSceneRun = structured(await request("tools/call", {
     name: "run_current_scene",
     arguments: { projectRoot: fixtureRoot, timeoutMs: 30000 },

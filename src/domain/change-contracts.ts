@@ -181,6 +181,28 @@ export const sceneDisconnectSignalSchema = z
   })
   .strict();
 
+export const groupNameSchema = z
+  .string()
+  .min(1)
+  .max(64)
+  .regex(/^[A-Za-z_][A-Za-z0-9_]*$/, "Group names must use letters, digits and underscores.");
+
+export const sceneAddGroupSchema = z
+  .object({
+    kind: z.literal("scene.add_group"),
+    nodePath: nodePathSchema.describe("NodePath inside the current scene."),
+    group: groupNameSchema.describe("Group name to add the node to."),
+  })
+  .strict();
+
+export const sceneRemoveGroupSchema = z
+  .object({
+    kind: z.literal("scene.remove_group"),
+    nodePath: nodePathSchema.describe("NodePath inside the current scene."),
+    group: groupNameSchema.describe("Group name to remove the node from."),
+  })
+  .strict();
+
 const sceneSetVisiblePropertySchema = z
   .object({
     kind: z.literal("scene.set_property"),
@@ -333,6 +355,8 @@ export const changeOperationSchema = z.union([
   sceneInstantiateSceneSchema,
   sceneConnectSignalSchema,
   sceneDisconnectSignalSchema,
+  sceneAddGroupSchema,
+  sceneRemoveGroupSchema,
   sceneSetPropertySchema,
   sceneAttachScriptSchema,
   sceneDetachScriptSchema,
@@ -476,6 +500,26 @@ export const sceneDisconnectSignalDiffSchema = z
   })
   .strict();
 
+export const sceneAddGroupDiffSchema = z
+  .object({
+    kind: z.literal("scene.add_group"),
+    target: z.string().min(1),
+    summary: z.string().min(1),
+    nodePath: nodePathSchema,
+    group: groupNameSchema,
+  })
+  .strict();
+
+export const sceneRemoveGroupDiffSchema = z
+  .object({
+    kind: z.literal("scene.remove_group"),
+    target: z.string().min(1),
+    summary: z.string().min(1),
+    nodePath: nodePathSchema,
+    group: groupNameSchema,
+  })
+  .strict();
+
 export const scriptChangeDiffSchema = z.object({
   kind: z.literal("script.replace_range"),
   target: z.string().min(1),
@@ -594,6 +638,8 @@ export const changeDiffSchema = z.union([
   sceneInstantiateSceneDiffSchema,
   sceneConnectSignalDiffSchema,
   sceneDisconnectSignalDiffSchema,
+  sceneAddGroupDiffSchema,
+  sceneRemoveGroupDiffSchema,
   scenePropertyDiffSchema,
   sceneAttachScriptDiffSchema,
   sceneDetachScriptDiffSchema,

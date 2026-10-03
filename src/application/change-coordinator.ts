@@ -561,6 +561,54 @@ export class ChangeCoordinator {
         targetPath: operation.targetPath,
         methodName: operation.methodName,
       };
+    } else if (operation.kind === "scene.add_group") {
+      const node = context.currentScene.nodes.find((candidate) => candidate.path === operation.nodePath);
+      if (node === undefined) {
+        throw new DomainError(
+          ERROR_CODES.VALIDATION_FAILED,
+          "The target node must exist in the current scene.",
+          { nodePath: operation.nodePath },
+        );
+      }
+      const groups = node.groups ?? [];
+      if (groups.includes(operation.group)) {
+        throw new DomainError(
+          ERROR_CODES.OPERATION_REJECTED,
+          "The node already belongs to the requested group.",
+          { nodePath: operation.nodePath, group: operation.group },
+        );
+      }
+      diff = {
+        kind: "scene.add_group" as const,
+        target: scenePath + ":" + operation.nodePath + ":" + operation.group,
+        summary: "Add group " + operation.group + " to " + operation.nodePath + " in " + scenePath,
+        nodePath: operation.nodePath,
+        group: operation.group,
+      };
+    } else if (operation.kind === "scene.remove_group") {
+      const node = context.currentScene.nodes.find((candidate) => candidate.path === operation.nodePath);
+      if (node === undefined) {
+        throw new DomainError(
+          ERROR_CODES.VALIDATION_FAILED,
+          "The target node must exist in the current scene.",
+          { nodePath: operation.nodePath },
+        );
+      }
+      const groups = node.groups ?? [];
+      if (!groups.includes(operation.group)) {
+        throw new DomainError(
+          ERROR_CODES.OPERATION_REJECTED,
+          "The node does not belong to the requested group.",
+          { nodePath: operation.nodePath, group: operation.group },
+        );
+      }
+      diff = {
+        kind: "scene.remove_group" as const,
+        target: scenePath + ":" + operation.nodePath + ":" + operation.group,
+        summary: "Remove group " + operation.group + " from " + operation.nodePath + " in " + scenePath,
+        nodePath: operation.nodePath,
+        group: operation.group,
+      };
     } else if (operation.kind === "scene.set_property") {
       const parsedOperation = sceneSetPropertySchema.parse(operation);
       const node = context.currentScene.nodes.find((candidate) => candidate.path === parsedOperation.nodePath);

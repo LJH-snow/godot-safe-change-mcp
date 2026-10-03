@@ -958,6 +958,115 @@ describe("ChangeCoordinator", () => {
     );
   });
 
+  test("previews, applies and rolls back one bounded scene group addition", async () => {
+    const bridge = new FakeGodotBridge();
+    bridge.context = {
+      ...bridge.context,
+      currentScene: {
+        ...bridge.context.currentScene,
+        nodes: [
+          { path: ".", name: "Main", type: "Node2D", properties: {} },
+          { path: "Player", name: "Player", type: "Node2D", properties: {}, groups: ["player"] },
+        ],
+      },
+    };
+    const coordinator = new ChangeCoordinator(bridge);
+
+    const plan = await coordinator.previewSceneChange({
+      projectRoot,
+      reason: "Tag the player node for gameplay lookups.",
+      operation: { kind: "scene.add_group", nodePath: "Player", group: "hittable" } as never,
+    });
+
+    assert.equal(plan.operations[0]?.kind, "scene.add_group");
+    assert.deepEqual(plan.diff[0], {
+      kind: "scene.add_group",
+      target: "res://main.tscn:Player:hittable",
+      summary: "Add group hittable to Player in res://main.tscn",
+      nodePath: "Player",
+      group: "hittable",
+    });
+    const confirmation = await coordinator.confirmChange({
+      projectRoot,
+      planId: plan.planId,
+      expectedRevision: plan.expectedRevision,
+    });
+    assert.equal(confirmation.status, "confirmed");
+    const applied = await coordinator.applyChange({ projectRoot, planId: plan.planId });
+    assert.equal(applied.status, "applied");
+    assert.equal(bridge.applied[0]?.operations[0]?.kind, "scene.add_group");
+    const rolledBack = await coordinator.rollbackChange({ projectRoot, planId: plan.planId });
+    assert.equal(rolledBack.status, "rolled_back");
+  });
+
+  test("previews removing an existing scene group membership", async () => {
+    const bridge = new FakeGodotBridge();
+    bridge.context = {
+      ...bridge.context,
+      currentScene: {
+        ...bridge.context.currentScene,
+        nodes: [
+          { path: ".", name: "Main", type: "Node2D", properties: {} },
+          { path: "Player", name: "Player", type: "Node2D", properties: {}, groups: ["player", "hittable"] },
+        ],
+      },
+    };
+    const coordinator = new ChangeCoordinator(bridge);
+
+    const plan = await coordinator.previewSceneChange({
+      projectRoot,
+      reason: "Drop the temporary hittable tag.",
+      operation: { kind: "scene.remove_group", nodePath: "Player", group: "hittable" } as never,
+    });
+
+    assert.equal(plan.operations[0]?.kind, "scene.remove_group");
+    assert.deepEqual(plan.diff[0], {
+      kind: "scene.remove_group",
+      target: "res://main.tscn:Player:hittable",
+      summary: "Remove group hittable from Player in res://main.tscn",
+      nodePath: "Player",
+      group: "hittable",
+    });
+    assert.equal(bridge.applied.length, 0);
+  });
+
+  test("rejects duplicate, absent and unsafe scene group operations", async () => {
+    const bridge = new FakeGodotBridge();
+    bridge.context = {
+      ...bridge.context,
+      currentScene: {
+        ...bridge.context.currentScene,
+        nodes: [
+          { path: ".", name: "Main", type: "Node2D", properties: {} },
+          { path: "Player", name: "Player", type: "Node2D", properties: {}, groups: ["player"] },
+        ],
+      },
+    };
+    const coordinator = new ChangeCoordinator(bridge);
+    const preview = (operation: Record<string, unknown>) =>
+      coordinator.previewSceneChange({
+        projectRoot,
+        reason: "Exercise group membership safety validation.",
+        operation: operation as never,
+      });
+
+    await assert.rejects(
+      () => preview({ kind: "scene.add_group", nodePath: "Player", group: "player" }),
+      (error: unknown) => error instanceof DomainError && error.code === ERROR_CODES.OPERATION_REJECTED,
+    );
+    await assert.rejects(
+      () => preview({ kind: "scene.remove_group", nodePath: "Player", group: "hittable" }),
+      (error: unknown) => error instanceof DomainError && error.code === ERROR_CODES.OPERATION_REJECTED,
+    );
+    await assert.rejects(
+      () => preview({ kind: "scene.add_group", nodePath: "Missing", group: "hittable" }),
+      (error: unknown) => error instanceof DomainError && error.code === ERROR_CODES.VALIDATION_FAILED,
+    );
+    await assert.rejects(() => preview({ kind: "scene.add_group", nodePath: "Player", group: "bad/group" }));
+    await assert.rejects(() => preview({ kind: "scene.add_group", nodePath: "Player", group: "" }));
+    assert.equal(bridge.applied.length, 0);
+  });
+
   test("previews attaching an existing script without executing or editing it", async () => {
     const bridge = new FakeGodotBridge();
     const coordinator = new ChangeCoordinator(bridge);
@@ -1889,4 +1998,9 @@ test("the Godot plugin exposes only the bounded vertical-link routes", async () 
   assert.match(source, /Detach script/);
   assert.match(source, /project\.input_action\.remove_key/);
   assert.match(source, /_is_safe_scene_path/);
+  assert.match(source, /scene\.add_group/);
+  assert.match(source, /scene\.remove_group/);
+  assert.match(source, /add_to_group/);
+  assert.match(source, /remove_from_group/);
+  assert.match(source, /"groups": group_names/);
 });
