@@ -8,10 +8,12 @@ All notable changes to Godot Safe Change MCP will be documented here.
 - Keep the preview, confirmation, lease, revision, verification, and rollback lifecycle stable.
 - Added bounded scene signal disconnection with exact-match validation and UndoRedo rollback coverage.
 - Added read-only task resource verification with bounded content assertions, revision evidence, and mismatch timelines.
+- Added read-only task script verification with bounded content assertions, script revision evidence, and mismatch timelines.
 - Added complete MCP tool annotations (readOnly, destructive, idempotent, and open-world hints) across all registered tools.
 - Added a tool contract test suite covering all 23 tool registrations, annotation completeness, and read-only handler smoke checks.
 - Added a repository privacy policy covering local-only data handling; it ships with the npm package.
 - Improved npm discovery keywords for Godot, safe changes, automation, and UndoRedo; publish only with the next authorized version release.
+- Made the default README English and preserved the Chinese guide as README.zh-CN.md for clearer first-time discovery.
 
 ## 1.1.0 - 2026-10-03
 

@@ -32,7 +32,7 @@ The Linux CI wraps both commands in a virtual display and runs them once per sup
 | Scene apply and rollback | tests/vertical-link.test.ts and the scene stages in tests/godot-runtime-smoke.mjs | UndoRedo report, changed revision, rollback report and restored scene state. |
 | Resource, script and input changes | tests/vertical-link.test.ts and tests/godot-runtime-smoke.mjs | File/project revision guards, atomic apply, user-edit conflict and rollback. |
 | Diagnostics and bounded repair | tests/vertical-link.test.ts and task-orchestration.test.ts | Source/line/NodePath evidence, explicit repair hint, separate confirmation and rerun verification. |
-| Task verification | tests/task-orchestration.test.ts | Scene properties, resource revision/content assertions, diagnostics thresholds, operation IDs and mismatch timelines. |
+| Task verification | tests/task-orchestration.test.ts | Scene properties, resource/script revision/content assertions, diagnostics thresholds, operation IDs and mismatch timelines. |
 | Multi-process recovery | tests/project-lease-process.test.ts and tests/starter-multiprocess-smoke.mjs | Stable PROJECT_BUSY, TTL takeover, lease_reclaimed, recovered step and new operation ID. |
 | Publish boundary | scripts/package-smoke.mjs and scripts/release-check.mjs | Consumer tarball allowlist plus version, tag, commit, CI and onboarding asset consistency. |
 

@@ -32,6 +32,13 @@
 - Acceptance: 记录 observed/expected、operationId 和 timeline mismatch evidence；TypeScript 回归已覆盖 revision 与匹配数量冲突。
 - Labels: <code>enhancement</code>、<code>good first issue</code>。
 
+### Add verify_script_state — implemented
+
+- Scope: 为 task 增加只读脚本内容断言，不提供新的写能力。
+- Guards: 项目内脚本路径、可选脚本 revision、最多 10 条 contains 和 matchCounts 断言。
+- Acceptance: 返回有限 observed/expected 证据，不回传脚本全文；TypeScript 回归与真实 Godot task smoke 已覆盖。
+- Labels: <code>enhancement</code>、<code>good first issue</code>。
+
 ## Advanced
 
 ### Add a second MCP-process starter smoke — implemented

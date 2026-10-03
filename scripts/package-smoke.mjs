@@ -30,6 +30,7 @@ try {
     "LICENSE",
     "README.en.md",
     "README.md",
+    "README.zh-CN.md",
     "bin/mcp-server.mjs",
     "godot-plugin/bridge_server.gd",
     "godot-plugin/diagnostics_debugger.gd",

@@ -1164,6 +1164,13 @@ try {
           contains: ["[gd_scene", "InstanceSource"],
           matchCounts: [{ text: "[node", expectedCount: 2 }],
         },
+        {
+          kind: "verify_script_state",
+          stepId: "verify-script",
+          scriptPath: "res://diagnostic_scene.gd",
+          contains: ["extends Node2D", "func _ready"],
+          matchCounts: [{ text: "func _ready", expectedCount: 1 }],
+        },
         { kind: "verify_diagnostics", stepId: "verify-diagnostics", runStepId: "run-current", maxErrors: 0, maxWarnings: 100 },
       ],
     },
@@ -1228,13 +1235,27 @@ try {
     name: "advance_task",
     arguments: { projectRoot: fixtureRoot, taskId: task.taskId },
   }));
-  assert.equal(afterDiagnosticsVerification.status, "completed");
+  assert.equal(afterDiagnosticsVerification.status, "active");
   assert.equal(afterDiagnosticsVerification.steps[4]?.status, "succeeded");
   assert.equal(afterDiagnosticsVerification.steps[4]?.result?.passed, true);
-  assert.equal(afterDiagnosticsVerification.steps[4]?.result?.status, "stopped");
-  assert.equal(afterDiagnosticsVerification.steps[4]?.result?.errorCount, 0);
-  assert.ok(afterDiagnosticsVerification.steps[4]?.result?.warningCount <= 100);
-  const diagnosticsStepOperationId = afterDiagnosticsVerification.steps[4]?.operationId;
+  assert.equal(afterDiagnosticsVerification.steps[4]?.result?.scriptPath, "res://diagnostic_scene.gd");
+  const scriptStepOperationId = afterDiagnosticsVerification.steps[4]?.operationId;
+  const scriptStepTimeline = structured(await request("tools/call", {
+    name: "task_timeline",
+    arguments: { projectRoot: fixtureRoot, taskId: task.taskId, stepId: "verify-script", operationId: scriptStepOperationId },
+  }));
+  assert.deepEqual(scriptStepTimeline.events.map((event) => event.status), ["running", "succeeded"]);
+  const afterDiagnosticsComplete = structured(await request("tools/call", {
+    name: "advance_task",
+    arguments: { projectRoot: fixtureRoot, taskId: task.taskId },
+  }));
+  assert.equal(afterDiagnosticsComplete.status, "completed");
+  assert.equal(afterDiagnosticsComplete.steps[5]?.status, "succeeded");
+  assert.equal(afterDiagnosticsComplete.steps[5]?.result?.passed, true);
+  assert.equal(afterDiagnosticsComplete.steps[5]?.result?.status, "stopped");
+  assert.equal(afterDiagnosticsComplete.steps[5]?.result?.errorCount, 0);
+  assert.ok(afterDiagnosticsComplete.steps[5]?.result?.warningCount <= 100);
+  const diagnosticsStepOperationId = afterDiagnosticsComplete.steps[5]?.operationId;
   const diagnosticsStepTimeline = structured(await request("tools/call", {
     name: "task_timeline",
     arguments: { projectRoot: fixtureRoot, taskId: task.taskId, stepId: "verify-diagnostics", operationId: diagnosticsStepOperationId },

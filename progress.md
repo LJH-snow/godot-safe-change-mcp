@@ -1,5 +1,10 @@
 # 进度记录
 
+## 2026-10-03 verify_script_state
+
+- 新增只读 verify_script_state task step，补齐场景、资源、脚本三类验证闭环。
+- TypeScript 回归已通过 115/115，真实 Godot task smoke 已加入，待推送后确认双版本 CI。
+
 ## 2026-10-03 long-term adoption roadmap
 
 - 新增 docs/ROADMAP.md，覆盖 30/90/180/365 天的采用、反馈、贡献和信任门槛。
@@ -358,3 +363,9 @@
 - Local npm `EALLOWSCRIPTS` is handled by a tarball extraction fallback; GitHub Actions uses the real consumer install path.
 - CI run `36835756490` exposed npm pack JSON polluted by the package prepare log; package smoke now parses the trailing JSON manifest.
 - Package smoke now also rejects source, test, agent and planning files from the publish tarball; docs/RELEASE.md records the release gates.
+
+## 2026-10-03 task-level script verification
+
+- verify_script_state 已落地：项目内脚本路径、可选脚本 revision、最多 10 条 contains 和 matchCounts 断言；返回有限 observed/expected 证据，不回传脚本全文，mismatch 记录到任务 timeline。
+- 本地回归通过：115 项测试、typecheck、build 和 git diff --check。
+- push run 37113741094 的 check、package boundary、Godot 4.5.1 和 Godot 4.7.2 四个 job 全部通过；Phase 30 按完成定义收尾。

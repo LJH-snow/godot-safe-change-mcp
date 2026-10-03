@@ -16,7 +16,7 @@
   <a href="https://m8ven.ai/mcp/ljh-snow/godot-safe-change-mcp"><img src="https://m8ven.ai/badge/mcp/ljh-snow/godot-safe-change-mcp" alt="M8ven Score"></a>
 </p>
 
-<p align="center"><a href="README.en.md">English</a> · <a href="README.md">简体中文</a></p>
+<p align="center">English · <a href="README.zh-CN.md">简体中文</a></p>
 
 Godot Safe Change MCP is an MCP server for AI-assisted Godot development. TypeScript owns contracts, preview plans, confirmation, task orchestration, and audit evidence; the Godot EditorPlugin owns live editor context, UndoRedo, run control, and diagnostics.
 
@@ -163,7 +163,7 @@ flowchart LR
 | Scene content | <code>scene.set_property</code>, <code>scene.attach_script</code>, <code>scene.detach_script</code> | Allowlisted visible, position, rotation_degrees, scale, size, text, and color properties plus project-local GDScript attachment/detachment. |
 | Files and settings | resource references, input actions, script ranges | File or project-settings revision guards, atomic writes, and rollback. |
 | Runtime evidence | <code>run_current_scene</code>, <code>run_scene</code> | Run IDs, terminal state, output, warnings, errors, source, line, and NodePath evidence. |
-| Multi-step work | create/get/advance/pause/resume/cancel | Scene/resource verification steps, diagnostics repair preview, and step-level operation IDs. |
+| Multi-step work | create/get/advance/pause/resume/cancel | Scene/resource/script verification steps, diagnostics repair preview, and step-level operation IDs. |
 | Recovery | task leases, <code>task_status</code>, <code>task_timeline</code> | Heartbeats, TTL takeover, owner visibility, and auditable recovery events. |
 
 ## Safety model
@@ -238,7 +238,7 @@ More detail:
 - [Test boundaries and Godot acceptance](tests/README.md)
 - [Product plan](docs/PLAN.md)
 - [Godot plugin guide](godot-plugin/README.md)
-- [简体中文 README](README.md)
+- [简体中文 README](README.zh-CN.md)
 
 ## License
 

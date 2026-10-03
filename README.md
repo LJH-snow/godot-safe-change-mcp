@@ -5,7 +5,7 @@
 <h1 align="center">Godot Safe Change MCP</h1>
 
 <p align="center">
-  让 Agent 以可预览、可确认、可回滚的方式参与 Godot 开发。
+  Reviewable, confirmable, and rollback-safe Godot changes for AI agents.
 </p>
 
 <p align="center">
@@ -16,42 +16,42 @@
   <a href="https://m8ven.ai/mcp/ljh-snow/godot-safe-change-mcp"><img src="https://m8ven.ai/badge/mcp/ljh-snow/godot-safe-change-mcp" alt="M8ven Score"></a>
 </p>
 
-<p align="center"><a href="README.en.md">English</a> · 简体中文</p>
+<p align="center">English · <a href="README.zh-CN.md">简体中文</a></p>
 
-Godot Safe Change MCP 是一个面向 Agent 的 MCP Server：TypeScript 负责工具契约、预览计划、确认、任务编排和审计；Godot EditorPlugin 负责真实编辑器上下文、UndoRedo、运行控制和诊断采集。
+Godot Safe Change MCP is an MCP server for AI-assisted Godot development. TypeScript owns contracts, preview plans, confirmation, task orchestration, and audit evidence; the Godot EditorPlugin owns live editor context, UndoRedo, run control, and diagnostics.
 
-它不把 Godot 暴露成任意 RPC，而是把一次变更约束成一条可验证的闭环：
+The server does not expose arbitrary Godot RPC. Every write follows a bounded lifecycle:
 
-> 读取上下文 → 生成 Diff → 用户确认 → 获取项目 Lease → 通过 Godot UndoRedo 应用 → 运行/验证 → 安全回滚
+> Inspect context → preview a diff → confirm → acquire a project lease → apply through Godot UndoRedo → verify → rollback safely when needed
 
 <p align="center">
   <img src="docs/assets/mcp-inspector-tools.jpg" alt="MCP Inspector showing Godot Safe Change MCP tools" width="100%">
 </p>
 
-<p align="center"><sub>真实本地 MCP Inspector 工具面板；Godot EditorPlugin 连接后，工具会读取当前场景和编辑器状态。</sub></p>
+<p align="center"><sub>A real local MCP Inspector view of the server tools.</sub></p>
 
 <p align="center">
   <img src="docs/assets/mcp-safe-change-demo.gif" alt="Godot Safe Change MCP context, search, preview, confirm, apply, and rollback workflow" width="100%">
 </p>
 
-<p align="center"><sub>真实 starter fixture 工作流：context → search → preview → confirm → apply → rollback。</sub></p>
+<p align="center"><sub>A real starter fixture workflow: context → search → preview → confirm → apply → rollback.</sub></p>
 
-## 为什么使用它
+## Why this project
 
-- **面向意图，而不是任意 RPC**：Agent 请求的是创建、移动、实例化、修改属性、运行和验证等受限操作。
-- **每次写入都有证据**：Preview Diff、expected revision、用户确认、operation ID、Godot UndoRedo 和 rollback report 串成完整记录。
-- **适合多窗口协作**：项目 Lease、heartbeat、TTL 接管和稳定的 PROJECT_BUSY 防止两个 MCP 进程互相覆盖。
-- **真实 Godot 验证**：GitHub Actions 在 Godot 4.5.1 与 4.7.2 上运行同一套 EditorPlugin fixture smoke。
+- **Intent-level tools, not arbitrary RPC**: create, move, instantiate, edit, run, and verify bounded Godot operations.
+- **Evidence for every write**: preview diff, expected revision, explicit confirmation, operation ID, UndoRedo report, and rollback evidence.
+- **Safe multi-window work**: project leases, heartbeat renewal, TTL takeover, and stable PROJECT_BUSY responses.
+- **Real Godot verification**: GitHub Actions runs the same EditorPlugin fixture against Godot 4.5.1 and 4.7.2.
 
 ## Quick Start
 
-### 环境要求
+### Requirements
 
-- Node.js 22.22.2 或更新版本
-- Godot 4.x 编辑器；CI 当前验证 4.5.1 与 4.7.2
-- 一个支持 MCP 的 Agent 客户端
+- Node.js 22.22.2 or newer
+- A Godot 4.x editor; CI currently verifies 4.5.1 and 4.7.2
+- An MCP-capable agent client
 
-### 1. 安装并启动 MCP Server
+### 1. Install and start the MCP server
 
 ~~~bash
 git clone https://github.com/LJH-snow/godot-safe-change-mcp.git
@@ -61,86 +61,82 @@ npm run build
 npm run dev
 ~~~
 
-开发服务器提供：
+The development server exposes:
 
-- MCP endpoint：<code>http://127.0.0.1:3000/mcp</code>
-- Inspector：<code>http://127.0.0.1:3000/mcp/inspector</code>
-- Godot bridge：默认 <code>http://127.0.0.1:8765</code>
+- MCP endpoint: <code>http://127.0.0.1:3000/mcp</code>
+- Inspector: <code>http://127.0.0.1:3000/mcp/inspector</code>
+- Godot bridge: <code>http://127.0.0.1:8765</code> by default
 
-如需更换桥接地址，设置 <code>GODOT_BRIDGE_URL</code>：
+Override the bridge with <code>GODOT_BRIDGE_URL</code> when needed.
 
-~~~bash
-GODOT_BRIDGE_URL=http://127.0.0.1:8765 npm run dev
-~~~
+### 2. Install the Godot plugin
 
-### 2. 安装 Godot 插件
-
-把本仓库的 <code>godot-plugin</code> 复制到目标项目：
+Copy <code>godot-plugin</code> into the target project:
 
 ~~~text
 your-godot-project/addons/godot-safe-change-bridge/
 ~~~
 
-打开 Godot 后，在 Project → Project Settings → Plugins 中启用 **Godot Safe Change Bridge**。插件只监听 loopback 地址 <code>127.0.0.1:8765</code>，不会向公网暴露编辑器。
+Enable **Godot Safe Change Bridge** in Project → Project Settings → Plugins. The plugin listens only on loopback at <code>127.0.0.1:8765</code>.
 
-### 3. 连接 MCP 客户端
+### 3. Connect an MCP client
 
-在客户端添加 Streamable HTTP MCP Server：
+Add this Streamable HTTP server to the client:
 
 ~~~text
 http://127.0.0.1:3000/mcp
 ~~~
 
-也可以直接运行已构建的入口：
+Or run the built entry point directly:
 
 ~~~bash
 npm run build
 node bin/mcp-server.mjs
 ~~~
 
-## 使用 Inspector
+## Using the Inspector
 
-Inspector 是 mcp-use 提供的本地 MCP 调试界面。执行 <code>npm ci</code> 或 <code>npm install</code> 时，<code>mcp-use</code> 会将锁定版本的 <code>@mcp-use/inspector</code> 安装到 <code>node_modules</code>；之后每次启动不会重复下载。
+The Inspector is the local MCP debugging UI provided by mcp-use. Running <code>npm ci</code> or <code>npm install</code> installs the locked <code>@mcp-use/inspector</code> package into <code>node_modules</code>; starting the server does not download it again on every run.
 
-按以下步骤使用：
+Use it as follows:
 
-1. 启动 Godot 编辑器并启用 Godot Safe Change Bridge。
-2. 在项目根目录运行 <code>npm run dev</code>；它会启动开发服务器并加载 Inspector。
-3. 打开 <code>http://127.0.0.1:3000/mcp/inspector</code>，如果浏览器没有自动打开就手动访问。
-4. 在 **Tools** 中先调用 <code>editor_context</code>，确认当前场景、完整节点树和连接状态。
-5. 用 <code>search_project</code> 或 <code>find_references</code> 验证只读搜索。
-6. 测试写入时严格执行 <code>preview_scene_change</code> → <code>confirm_scene_change</code> → <code>apply_scene_change</code> → <code>rollback_scene_change</code>。
-7. 用 <code>operation_history</code>、<code>task_status</code> 和 <code>task_timeline</code> 查看审计、Lease 和恢复证据。
+1. Start Godot and enable Godot Safe Change Bridge.
+2. Run <code>npm run dev</code> from the project root; this starts the development server and loads the Inspector.
+3. Open <code>http://127.0.0.1:3000/mcp/inspector</code> if the browser does not open automatically.
+4. In **Tools**, call <code>editor_context</code> first and check the current scene, full node tree, and connection state.
+5. Use <code>search_project</code> or <code>find_references</code> to verify read-only project intelligence.
+6. For writes, keep the lifecycle explicit: <code>preview_scene_change</code> → <code>confirm_scene_change</code> → <code>apply_scene_change</code> → <code>rollback_scene_change</code>.
+7. Use <code>operation_history</code>, <code>task_status</code>, and <code>task_timeline</code> to inspect audit, lease, and recovery evidence.
 
-调试时可以禁止自动打开浏览器，或完全关闭 Inspector：
+To debug without opening a browser, or to disable the UI entirely:
 
 ~~~bash
 npm run dev -- --no-open
 npm run dev -- --no-inspector
 ~~~
 
-Inspector 只用于本地开发、手工验收和演示；CI 和生产入口不依赖它。默认只绑定 <code>127.0.0.1</code>，不要用公开地址运行开发 Inspector，也不要在工具表单中输入敏感凭据。
+The Inspector is for local development, manual acceptance, and demos; CI and the production entry point do not depend on it. The development server binds to <code>127.0.0.1</code> by default. Do not expose the development Inspector publicly or enter sensitive credentials into tool forms.
 
-## 第一次尝试
+## First workflow
 
-连接成功后，可以从只读操作开始：
+Start with read-only requests:
 
 ~~~text
-读取当前 Godot 编辑器上下文和完整场景树。
-搜索项目中所有与 Player 或 PackedScene 相关的节点、脚本和资源。
-查找哪些场景或脚本引用了 res://scripts/player.gd。
+Read the current Godot editor context and complete scene tree.
+Search the project for Player or PackedScene nodes, scripts, and resources.
+Find which scenes or scripts reference res://scripts/player.gd.
 ~~~
 
-一个完整的安全写入流程如下：
+For a write, keep the states separate:
 
-1. 调用 <code>preview_scene_change</code> 生成计划和 Diff。
-2. 检查 target、NodePath、属性变化和 expected revision。
-3. 调用 <code>confirm_scene_change</code> 明确确认。
-4. 调用 <code>apply_scene_change</code>，由插件通过 Godot UndoRedo 执行。
-5. 调用 <code>run_current_scene</code>、<code>verify_scene_state</code> 或 <code>verify_diagnostics</code> 收集证据。
-6. 需要撤销时调用 <code>rollback_scene_change</code>；revision 不一致时系统会拒绝覆盖用户修改。
+1. Call <code>preview_scene_change</code> and inspect the diff.
+2. Check the target, NodePath, property changes, and expected revision.
+3. Call <code>confirm_scene_change</code> explicitly.
+4. Call <code>apply_scene_change</code>; the plugin performs the real UndoRedo action.
+5. Run the scene or verify scene state and diagnostics.
+6. Call <code>rollback_scene_change</code> only while the revision and history guards remain valid.
 
-## 工作流
+## Workflow
 
 ~~~mermaid
 flowchart LR
@@ -157,42 +153,32 @@ flowchart LR
     K --> F
 ~~~
 
-## 能力地图
+## Capability map
 
-| 领域 | 能力 | 说明 |
+| Area | Tools and operations | What it covers |
 | --- | --- | --- |
-| 项目理解 | <code>project_overview</code>、<code>search_project</code>、<code>find_references</code> | 搜索场景、节点、脚本、资源、信号、输入和反向引用；编辑器离线时使用本地只读索引。 |
-| 编辑器上下文 | <code>editor_context</code> | 返回完整当前场景树、选中节点安全属性、打开资源、运行状态和诊断。 |
-| 场景结构 | create、delete、reparent、rename、duplicate、instantiate、connect/disconnect signal | 所有 NodePath、名称、父子关系、实例源路径和 signal/method 都经过边界校验；连接和断开通过 Godot UndoRedo apply/rollback。 |
-| 场景内容 | <code>scene.set_property</code>、<code>scene.attach_script</code>、<code>scene.detach_script</code> | 仅开放 visible、position、rotation_degrees、scale、size、text、color，以及项目内现有 GDScript 的挂载/卸载。 |
-| 文件/设置 | resource reference、input action、script range | 使用文件或 project.godot revision guard，原子写入并支持 rollback。 |
-| 运行诊断 | <code>run_current_scene</code>、<code>run_scene</code> | 返回 run ID、状态、输出、warning、error、source、line 和 NodePath。 |
-| 多步骤任务 | create/get/advance/pause/resume/cancel | 支持 verify_scene_state、verify_resource_state、verify_diagnostics、诊断修复预览和 step-level operation ID。 |
-| 并发恢复 | acquire/renew/release task lease、<code>task_status</code>、<code>task_timeline</code> | Lease 持有期间 heartbeat 续租；进程崩溃后按 TTL 接管，并保留审计时间线。 |
+| Project intelligence | <code>project_overview</code>, <code>search_project</code>, <code>find_references</code> | Scenes, nodes, scripts, resources, signals, input actions, and reverse references. |
+| Editor context | <code>editor_context</code> | Full current scene tree, selected-node properties, open resources, run state, and diagnostics. |
+| Scene structure | create, delete, reparent, rename, duplicate, instantiate, connect/disconnect signal | Safe NodePaths, ownership, names, parent relationships, instance source paths, and signal/method validation; connections and disconnections use Godot UndoRedo apply/rollback. |
+| Scene content | <code>scene.set_property</code>, <code>scene.attach_script</code>, <code>scene.detach_script</code> | Allowlisted visible, position, rotation_degrees, scale, size, text, and color properties plus project-local GDScript attachment/detachment. |
+| Files and settings | resource references, input actions, script ranges | File or project-settings revision guards, atomic writes, and rollback. |
+| Runtime evidence | <code>run_current_scene</code>, <code>run_scene</code> | Run IDs, terminal state, output, warnings, errors, source, line, and NodePath evidence. |
+| Multi-step work | create/get/advance/pause/resume/cancel | Scene/resource/script verification steps, diagnostics repair preview, and step-level operation IDs. |
+| Recovery | task leases, <code>task_status</code>, <code>task_timeline</code> | Heartbeats, TTL takeover, owner visibility, and auditable recovery events. |
 
-## 安全模型
-
-### 写操作生命周期
+## Safety model
 
 ~~~text
 preview → confirm → lease/revision check → apply → verify → rollback (when needed)
 ~~~
 
-### 明确禁止
+The server never executes agent-generated GDScript, shell commands, Python workers, arbitrary Godot RPC, or unrestricted filesystem writes. The plugin independently validates the project root, safe paths, operation allowlists, active-plan identity, and UndoRedo history.
 
-- 任意 Agent 生成的 GDScript 执行
-- shell、Python worker 或任意系统命令执行
-- 任意 Godot RPC、方法名或对象反射
-- 不受限制的文件系统写入
-- 绕过 preview、confirm、revision、lease 或 rollback 的写入
+Short apply/rollback leases and long-lived task leases live in the user state directory, not inside the Godot project. A live lease held by another MCP process returns PROJECT_BUSY; a crashed owner can be replaced only after TTL expiry.
 
-### 并发行为
+## Tests and CI
 
-同一项目的短期 apply/rollback lease 和跨步骤 task lease 都存放在用户状态目录，不写入 Godot 项目。另一个窗口持有有效 lease 时，操作稳定返回 <code>PROJECT_BUSY</code>；owner 进程崩溃后，其他窗口只能在 TTL 到期后接管。
-
-## 测试与 CI
-
-本地质量门禁：
+Run local quality gates:
 
 ~~~bash
 npm test
@@ -203,26 +189,26 @@ npm run release:check
 git diff --check
 ~~~
 
-本地有 Godot 编辑器时运行真实 bridge smoke：
+Run the real bridge smoke when a local Godot editor is available:
 
 ~~~bash
 GODOT_BIN=/path/to/Godot node tests/godot-runtime-smoke.mjs
 ~~~
 
-GitHub Actions 对每个推送运行四个 job：
+Every push runs four GitHub Actions jobs:
 
-- <code>check</code>：Node.js typecheck、回归测试和 build
-- <code>npm package boundary</code>：验证实际发布 tarball 不包含源码、测试和内部文档
-- <code>Godot 4.5.1 runtime</code>：真实 EditorPlugin fixture smoke
-- <code>Godot 4.7.2 runtime</code>：同一 fixture 的第二版本验证
+- <code>check</code>: Node.js typecheck, regression tests, and build
+- <code>npm package boundary</code>: verifies the actual release tarball
+- <code>Godot 4.5.1 runtime</code>: real EditorPlugin fixture smoke
+- <code>Godot 4.7.2 runtime</code>: the same fixture on the second supported version
 
-Smoke 覆盖 search、context、场景属性/结构/实例化/脚本 apply-rollback、资源和输入设置、diagnostics、task lease、双 MCP 进程并发和 TTL 接管。
+The smoke covers search, context, scene/property/structure/instance/script apply-rollback, resources, input settings, diagnostics, task leases, two-process contention, and TTL takeover.
 
-## 开发者入口
+## Developer commands
 
 ~~~bash
 npm ci
-npm run dev          # Inspector + MCP endpoint
+npm run dev
 npm run typecheck
 npm test
 npm run build
@@ -230,29 +216,29 @@ npm run package:check
 npm run release:check
 ~~~
 
-推荐先阅读：
+More detail:
 
-- [贡献指南](CONTRIBUTING.md)
-- [贡献任务清单](docs/CONTRIBUTOR_TASKS.md)
-- [行为准则](CODE_OF_CONDUCT.md)
-- [安全策略](SECURITY.md)
-- [隐私政策](PRIVACY.md)
-- [增长与社区采用计划](docs/GROWTH.md)
-- [长期采用路线图](docs/ROADMAP.md)
-- [Agent 示例](docs/EXAMPLES.md)
-- [客户端配置](docs/CLIENTS.md)
-- [验证证据索引](docs/SMOKE_EVIDENCE.md)
-- [反馈指南](docs/FEEDBACK.md)
-- [常见问题](docs/FAQ.md)
-- [60 秒演示脚本](docs/DEMO.md)
-- [社区发布文案](docs/ANNOUNCEMENTS.md)
+- [Contributing](CONTRIBUTING.md)
+- [Contributor task board](docs/CONTRIBUTOR_TASKS.md)
+- [Code of Conduct](CODE_OF_CONDUCT.md)
+- [Security policy](SECURITY.md)
+- [Privacy policy](PRIVACY.md)
+- [Growth and adoption plan](docs/GROWTH.md)
+- [Long-term adoption roadmap](docs/ROADMAP.md)
+- [Agent examples](docs/EXAMPLES.md)
+- [Client configuration](docs/CLIENTS.md)
+- [Verification evidence map](docs/SMOKE_EVIDENCE.md)
+- [Feedback guide](docs/FEEDBACK.md)
+- [FAQ](docs/FAQ.md)
+- [60-second demo storyboard](docs/DEMO.md)
+- [Community launch kit](docs/ANNOUNCEMENTS.md)
 - [Starter fixture](examples/starter/README.md)
-- [更新记录](CHANGELOG.md)
-- [发布清单](docs/RELEASE.md)
-- [测试边界与 Godot 手工验收](tests/README.md)
-- [完整产品计划](docs/PLAN.md)
-- [Godot 插件说明](godot-plugin/README.md)
-- [英文 README](README.en.md)
+- [Changelog](CHANGELOG.md)
+- [Release checklist](docs/RELEASE.md)
+- [Test boundaries and Godot acceptance](tests/README.md)
+- [Product plan](docs/PLAN.md)
+- [Godot plugin guide](godot-plugin/README.md)
+- [简体中文 README](README.zh-CN.md)
 
 ## License
 
