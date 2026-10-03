@@ -365,11 +365,11 @@
 
 ## Phase 32 — 项目自动加载管理
 
-状态：in_progress
+状态：complete
 
 - [x] 增加 project.autoload.add / project.autoload.remove preview/apply/rollback：单例名与脚本路径双端校验、重复与缺失拒绝、project.godot revision 守卫。
 - [x] 新增只读 /v1/autoloads/read 快照路由；preview 校验目标脚本存在，插件保存失败时恢复原始设置。
-- [x] TypeScript 回归、直接桥接拒绝用例与真实 Godot smoke 场景已就绪，待双版本 CI 验证后收尾。
+- [x] TypeScript 回归、直接桥接拒绝用例与真实 Godot smoke 场景全部通过；push run 37134255473 的 check、package boundary、Godot 4.5.1 和 Godot 4.7.2 四个 job 全部通过。
 
 ## 完成定义
 
