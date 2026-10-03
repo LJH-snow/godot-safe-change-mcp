@@ -288,11 +288,11 @@
 
 ## Phase 22 — 安全断开场景信号
 
-状态：in_progress
+状态：complete
 
 - [x] 增加 scene.disconnect_signal 契约、精确连接预览和缺失连接拒绝。
 - [x] 通过 Godot UndoRedo 实现 apply/rollback，并保持 preview、confirm、revision 和 history 守卫。
-- [x] 增加 TypeScript 回归和真实 Godot smoke；待双版本 CI 在本次提交上验证后收尾。
+- [x] 增加 TypeScript 回归和真实 Godot smoke；push run 37096577872 的 check、package boundary、Godot 4.5.1 和 Godot 4.7.2 全部通过。
 
 ## 完成定义
 

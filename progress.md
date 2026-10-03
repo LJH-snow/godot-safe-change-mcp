@@ -4,7 +4,7 @@
 
 - 新增 scene.disconnect_signal：只允许断开当前场景中精确匹配的 source/signal/target/method tuple，缺失连接、非法路径和方法不匹配均拒绝。
 - Godot 插件通过 UndoRedo 记录 disconnect/connect inverse callbacks，应用和 rollback 保持既有 revision/history 守卫。
-- TypeScript 回归已通过 106/106；真实双版本 smoke 已加入，待提交推送后确认 CI。
+- TypeScript 回归已通过 106/106；push commit e19d1e3 的 run 37096577872 已通过 check、package boundary、Godot 4.5.1 和 Godot 4.7.2 全部验证。
 
 ## 2026-10-03 release artifact verification
 
