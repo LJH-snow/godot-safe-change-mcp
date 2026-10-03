@@ -13,6 +13,7 @@
   <a href="https://github.com/LJH-snow/godot-safe-change-mcp/blob/feature/run-scene-project-leases/LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT License"></a>
   <a href="https://nodejs.org/"><img src="https://img.shields.io/badge/Node.js-%3E%3D22.22.2-339933.svg?logo=node.js&logoColor=white" alt="Node.js 22.22.2 or newer"></a>
   <a href="https://godotengine.org/"><img src="https://img.shields.io/badge/Godot-4.x-478CBF.svg?logo=godot-engine&logoColor=white" alt="Godot 4.x"></a>
+  <a href="https://m8ven.ai/mcp/ljh-snow/godot-safe-change-mcp"><img src="https://m8ven.ai/badge/mcp/ljh-snow/godot-safe-change-mcp" alt="M8ven Score"></a>
 </p>
 
 <p align="center"><a href="README.en.md">English</a> · <a href="README.md">简体中文</a></p>
