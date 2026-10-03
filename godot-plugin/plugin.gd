@@ -1539,7 +1539,8 @@ func _apply_script_create(request_body: Dictionary, scene_root: Node, scene_path
         "undoLabel": "Godot Safe Change: Create script",
     })
 
-func _apply_script_change(request_body: Dictionary, scene_root: Node, scene_path: String) -> Dictionary:    var operation: Dictionary = request_body["operations"][0]
+func _apply_script_change(request_body: Dictionary, scene_root: Node, scene_path: String) -> Dictionary:
+    var operation: Dictionary = request_body["operations"][0]
     var script_path := String(operation.get("scriptPath", ""))
     if not _is_safe_script_path(script_path):
         return _failure("UNSAFE_OPERATION", "Only project-relative .gd scripts can be modified.")
