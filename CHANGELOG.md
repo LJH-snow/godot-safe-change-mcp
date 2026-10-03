@@ -14,6 +14,7 @@ All notable changes to Godot Safe Change MCP will be documented here.
 - Added bounded scene.reorder_node for sibling index changes with context-derived order validation and Godot UndoRedo apply/rollback.
 - Added bounded scene.set_unique_name to expose or hide scene-unique %Name references with collision checks, editor-context visibility, and Godot UndoRedo apply/rollback.
 - Added bounded script.create_file so agents can bootstrap new GDScript files (path and content gates, atomic write, duplicate rejection, rollback deletes the created file).
+- Expanded scene.create_node with nine gameplay node types (Sprite2D, Marker2D, Camera2D, Timer, AudioStreamPlayer, CharacterBody2D, StaticBody2D, Area2D, CollisionShape2D) matched on both the contract schema and the plugin allowlist.
 - Improved first-run diagnostics: bridge responses that are not JSON (for example another program occupying loopback port 8765) now return an actionable EDITOR_UNAVAILABLE message, and the plugin reads an optional godot_safe_change/bridge_port project setting with GODOT_BRIDGE_URL on the server side; CLIENTS.md gained a bridge troubleshooting section.
 - Added complete MCP tool annotations (readOnly, destructive, idempotent, and open-world hints) across all registered tools.
 - Added a tool contract test suite covering all 23 tool registrations, annotation completeness, and read-only handler smoke checks.

@@ -6,6 +6,15 @@ export const safeNodeTypeSchema = z.enum([
   "Control",
   "Label",
   "ColorRect",
+  "Sprite2D",
+  "Marker2D",
+  "Camera2D",
+  "Timer",
+  "AudioStreamPlayer",
+  "CharacterBody2D",
+  "StaticBody2D",
+  "Area2D",
+  "CollisionShape2D",
 ]);
 
 export const nodeNameSchema = z

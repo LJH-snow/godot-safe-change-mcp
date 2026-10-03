@@ -805,6 +805,36 @@ try {
   assert.equal(createdScriptReadAfterRollback.body.ok, false, JSON.stringify(createdScriptReadAfterRollback.body));
   assert.equal(createdScriptReadAfterRollback.body.error.code, "PROJECT_NOT_FOUND");
   stage("script file creation complete");
+  stage("expanded node types");
+  for (const nodeType of ["Sprite2D", "Timer"]) {
+    const expandedPlan = structured(await request("tools/call", {
+      name: "preview_scene_change",
+      arguments: {
+        projectRoot: fixtureRoot,
+        reason: "Create a gameplay scaffolding node of an expanded type.",
+        operation: { kind: "scene.create_node", parentPath: ".", nodeName: "Ci" + nodeType, nodeType },
+      },
+    }));
+    assert.equal(expandedPlan.diff[0]?.kind, "scene.add_node");
+    structured(await request("tools/call", {
+      name: "confirm_scene_change",
+      arguments: { projectRoot: fixtureRoot, planId: expandedPlan.planId, expectedRevision: expandedPlan.expectedRevision },
+    }));
+    const expandedApply = structured(await request("tools/call", {
+      name: "apply_scene_change",
+      arguments: { projectRoot: fixtureRoot, planId: expandedPlan.planId },
+    }));
+    assert.equal(expandedApply.status, "applied");
+    const expandedContext = await readEditorContext(fixtureRoot);
+    assert.equal(sceneNode(expandedContext, "Ci" + nodeType)?.type, nodeType);
+    const expandedRollback = structured(await request("tools/call", {
+      name: "rollback_scene_change",
+      arguments: { projectRoot: fixtureRoot, planId: expandedPlan.planId },
+    }));
+    assert.equal(expandedRollback.status, "rolled_back");
+    assert.equal(sceneNode(await readEditorContext(fixtureRoot), "Ci" + nodeType), undefined);
+  }
+  stage("expanded node types complete");
   const initialCurrentSceneRun = structured(await request("tools/call", {
     name: "run_current_scene",
     arguments: { projectRoot: fixtureRoot, timeoutMs: 30000 },

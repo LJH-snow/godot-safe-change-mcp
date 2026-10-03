@@ -395,6 +395,14 @@
 - [x] 回滚在内容哈希未变时删除创建的文件，用户修改后拒绝删除；补齐 coordinator file-revision 重读分支。
 - [x] TypeScript 回归与真实 Godot smoke 场景（创建 → 读取验证 → 重复拒绝 → rollback 删除）全部通过；push run 37138962606 的 check、package boundary、Godot 4.5.1 和 Godot 4.7.2 四个 job 全部通过。
 
+## Phase 36 — create_node 类型扩展
+
+状态：in_progress
+
+- [x] safeNodeTypeSchema 与插件 ALLOWED_NODE_TYPES 同步扩展九种游戏常用类型：Sprite2D、Marker2D、Camera2D、Timer、AudioStreamPlayer、CharacterBody2D、StaticBody2D、Area2D、CollisionShape2D。
+- [x] TypeScript 回归覆盖逐类型创建预览与未知类拒绝；真实 Godot smoke 覆盖 Sprite2D/Timer 的创建→context 类型验证→rollback。
+- [ ] 待双版本 CI 验证后收尾。
+
 ## 完成定义
 
 只有在验收标准全部满足、自动化检查通过，并且真实或 fixture Godot 链路有可复现证据后，才将所有阶段标记为 `complete`。

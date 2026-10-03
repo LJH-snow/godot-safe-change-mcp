@@ -1453,6 +1453,35 @@ describe("ChangeCoordinator", () => {
     assert.equal(bridge.applied.length, 0);
   });
 
+  test("accepts the expanded gameplay node types and still rejects unknown classes", async () => {
+    const bridge = new FakeGodotBridge();
+    const coordinator = new ChangeCoordinator(bridge);
+    const preview = (nodeType: string, nodeName: string) =>
+      coordinator.previewSceneChange({
+        projectRoot,
+        reason: "Create gameplay scaffolding nodes.",
+        operation: { kind: "scene.create_node", parentPath: ".", nodeName, nodeType } as never,
+      });
+
+    for (const nodeType of [
+      "Sprite2D",
+      "Marker2D",
+      "Camera2D",
+      "Timer",
+      "AudioStreamPlayer",
+      "CharacterBody2D",
+      "StaticBody2D",
+      "Area2D",
+      "CollisionShape2D",
+    ]) {
+      const plan = await preview(nodeType, "Ci" + nodeType);
+      assert.equal(plan.operations[0]?.kind, "scene.create_node");
+      assert.equal(plan.diff[0]?.kind, "scene.add_node");
+    }
+    await assert.rejects(() => preview("Sprite2D_Wrong", "BadNode"));
+    assert.equal(bridge.applied.length, 0);
+  });
+
   test("previews attaching an existing script without executing or editing it", async () => {
     const bridge = new FakeGodotBridge();
     const coordinator = new ChangeCoordinator(bridge);
