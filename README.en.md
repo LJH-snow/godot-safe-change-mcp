@@ -222,6 +222,7 @@ More detail:
 - [Code of Conduct](CODE_OF_CONDUCT.md)
 - [Security policy](SECURITY.md)
 - [Growth and adoption plan](docs/GROWTH.md)
+- [Long-term adoption roadmap](docs/ROADMAP.md)
 - [Agent examples](docs/EXAMPLES.md)
 - [Client configuration](docs/CLIENTS.md)
 - [Verification evidence map](docs/SMOKE_EVIDENCE.md)

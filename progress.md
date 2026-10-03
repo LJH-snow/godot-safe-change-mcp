@@ -1,5 +1,10 @@
 # 进度记录
 
+## 2026-10-03 long-term adoption roadmap
+
+- 新增 docs/ROADMAP.md，覆盖 30/90/180/365 天的采用、反馈、贡献和信任门槛。
+- 将 Star 定位为真实采用结果，明确首次成功时间、真实反馈、贡献者和双版本 CI 证据等可验证指标。
+
 ## 2026-10-03 release feedback guide
 
 - 新增 docs/FEEDBACK.md 和 release-feedback issue template，帮助真实用户提供可复现、脱敏的安装与 starter 结果。
