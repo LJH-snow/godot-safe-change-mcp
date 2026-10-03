@@ -789,6 +789,13 @@ func _validate_change_request(request_body: Dictionary) -> Dictionary:
         group_name_regex.compile("^[A-Za-z_][A-Za-z0-9_]{0,63}$")
         if group_name_regex.search(String(operation["group"])) == null:
             return _failure("VALIDATION_FAILED", "group contains unsupported characters.")
+    elif kind == "scene.reorder_node":
+        if not _has_exact_keys(operation, ["kind", "nodePath", "index"]):
+            return _failure("VALIDATION_FAILED", "scene.reorder_node contains unsupported or missing fields.")
+        if not _is_safe_node_path(String(operation["nodePath"])):
+            return _failure("VALIDATION_FAILED", "nodePath must be a safe relative NodePath.")
+        if not _is_valid_integer(operation["index"], 0.0, 10000.0) or int(operation["index"]) != float(operation["index"]):
+            return _failure("VALIDATION_FAILED", "index must be a non-negative integer.")
     elif kind == "scene.set_property":
         if not _has_exact_keys(operation, ["kind", "nodePath", "property", "value"]):
             return _failure("VALIDATION_FAILED", "scene.set_property contains unsupported or missing fields.")
@@ -980,6 +987,8 @@ func _apply_change(body: Variant) -> Dictionary:
         return _apply_add_group(request_body, scene_root, scene_path)
     if String(operation.get("kind", "")) == "scene.remove_group":
         return _apply_remove_group(request_body, scene_root, scene_path)
+    if String(operation.get("kind", "")) == "scene.reorder_node":
+        return _apply_reorder_node(request_body, scene_root, scene_path)
     if String(operation.get("kind", "")) == "resource.replace_reference":
         return _apply_resource_change(request_body, scene_root, scene_path)
     if String(operation.get("kind", "")) in ["project.input_action.add_key", "project.input_action.remove_key", "project.input_action.replace_key"]:
@@ -2191,6 +2200,59 @@ func _add_scene_group(node: Node, group_name: String) -> void:
 func _remove_scene_group(node: Node, group_name: String) -> void:
     if is_instance_valid(node) and node.is_in_group(group_name):
         node.remove_from_group(group_name)
+
+func _apply_reorder_node(request_body: Dictionary, scene_root: Node, scene_path: String) -> Dictionary:
+    var operation: Dictionary = request_body["operations"][0]
+    var node_path := String(operation.get("nodePath", ""))
+    var index_value: Variant = operation.get("index")
+    if not _is_safe_node_path(node_path):
+        return _failure("VALIDATION_FAILED", "nodePath must be a safe relative NodePath.")
+    if node_path == ".":
+        return _failure("UNSAFE_OPERATION", "The scene root cannot be reordered.")
+    if not _is_valid_integer(index_value, 0.0, 10000.0) or int(index_value) != float(index_value):
+        return _failure("VALIDATION_FAILED", "index must be a non-negative integer.")
+
+    var node: Node = _scene_node(scene_root, node_path)
+    if node == null:
+        return _failure("VALIDATION_FAILED", "The target node must exist in the current scene.")
+    var parent := node.get_parent()
+    if parent == null:
+        return _failure("UNSAFE_OPERATION", "The scene root cannot be reordered.")
+    var to_index := int(index_value)
+    if to_index >= parent.get_child_count():
+        return _failure("VALIDATION_FAILED", "The requested index is outside the parent's child range.")
+    var from_index := node.get_index()
+    if to_index == from_index:
+        return _failure("OPERATION_REJECTED", "The node already occupies the requested index.")
+
+    var undo_redo := get_undo_redo()
+    undo_redo.create_action("Godot Safe Change: Reorder node", 0, scene_root)
+    undo_redo.add_do_method(self, "_reorder_scene_node", node, to_index)
+    undo_redo.add_undo_method(self, "_reorder_scene_node", node, from_index)
+    undo_redo.commit_action()
+    EditorInterface.mark_scene_as_unsaved()
+    last_applied_plan_id = String(request_body.get("planId", ""))
+    last_applied_revision = _current_revision(scene_root, scene_path)
+    _clear_file_action_state()
+    _record_scene_action(scene_root, scene_path, "scene.reorder_node", "Godot Safe Change: Reorder node")
+    return _success("report", {
+        "schemaVersion": "0.2",
+        "planId": last_applied_plan_id,
+        "status": "applied",
+        "revision": last_applied_revision,
+        "operationCount": 1,
+        "undoLabel": last_applied_undo_label,
+    })
+
+func _reorder_scene_node(node: Node, target_index: int) -> void:
+    if not is_instance_valid(node):
+        return
+    var parent := node.get_parent()
+    if parent == null:
+        return
+    var clamped := mini(target_index, parent.get_child_count() - 1)
+    if clamped >= 0:
+        parent.move_child(node, clamped)
 
 func _scene_subtree_owned_by(node: Node, scene_root: Node) -> bool:
     if node != scene_root and node.owner != null and node.owner != scene_root:

@@ -11,6 +11,7 @@ All notable changes to Godot Safe Change MCP will be documented here.
 - Added read-only task script verification with bounded content assertions, script revision evidence, and mismatch timelines.
 - Added bounded scene group membership changes (scene.add_group and scene.remove_group) with group snapshots in editor context, dual-gate validation, and Godot UndoRedo apply/rollback.
 - Added bounded project.godot autoload registration (project.autoload.add and project.autoload.remove) with settings revision guards, script existence checks, and restore-on-rollback.
+- Added bounded scene.reorder_node for sibling index changes with context-derived order validation and Godot UndoRedo apply/rollback.
 - Added complete MCP tool annotations (readOnly, destructive, idempotent, and open-world hints) across all registered tools.
 - Added a tool contract test suite covering all 23 tool registrations, annotation completeness, and read-only handler smoke checks.
 - Added a repository privacy policy covering local-only data handling; it ships with the npm package.

@@ -609,6 +609,60 @@ export class ChangeCoordinator {
         nodePath: operation.nodePath,
         group: operation.group,
       };
+    } else if (operation.kind === "scene.reorder_node") {
+      if (operation.nodePath === ".") {
+        throw new DomainError(
+          ERROR_CODES.UNSAFE_OPERATION,
+          "The scene root cannot be reordered.",
+          { nodePath: operation.nodePath },
+        );
+      }
+      const node = context.currentScene.nodes.find((candidate) => candidate.path === operation.nodePath);
+      if (node === undefined) {
+        throw new DomainError(
+          ERROR_CODES.VALIDATION_FAILED,
+          "The target node must exist in the current scene.",
+          { nodePath: operation.nodePath },
+        );
+      }
+      const parentPath = operation.nodePath.split("/").slice(0, -1).join("/") || ".";
+      const siblings = context.currentScene.nodes.filter((candidate) => {
+        const candidateParent =
+          candidate.path === "." ? null : candidate.path.split("/").slice(0, -1).join("/") || ".";
+        return candidateParent === parentPath;
+      });
+      const fromIndex = siblings.findIndex((candidate) => candidate.path === operation.nodePath);
+      if (fromIndex < 0) {
+        throw new DomainError(
+          ERROR_CODES.VALIDATION_FAILED,
+          "The target node must exist in the current scene.",
+          { nodePath: operation.nodePath },
+        );
+      }
+      if (operation.index >= siblings.length) {
+        throw new DomainError(
+          ERROR_CODES.VALIDATION_FAILED,
+          "The requested index is outside the parent's child range.",
+          { nodePath: operation.nodePath, index: operation.index, siblingCount: siblings.length },
+        );
+      }
+      if (operation.index === fromIndex) {
+        throw new DomainError(
+          ERROR_CODES.OPERATION_REJECTED,
+          "The node already occupies the requested index.",
+          { nodePath: operation.nodePath, index: operation.index },
+        );
+      }
+      diff = {
+        kind: "scene.reorder_node" as const,
+        target: scenePath + ":" + operation.nodePath,
+        summary:
+          "Reorder " + operation.nodePath + " from sibling index " + fromIndex + " to " +
+          operation.index + " in " + scenePath,
+        nodePath: operation.nodePath,
+        fromIndex,
+        toIndex: operation.index,
+      };
     } else if (operation.kind === "scene.set_property") {
       const parsedOperation = sceneSetPropertySchema.parse(operation);
       const node = context.currentScene.nodes.find((candidate) => candidate.path === parsedOperation.nodePath);

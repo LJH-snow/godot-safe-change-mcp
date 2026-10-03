@@ -1183,6 +1183,91 @@ describe("ChangeCoordinator", () => {
     assert.equal(bridge.applied.length, 0);
   });
 
+  test("previews, applies and rolls back one bounded scene node reorder", async () => {
+    const bridge = new FakeGodotBridge();
+    bridge.context = {
+      ...bridge.context,
+      currentScene: {
+        ...bridge.context.currentScene,
+        nodes: [
+          { path: ".", name: "Main", type: "Node2D", properties: {} },
+          { path: "Canvas", name: "Canvas", type: "Control", properties: {} },
+          { path: "Canvas/Title", name: "Title", type: "Label", properties: {} },
+          { path: "Canvas/ColorPanel", name: "ColorPanel", type: "ColorRect", properties: {} },
+        ],
+      },
+    };
+    const coordinator = new ChangeCoordinator(bridge);
+
+    const plan = await coordinator.previewSceneChange({
+      projectRoot,
+      reason: "Draw the title panel above the color panel.",
+      operation: { kind: "scene.reorder_node", nodePath: "Canvas/Title", index: 1 } as never,
+    });
+
+    assert.equal(plan.operations[0]?.kind, "scene.reorder_node");
+    assert.deepEqual(plan.diff[0], {
+      kind: "scene.reorder_node",
+      target: "res://main.tscn:Canvas/Title",
+      summary: "Reorder Canvas/Title from sibling index 0 to 1 in res://main.tscn",
+      nodePath: "Canvas/Title",
+      fromIndex: 0,
+      toIndex: 1,
+    });
+    const confirmation = await coordinator.confirmChange({
+      projectRoot,
+      planId: plan.planId,
+      expectedRevision: plan.expectedRevision,
+    });
+    assert.equal(confirmation.status, "confirmed");
+    const applied = await coordinator.applyChange({ projectRoot, planId: plan.planId });
+    assert.equal(applied.status, "applied");
+    assert.equal(bridge.applied[0]?.operations[0]?.kind, "scene.reorder_node");
+    const rolledBack = await coordinator.rollbackChange({ projectRoot, planId: plan.planId });
+    assert.equal(rolledBack.status, "rolled_back");
+  });
+
+  test("rejects root, missing and out-of-range scene node reorders", async () => {
+    const bridge = new FakeGodotBridge();
+    bridge.context = {
+      ...bridge.context,
+      currentScene: {
+        ...bridge.context.currentScene,
+        nodes: [
+          { path: ".", name: "Main", type: "Node2D", properties: {} },
+          { path: "Canvas", name: "Canvas", type: "Control", properties: {} },
+          { path: "Canvas/Title", name: "Title", type: "Label", properties: {} },
+        ],
+      },
+    };
+    const coordinator = new ChangeCoordinator(bridge);
+    const preview = (operation: Record<string, unknown>) =>
+      coordinator.previewSceneChange({
+        projectRoot,
+        reason: "Exercise reorder safety validation.",
+        operation: operation as never,
+      });
+
+    await assert.rejects(
+      () => preview({ kind: "scene.reorder_node", nodePath: ".", index: 1 }),
+      (error: unknown) => error instanceof DomainError && error.code === ERROR_CODES.UNSAFE_OPERATION,
+    );
+    await assert.rejects(
+      () => preview({ kind: "scene.reorder_node", nodePath: "Canvas/Missing", index: 0 }),
+      (error: unknown) => error instanceof DomainError && error.code === ERROR_CODES.VALIDATION_FAILED,
+    );
+    await assert.rejects(
+      () => preview({ kind: "scene.reorder_node", nodePath: "Canvas/Title", index: 0 }),
+      (error: unknown) => error instanceof DomainError && error.code === ERROR_CODES.OPERATION_REJECTED,
+    );
+    await assert.rejects(
+      () => preview({ kind: "scene.reorder_node", nodePath: "Canvas/Title", index: 5 }),
+      (error: unknown) => error instanceof DomainError && error.code === ERROR_CODES.VALIDATION_FAILED,
+    );
+    await assert.rejects(() => preview({ kind: "scene.reorder_node", nodePath: "Canvas/Title", index: -1 }));
+    assert.equal(bridge.applied.length, 0);
+  });
+
   test("previews attaching an existing script without executing or editing it", async () => {
     const bridge = new FakeGodotBridge();
     const coordinator = new ChangeCoordinator(bridge);
@@ -2122,4 +2207,5 @@ test("the Godot plugin exposes only the bounded vertical-link routes", async () 
   assert.match(source, /project\.autoload\.add/);
   assert.match(source, /\/v1\/autoloads\/read/);
   assert.match(source, /_is_safe_autoload_name/);
+  assert.match(source, /scene\.reorder_node/);
 });

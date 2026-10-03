@@ -39,6 +39,13 @@
 - Acceptance: 只读 autoload 快照路由支撑 preview；apply 原子保存并在失败时恢复，rollback 恢复注册前状态；TypeScript 与真实 Godot smoke 已覆盖。
 - Labels: <code>enhancement</code>、<code>godot-4.5.1</code>、<code>godot-4.7.2</code>。
 
+### Add scene.reorder_node — implemented
+
+- Scope: 调整当前场景节点在兄弟中的排序（绘制与输入顺序）。
+- Guards: 安全 NodePath、拒绝场景根、兄弟索引范围校验、无变化拒绝、expected revision。
+- Acceptance: preview 报告 fromIndex/toIndex；apply/rollback 通过 Godot UndoRedo move_child 互逆恢复；TypeScript 与真实 Godot smoke 已覆盖。
+- Labels: <code>enhancement</code>、<code>godot-4.5.1</code>、<code>godot-4.7.2</code>。
+
 ### Add verify_resource_state — implemented
 
 - Scope: 为 task 增加只读资源内容/引用断言，不提供新的写能力。

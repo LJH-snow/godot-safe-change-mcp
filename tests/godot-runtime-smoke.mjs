@@ -647,6 +647,66 @@ try {
   const autoloadAfterRollback = await bridgeRequest("/v1/autoloads/read", { projectRoot: fixtureRoot, name: "CiAutoload" });
   assert.equal(autoloadAfterRollback.body.snapshot.exists, false);
   stage("project autoload registration complete");
+  stage("scene node reorder");
+  const contextBeforeReorder = structured(await request("tools/call", {
+    name: "editor_context",
+    arguments: { projectRoot: fixtureRoot },
+  }));
+  const canvasChildrenBefore = contextBeforeReorder.currentScene.nodes.filter((node) =>
+    node.path.startsWith("Canvas/") && !node.path.slice("Canvas/".length).includes("/"));
+  const titleIndexBefore = canvasChildrenBefore.findIndex((node) => node.path === "Canvas/Title");
+  assert.equal(titleIndexBefore, 0);
+  const reorderPlan = structured(await request("tools/call", {
+    name: "preview_scene_change",
+    arguments: {
+      projectRoot: fixtureRoot,
+      reason: "Reorder a node through UndoRedo.",
+      operation: { kind: "scene.reorder_node", nodePath: "Canvas/Title", index: 1 },
+    },
+  }));
+  assert.deepEqual(reorderPlan.diff[0], {
+    kind: "scene.reorder_node",
+    target: "res://main.tscn:Canvas/Title",
+    summary: "Reorder Canvas/Title from sibling index 0 to 1 in res://main.tscn",
+    nodePath: "Canvas/Title",
+    fromIndex: 0,
+    toIndex: 1,
+  });
+  structured(await request("tools/call", {
+    name: "confirm_scene_change",
+    arguments: { projectRoot: fixtureRoot, planId: reorderPlan.planId, expectedRevision: reorderPlan.expectedRevision },
+  }));
+  const reorderApply = structured(await request("tools/call", {
+    name: "apply_scene_change",
+    arguments: { projectRoot: fixtureRoot, planId: reorderPlan.planId },
+  }));
+  assert.equal(reorderApply.status, "applied");
+  assert.equal(reorderApply.undoLabel, "Godot Safe Change: Reorder node");
+  const contextAfterReorder = structured(await request("tools/call", {
+    name: "editor_context",
+    arguments: { projectRoot: fixtureRoot },
+  }));
+  const canvasChildrenAfter = contextAfterReorder.currentScene.nodes.filter((node) =>
+    node.path.startsWith("Canvas/") && !node.path.slice("Canvas/".length).includes("/"));
+  assert.equal(canvasChildrenAfter.findIndex((node) => node.path === "Canvas/Title"), 1);
+  const reorderRollback = structured(await request("tools/call", {
+    name: "rollback_scene_change",
+    arguments: { projectRoot: fixtureRoot, planId: reorderPlan.planId },
+  }));
+  assert.equal(reorderRollback.status, "rolled_back");
+  const contextAfterReorderRollback = structured(await request("tools/call", {
+    name: "editor_context",
+    arguments: { projectRoot: fixtureRoot },
+  }));
+  const canvasChildrenRestored = contextAfterReorderRollback.currentScene.nodes.filter((node) =>
+    node.path.startsWith("Canvas/") && !node.path.slice("Canvas/".length).includes("/"));
+  assert.equal(canvasChildrenRestored.findIndex((node) => node.path === "Canvas/Title"), 0);
+  await expectToolError("preview_scene_change", {
+    projectRoot: fixtureRoot,
+    reason: "Reject a reorder that changes nothing.",
+    operation: { kind: "scene.reorder_node", nodePath: "Canvas/Title", index: 0 },
+  }, /OPERATION_REJECTED/);
+  stage("scene node reorder complete");
   const initialCurrentSceneRun = structured(await request("tools/call", {
     name: "run_current_scene",
     arguments: { projectRoot: fixtureRoot, timeoutMs: 30000 },

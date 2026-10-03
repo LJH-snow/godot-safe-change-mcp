@@ -53,7 +53,7 @@ const capabilities = {
     "task_pause_resume_cancel",
   ],
   writePolicy:
-    "Bounded scene.create_node, scene.delete_node, scene.reparent_node, scene.rename_node, scene.duplicate_node, scene.instantiate_scene, scene.connect_signal, scene.disconnect_signal, scene.add_group, scene.remove_group, scene.set_property, scene.attach_script, scene.detach_script, project.autoload.add, and project.autoload.remove operations are supported. Preview, confirmation, expected scene and source-resource revisions, Godot UndoRedo, and revision-guarded rollback are required for the write lifecycle.",
+    "Bounded scene.create_node, scene.delete_node, scene.reparent_node, scene.rename_node, scene.duplicate_node, scene.reorder_node, scene.instantiate_scene, scene.connect_signal, scene.disconnect_signal, scene.add_group, scene.remove_group, scene.set_property, scene.attach_script, scene.detach_script, project.autoload.add, and project.autoload.remove operations are supported. Preview, confirmation, expected scene and source-resource revisions, Godot UndoRedo, and revision-guarded rollback are required for the write lifecycle.",
   forbidden: [
     "arbitrary GDScript execution",
     "shell execution",
