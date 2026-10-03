@@ -444,11 +444,16 @@ func _append_scene_node(scene_root: Node, node: Node, nodes: Array) -> void:
         _append_scene_node(scene_root, child, nodes)
 
 func _node_context(scene_root: Node, node: Node) -> Dictionary:
+    var group_names: Array[String] = []
+    for group_name in node.get_groups():
+        group_names.append(String(group_name))
+    group_names.sort()
     return {
         "path": String(scene_root.get_path_to(node)),
         "name": String(node.name),
         "type": String(node.get_class()),
         "properties": _safe_node_properties(node),
+        "groups": group_names,
     }
 
 func _scene_node(scene_root: Node, node_path: String) -> Node:
@@ -742,6 +747,15 @@ func _validate_change_request(request_body: Dictionary) -> Dictionary:
             return _failure("VALIDATION_FAILED", "signalName contains unsupported characters.")
         if disconnect_signal_name_regex.search(String(operation["methodName"])) == null:
             return _failure("VALIDATION_FAILED", "methodName contains unsupported characters.")
+    elif kind == "scene.add_group" or kind == "scene.remove_group":
+        if not _has_exact_keys(operation, ["kind", "nodePath", "group"]):
+            return _failure("VALIDATION_FAILED", "scene.add_group / scene.remove_group contain unsupported or missing fields.")
+        if not _is_safe_node_path(String(operation["nodePath"])):
+            return _failure("VALIDATION_FAILED", "nodePath must be a safe relative NodePath.")
+        var group_name_regex := RegEx.new()
+        group_name_regex.compile("^[A-Za-z_][A-Za-z0-9_]{0,63}$")
+        if group_name_regex.search(String(operation["group"])) == null:
+            return _failure("VALIDATION_FAILED", "group contains unsupported characters.")
     elif kind == "scene.set_property":
         if not _has_exact_keys(operation, ["kind", "nodePath", "property", "value"]):
             return _failure("VALIDATION_FAILED", "scene.set_property contains unsupported or missing fields.")
@@ -917,6 +931,10 @@ func _apply_change(body: Variant) -> Dictionary:
         return _apply_connect_signal(request_body, scene_root, scene_path)
     if String(operation.get("kind", "")) == "scene.disconnect_signal":
         return _apply_disconnect_signal(request_body, scene_root, scene_path)
+    if String(operation.get("kind", "")) == "scene.add_group":
+        return _apply_add_group(request_body, scene_root, scene_path)
+    if String(operation.get("kind", "")) == "scene.remove_group":
+        return _apply_remove_group(request_body, scene_root, scene_path)
     if String(operation.get("kind", "")) == "resource.replace_reference":
         return _apply_resource_change(request_body, scene_root, scene_path)
     if String(operation.get("kind", "")) in ["project.input_action.add_key", "project.input_action.remove_key", "project.input_action.replace_key"]:
@@ -1935,6 +1953,86 @@ func _disconnect_scene_signal(source: Node, signal_name: String, target: Node, m
     var callable := Callable(target, method_name)
     if source.is_connected(signal_name, callable):
         source.disconnect(signal_name, callable)
+
+func _apply_add_group(request_body: Dictionary, scene_root: Node, scene_path: String) -> Dictionary:
+    var operation: Dictionary = request_body["operations"][0]
+    var node_path := String(operation.get("nodePath", ""))
+    var group_name := String(operation.get("group", ""))
+    if not _is_safe_node_path(node_path):
+        return _failure("VALIDATION_FAILED", "nodePath must be a safe relative NodePath.")
+    var group_name_regex := RegEx.new()
+    group_name_regex.compile("^[A-Za-z_][A-Za-z0-9_]{0,63}$")
+    if group_name_regex.search(group_name) == null:
+        return _failure("VALIDATION_FAILED", "group contains unsupported characters.")
+
+    var node: Node = _scene_node(scene_root, node_path)
+    if node == null:
+        return _failure("VALIDATION_FAILED", "The target node must exist in the current scene.")
+    if node.is_in_group(group_name):
+        return _failure("OPERATION_REJECTED", "The node already belongs to the requested group.")
+
+    var undo_redo := get_undo_redo()
+    undo_redo.create_action("Godot Safe Change: Add group", 0, scene_root)
+    undo_redo.add_do_method(self, "_add_scene_group", node, group_name)
+    undo_redo.add_undo_method(self, "_remove_scene_group", node, group_name)
+    undo_redo.commit_action()
+    EditorInterface.mark_scene_as_unsaved()
+    last_applied_plan_id = String(request_body.get("planId", ""))
+    last_applied_revision = _current_revision(scene_root, scene_path)
+    _clear_file_action_state()
+    _record_scene_action(scene_root, scene_path, "scene.add_group", "Godot Safe Change: Add group")
+    return _success("report", {
+        "schemaVersion": "0.2",
+        "planId": last_applied_plan_id,
+        "status": "applied",
+        "revision": last_applied_revision,
+        "operationCount": 1,
+        "undoLabel": last_applied_undo_label,
+    })
+
+func _apply_remove_group(request_body: Dictionary, scene_root: Node, scene_path: String) -> Dictionary:
+    var operation: Dictionary = request_body["operations"][0]
+    var node_path := String(operation.get("nodePath", ""))
+    var group_name := String(operation.get("group", ""))
+    if not _is_safe_node_path(node_path):
+        return _failure("VALIDATION_FAILED", "nodePath must be a safe relative NodePath.")
+    var group_name_regex := RegEx.new()
+    group_name_regex.compile("^[A-Za-z_][A-Za-z0-9_]{0,63}$")
+    if group_name_regex.search(group_name) == null:
+        return _failure("VALIDATION_FAILED", "group contains unsupported characters.")
+
+    var node: Node = _scene_node(scene_root, node_path)
+    if node == null:
+        return _failure("VALIDATION_FAILED", "The target node must exist in the current scene.")
+    if not node.is_in_group(group_name):
+        return _failure("OPERATION_REJECTED", "The node does not belong to the requested group.")
+
+    var undo_redo := get_undo_redo()
+    undo_redo.create_action("Godot Safe Change: Remove group", 0, scene_root)
+    undo_redo.add_do_method(self, "_remove_scene_group", node, group_name)
+    undo_redo.add_undo_method(self, "_add_scene_group", node, group_name)
+    undo_redo.commit_action()
+    EditorInterface.mark_scene_as_unsaved()
+    last_applied_plan_id = String(request_body.get("planId", ""))
+    last_applied_revision = _current_revision(scene_root, scene_path)
+    _clear_file_action_state()
+    _record_scene_action(scene_root, scene_path, "scene.remove_group", "Godot Safe Change: Remove group")
+    return _success("report", {
+        "schemaVersion": "0.2",
+        "planId": last_applied_plan_id,
+        "status": "applied",
+        "revision": last_applied_revision,
+        "operationCount": 1,
+        "undoLabel": last_applied_undo_label,
+    })
+
+func _add_scene_group(node: Node, group_name: String) -> void:
+    if is_instance_valid(node) and not node.is_in_group(group_name):
+        node.add_to_group(group_name)
+
+func _remove_scene_group(node: Node, group_name: String) -> void:
+    if is_instance_valid(node) and node.is_in_group(group_name):
+        node.remove_from_group(group_name)
 
 func _scene_subtree_owned_by(node: Node, scene_root: Node) -> bool:
     if node != scene_root and node.owner != null and node.owner != scene_root:

@@ -90,6 +90,7 @@ export const sceneNodeSchema = z.object({
   name: z.string(),
   type: z.string(),
   properties: z.record(z.string(), z.unknown()),
+  groups: z.array(z.string()).optional(),
 });
 
 export const editorContextSchema = z.object({

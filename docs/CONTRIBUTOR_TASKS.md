@@ -25,6 +25,13 @@
 - Acceptance: apply 只移除指定连接，rollback 恢复连接；误删其他连接必须被拒绝；TypeScript 和真实 Godot smoke 已覆盖。
 - Labels: <code>enhancement</code>、<code>godot-4.5.1</code>、<code>godot-4.7.2</code>。
 
+### Add scene group management — implemented
+
+- Scope: 通过 scene.add_group / scene.remove_group 管理当前场景节点的分组成员关系。
+- Guards: 安全 NodePath、组名字符集与长度、重复添加和缺失成员拒绝、expected revision。
+- Acceptance: editor_context 暴露只读 groups；apply/rollback 通过 Godot UndoRedo 互逆恢复；TypeScript 与真实 Godot smoke 已覆盖。
+- Labels: <code>enhancement</code>、<code>godot-4.5.1</code>、<code>godot-4.7.2</code>。
+
 ### Add verify_resource_state — implemented
 
 - Scope: 为 task 增加只读资源内容/引用断言，不提供新的写能力。

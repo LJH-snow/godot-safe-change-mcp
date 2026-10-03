@@ -158,8 +158,8 @@ flowchart LR
 | Area | Tools and operations | What it covers |
 | --- | --- | --- |
 | Project intelligence | <code>project_overview</code>, <code>search_project</code>, <code>find_references</code> | Scenes, nodes, scripts, resources, signals, input actions, and reverse references. |
-| Editor context | <code>editor_context</code> | Full current scene tree, selected-node properties, open resources, run state, and diagnostics. |
-| Scene structure | create, delete, reparent, rename, duplicate, instantiate, connect/disconnect signal | Safe NodePaths, ownership, names, parent relationships, instance source paths, and signal/method validation; connections and disconnections use Godot UndoRedo apply/rollback. |
+| Editor context | <code>editor_context</code> | Full current scene tree with node groups, selected-node properties, open resources, run state, and diagnostics. |
+| Scene structure | create, delete, reparent, rename, duplicate, instantiate, connect/disconnect signal, add/remove group | Safe NodePaths, ownership, names, parent relationships, instance source paths, signal/method validation, and group membership checks; connections, disconnections, and group changes use Godot UndoRedo apply/rollback. |
 | Scene content | <code>scene.set_property</code>, <code>scene.attach_script</code>, <code>scene.detach_script</code> | Allowlisted visible, position, rotation_degrees, scale, size, text, and color properties plus project-local GDScript attachment/detachment. |
 | Files and settings | resource references, input actions, script ranges | File or project-settings revision guards, atomic writes, and rollback. |
 | Runtime evidence | <code>run_current_scene</code>, <code>run_scene</code> | Run IDs, terminal state, output, warnings, errors, source, line, and NodePath evidence. |
