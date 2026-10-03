@@ -411,3 +411,4 @@
 - 已先写 script.create_file 的 preview/apply/rollback 与已存在/遍历路径/非 .gd/空内容/超长内容红灯测试。
 - 已实现脚本创建：res:// .gd 路径与内容双端校验，原子写入复用 _atomic_replace_script，回滚在内容哈希未变时删除创建的文件（用户修改后拒绝删除），coordinator file-revision 重读分支覆盖 create。
 - 本地 129 项测试、typecheck 通过；真实 Godot smoke 覆盖创建→读取验证→重复拒绝→rollback 删除，待双版本 CI 验证后收尾。
+- push run 37138962606 的 check、package boundary、Godot 4.5.1 和 Godot 4.7.2 四个 job 全部通过；Phase 35 按完成定义收尾，经 PR #27 以 merge commit 合入 main。

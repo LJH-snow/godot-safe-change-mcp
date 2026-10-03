@@ -389,11 +389,11 @@
 
 ## Phase 35 — 脚本文件创建
 
-状态：in_progress
+状态：complete
 
 - [x] 增加 script.create_file preview/apply/rollback：res:// .gd 路径与内容双端校验（非空、≤100000 字符）、已存在拒绝、原子写入。
 - [x] 回滚在内容哈希未变时删除创建的文件，用户修改后拒绝删除；补齐 coordinator file-revision 重读分支。
-- [x] TypeScript 回归与真实 Godot smoke 场景（创建 → 读取验证 → 重复拒绝 → rollback 删除）已就绪，待双版本 CI 验证后收尾。
+- [x] TypeScript 回归与真实 Godot smoke 场景（创建 → 读取验证 → 重复拒绝 → rollback 删除）全部通过；push run 37138962606 的 check、package boundary、Godot 4.5.1 和 Godot 4.7.2 四个 job 全部通过。
 
 ## 完成定义
 
