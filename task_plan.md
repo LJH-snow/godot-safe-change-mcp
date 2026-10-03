@@ -268,6 +268,7 @@
 - [x] 增加 examples/starter 最小 Godot 项目，提供可复制的首条安全变更体验。
 - [x] 在双版本 Godot CI 中打开并验证 examples/starter 项目。
 - [x] 增加 60 秒 demo storyboard，固定录制步骤、旁白和发布前检查。
+- [x] 增加 FAQ，集中说明 Inspector、Godot bridge、错误码、rollback 和 npm 安装。
 - [x] 录制真实 starter fixture GIF，覆盖 context、search、preview、confirm、apply 和 rollback。
 - [x] 准备中英文社区发布文案和反馈问题，发布前先由用户选择渠道并确认发送。
 - [x] 为外部反馈和新贡献者准备 GitHub 标签：starter、release-feedback、growth 和 Godot 版本标签。

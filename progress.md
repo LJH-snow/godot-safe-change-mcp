@@ -1,5 +1,10 @@
 # 进度记录
 
+## 2026-10-03 onboarding FAQ
+
+- 新增 docs/FAQ.md，覆盖 Inspector 下载/使用、Godot bridge、EDITOR_UNAVAILABLE、PROJECT_BUSY、REVISION_CONFLICT、rollback、CI smoke 和 npm 安装。
+- README 加入 FAQ 入口；社区发布仍按用户要求暂缓。
+
 ## 2026-10-03 community trust documents
 
 - 新增 CODE_OF_CONDUCT.md 和 SECURITY.md，并在双语 README 加入入口。

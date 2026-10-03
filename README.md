@@ -234,6 +234,7 @@ npm run package:check
 - [安全策略](SECURITY.md)
 - [增长与社区采用计划](docs/GROWTH.md)
 - [Agent 示例](docs/EXAMPLES.md)
+- [常见问题](docs/FAQ.md)
 - [60 秒演示脚本](docs/DEMO.md)
 - [社区发布文案](docs/ANNOUNCEMENTS.md)
 - [Starter fixture](examples/starter/README.md)
