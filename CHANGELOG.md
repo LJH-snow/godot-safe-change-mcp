@@ -6,6 +6,7 @@ All notable changes to Godot Safe Change MCP will be documented here.
 
 - Continue the community adoption work tracked in docs/GROWTH.md.
 - Keep the preview, confirmation, lease, revision, verification, and rollback lifecycle stable.
+- Added complete MCP tool annotations (readOnly, destructive, idempotent, and open-world hints) across all registered tools.
 
 ## 1.1.0 - 2026-10-03
 

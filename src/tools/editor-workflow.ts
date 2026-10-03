@@ -34,7 +34,7 @@ export function registerEditorContextTool(
       description: "Read the connected Godot editor context without changing the project.",
       inputSchema: runCurrentSceneInputSchema.pick({ projectRoot: true }),
       outputSchema: editorContextSchema,
-      annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     },
     async ({ projectRoot }) => {
       try {
@@ -61,7 +61,7 @@ export function registerPreviewSceneChangeTool(
       description: "Create a reviewable preview for one allowlisted scene node operation.",
       inputSchema: previewSceneChangeInputSchema,
       outputSchema: changePlanSchema,
-      annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     },
     async (input: PreviewSceneChangeInput) => {
       try {
@@ -88,7 +88,7 @@ export function registerPreviewDiagnosticRepairTool(
       description: "Turn an explicit bounded diagnostic repair hint into a reviewable scene plan.",
       inputSchema: previewRepairFromDiagnosticInputSchema,
       outputSchema: changePlanSchema,
-      annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     },
     async (input) => {
       try {
@@ -115,7 +115,7 @@ export function registerConfirmChangeTool(
       description: "Confirm one preview after checking its diff and expected editor revision.",
       inputSchema: confirmChangeInputSchema,
       outputSchema: confirmedChangeSchema,
-      annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
     },
     async (input: ConfirmChangeInput) => {
       try {
@@ -142,7 +142,7 @@ export function registerApplyChangeTool(
       description: "Apply one confirmed scene node operation through Godot UndoRedo.",
       inputSchema: applyChangeInputSchema,
       outputSchema: changeReportSchema,
-      annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
     },
     async (input: ApplyChangeInput) => {
       try {
@@ -169,7 +169,7 @@ export function registerRunCurrentSceneTool(
       description: "Run the current scene through the editor and return collected diagnostics.",
       inputSchema: runCurrentSceneInputSchema,
       outputSchema: runDiagnosticsSchema,
-      annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
     },
     async (input: RunCurrentSceneInput) => {
       try {
@@ -197,7 +197,7 @@ export function registerRunSceneTool(
         "Run one res:// .tscn scene through the editor and return collected diagnostics.",
       inputSchema: runSceneInputSchema,
       outputSchema: runDiagnosticsSchema,
-      annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
     },
     async (input: RunSceneInput) => {
       try {
@@ -224,7 +224,7 @@ export function registerRollbackChangeTool(
       description: "Undo the latest applied plan only when its revision is still current.",
       inputSchema: applyChangeInputSchema,
       outputSchema: rollbackReportSchema,
-      annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
     },
     async (input: ApplyChangeInput) => {
       try {

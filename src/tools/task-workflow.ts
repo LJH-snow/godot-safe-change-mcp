@@ -22,7 +22,7 @@ export function registerCreateTaskTool(server: MCPServer, coordinator: TaskCoord
         "Declare bounded apply, rollback, run, verification and diagnostic-repair steps; repair previews pause for user review and apply only after confirmation.",
       inputSchema: createTaskInputSchema,
       outputSchema: taskStateSchema,
-      annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
     },
     async (input: CreateTaskInput) => {
       try {
@@ -47,7 +47,7 @@ export function registerGetTaskTool(server: MCPServer, coordinator: TaskCoordina
         "Read the persisted task timeline, including per-step status, attempts and evidence.",
       inputSchema: taskIdInputSchema,
       outputSchema: taskStateSchema,
-      annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     },
     async (input: TaskIdInput) => {
       try {
@@ -71,7 +71,7 @@ export function registerTaskStatusTool(server: MCPServer, coordinator: TaskCoord
       description: "Read task state, lease owner, expiry and recoverability after a restart.",
       inputSchema: taskIdInputSchema,
       outputSchema: taskStateSchema,
-      annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     },
     async (input: TaskIdInput) => {
       try {
@@ -96,7 +96,7 @@ export function registerTaskTimelineTool(server: MCPServer, coordinator: TaskCoo
         "Read a filtered, read-only task timeline by step, event type and ISO time range.",
       inputSchema: taskTimelineInputSchema,
       outputSchema: taskTimelineReportSchema,
-      annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     },
     async (input) => {
       try {
@@ -120,7 +120,7 @@ export function registerAcquireTaskLeaseTool(server: MCPServer, coordinator: Tas
       description: "Hold a project lease across multiple task steps until released or expired.",
       inputSchema: acquireTaskLeaseInputSchema,
       outputSchema: taskStateSchema,
-      annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
     },
     async (input) => {
       try {
@@ -144,7 +144,7 @@ export function registerRenewTaskLeaseTool(server: MCPServer, coordinator: TaskC
       description: "Extend an owned task lease before it expires.",
       inputSchema: taskLeaseInputSchema,
       outputSchema: taskStateSchema,
-      annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
     },
     async (input) => {
       try {
@@ -168,7 +168,7 @@ export function registerReleaseTaskLeaseTool(server: MCPServer, coordinator: Tas
       description: "Release an owned task lease so another window can resume the task.",
       inputSchema: taskLeaseInputSchema,
       outputSchema: taskStateSchema,
-      annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
     },
     async (input) => {
       try {
@@ -193,7 +193,7 @@ export function registerAdvanceTaskTool(server: MCPServer, coordinator: TaskCoor
         "Execute the next pending or failed step; a failed step is retried through the same guards.",
       inputSchema: taskIdInputSchema,
       outputSchema: taskStateSchema,
-      annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
     },
     async (input: TaskIdInput) => {
       try {
@@ -217,7 +217,7 @@ export function registerPauseTaskTool(server: MCPServer, coordinator: TaskCoordi
       description: "Pause an active task so advance_task is rejected until it is resumed.",
       inputSchema: taskIdInputSchema,
       outputSchema: taskStateSchema,
-      annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
     },
     async (input: TaskIdInput) => {
       try {
@@ -241,7 +241,7 @@ export function registerResumeTaskTool(server: MCPServer, coordinator: TaskCoord
       description: "Resume a paused task so its remaining steps can advance again.",
       inputSchema: taskIdInputSchema,
       outputSchema: taskStateSchema,
-      annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
     },
     async (input: TaskIdInput) => {
       try {
@@ -266,7 +266,7 @@ export function registerCancelTaskTool(server: MCPServer, coordinator: TaskCoord
         "Cancel an active, paused or failed task; pending steps become cancelled and cannot advance.",
       inputSchema: taskIdInputSchema,
       outputSchema: taskStateSchema,
-      annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
     },
     async (input: TaskIdInput) => {
       try {
