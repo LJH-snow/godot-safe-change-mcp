@@ -833,6 +833,131 @@ describe("ChangeCoordinator", () => {
     );
   });
 
+  test("previews, applies and rolls back one exact scene signal disconnect", async () => {
+    const bridge = new FakeGodotBridge();
+    bridge.context = {
+      ...bridge.context,
+      currentScene: {
+        ...bridge.context.currentScene,
+        nodes: [
+          { path: ".", name: "Main", type: "Node2D", properties: {} },
+          { path: "Canvas/Title", name: "Title", type: "Label", properties: {} },
+          { path: "Canvas/Other", name: "Other", type: "Node", properties: {} },
+        ],
+      },
+    };
+    bridge.sceneSignalsSnapshot = {
+      path: "res://main.tscn",
+      revision: "revision-1",
+      nodes: [
+        {
+          nodePath: "Canvas/Title",
+          signals: ["visibility_changed"],
+          methods: ["show", "hide"],
+          connections: [
+            { signalName: "visibility_changed", targetPath: ".", methodName: "on_title_visibility_changed" },
+            { signalName: "visibility_changed", targetPath: "Canvas/Other", methodName: "on_other_visibility_changed" },
+          ],
+        },
+        {
+          nodePath: ".",
+          signals: ["tree_entered"],
+          methods: ["_ready", "on_title_visibility_changed"],
+          connections: [],
+        },
+        {
+          nodePath: "Canvas/Other",
+          signals: [],
+          methods: ["on_other_visibility_changed"],
+          connections: [],
+        },
+      ],
+    };
+    const coordinator = new ChangeCoordinator(bridge);
+
+    const plan = await coordinator.previewSceneChange({
+      projectRoot,
+      reason: "Disconnect only the title visibility handler.",
+      operation: {
+        kind: "scene.disconnect_signal",
+        sourcePath: "Canvas/Title",
+        signalName: "visibility_changed",
+        targetPath: ".",
+        methodName: "on_title_visibility_changed",
+      } as never,
+    });
+
+    assert.equal(plan.operations[0]?.kind, "scene.disconnect_signal");
+    assert.deepEqual(plan.diff[0], {
+      kind: "scene.disconnect_signal",
+      target: "res://main.tscn:Canvas/Title.visibility_changed -> .on_title_visibility_changed",
+      summary: "Disconnect Canvas/Title.visibility_changed from .on_title_visibility_changed in res://main.tscn",
+      sourcePath: "Canvas/Title",
+      signalName: "visibility_changed",
+      targetPath: ".",
+      methodName: "on_title_visibility_changed",
+    });
+    const confirmation = await coordinator.confirmChange({
+      projectRoot,
+      planId: plan.planId,
+      expectedRevision: plan.expectedRevision,
+    });
+    assert.equal(confirmation.status, "confirmed");
+    const applied = await coordinator.applyChange({ projectRoot, planId: plan.planId });
+    assert.equal(applied.status, "applied");
+    assert.equal(bridge.applied[0]?.operations[0]?.kind, "scene.disconnect_signal");
+    const rolledBack = await coordinator.rollbackChange({ projectRoot, planId: plan.planId });
+    assert.equal(rolledBack.status, "rolled_back");
+  });
+
+  test("rejects disconnecting a signal connection that is not an exact match", async () => {
+    const bridge = new FakeGodotBridge();
+    bridge.context = {
+      ...bridge.context,
+      currentScene: {
+        ...bridge.context.currentScene,
+        nodes: [
+          { path: ".", name: "Main", type: "Node2D", properties: {} },
+          { path: "Canvas/Title", name: "Title", type: "Label", properties: {} },
+        ],
+      },
+    };
+    bridge.sceneSignalsSnapshot = {
+      path: "res://main.tscn",
+      revision: "revision-1",
+      nodes: [
+        {
+          nodePath: "Canvas/Title",
+          signals: ["visibility_changed"],
+          methods: ["show"],
+          connections: [{ signalName: "visibility_changed", targetPath: ".", methodName: "other_handler" }],
+        },
+        {
+          nodePath: ".",
+          signals: ["tree_entered"],
+          methods: ["_ready", "on_title_visibility_changed"],
+          connections: [],
+        },
+      ],
+    };
+    const coordinator = new ChangeCoordinator(bridge);
+
+    await assert.rejects(
+      () => coordinator.previewSceneChange({
+        projectRoot,
+        reason: "Reject an absent exact signal connection.",
+        operation: {
+          kind: "scene.disconnect_signal",
+          sourcePath: "Canvas/Title",
+          signalName: "visibility_changed",
+          targetPath: ".",
+          methodName: "on_title_visibility_changed",
+        } as never,
+      }),
+      (error: unknown) => error instanceof DomainError && error.code === ERROR_CODES.OPERATION_REJECTED,
+    );
+  });
+
   test("previews attaching an existing script without executing or editing it", async () => {
     const bridge = new FakeGodotBridge();
     const coordinator = new ChangeCoordinator(bridge);

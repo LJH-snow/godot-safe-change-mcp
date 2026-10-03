@@ -482,6 +482,75 @@ export class ChangeCoordinator {
         targetPath: operation.targetPath,
         methodName: operation.methodName,
       };
+    } else if (operation.kind === "scene.disconnect_signal") {
+      const sourceNode = context.currentScene.nodes.find((candidate) => candidate.path === operation.sourcePath);
+      const targetNode = context.currentScene.nodes.find((candidate) => candidate.path === operation.targetPath);
+      if (sourceNode === undefined || targetNode === undefined) {
+        throw new DomainError(
+          ERROR_CODES.VALIDATION_FAILED,
+          "The signal source and target nodes must exist in the current scene.",
+          { sourcePath: operation.sourcePath, targetPath: operation.targetPath },
+        );
+      }
+      const signalSnapshot = await this.bridge.readSceneSignals(projectRoot);
+      if (signalSnapshot.path !== scenePath || signalSnapshot.revision !== context.revision) {
+        throw new DomainError(
+          ERROR_CODES.REVISION_CONFLICT,
+          "The scene changed while reading its signal declarations.",
+          { expectedRevision: context.revision, actualRevision: signalSnapshot.revision },
+        );
+      }
+      const sourceSignals = signalSnapshot.nodes.find((node) => node.nodePath === operation.sourcePath);
+      const targetSignals = signalSnapshot.nodes.find((node) => node.nodePath === operation.targetPath);
+      if (sourceSignals === undefined || !sourceSignals.signals.includes(operation.signalName)) {
+        throw new DomainError(
+          ERROR_CODES.VALIDATION_FAILED,
+          "The requested signal does not exist on the source node.",
+          { sourcePath: operation.sourcePath, signalName: operation.signalName },
+        );
+      }
+      if (targetSignals === undefined || !targetSignals.methods.includes(operation.methodName)) {
+        throw new DomainError(
+          ERROR_CODES.VALIDATION_FAILED,
+          "The requested target method does not exist on the target node.",
+          { targetPath: operation.targetPath, methodName: operation.methodName },
+        );
+      }
+      if (
+        !sourceSignals.connections.some(
+          (connection) =>
+            connection.signalName === operation.signalName &&
+            connection.targetPath === operation.targetPath &&
+            connection.methodName === operation.methodName,
+        )
+      ) {
+        throw new DomainError(
+          ERROR_CODES.OPERATION_REJECTED,
+          "The requested signal connection does not exist.",
+          {
+            sourcePath: operation.sourcePath,
+            signalName: operation.signalName,
+            targetPath: operation.targetPath,
+            methodName: operation.methodName,
+          },
+        );
+      }
+      const targetMethod = operation.targetPath === "."
+        ? "." + operation.methodName
+        : operation.targetPath + "." + operation.methodName;
+      diff = {
+        kind: "scene.disconnect_signal" as const,
+        target:
+          scenePath + ":" + operation.sourcePath + "." + operation.signalName +
+          " -> " + targetMethod,
+        summary:
+          "Disconnect " + operation.sourcePath + "." + operation.signalName +
+          " from " + targetMethod + " in " + scenePath,
+        sourcePath: operation.sourcePath,
+        signalName: operation.signalName,
+        targetPath: operation.targetPath,
+        methodName: operation.methodName,
+      };
     } else if (operation.kind === "scene.set_property") {
       const parsedOperation = sceneSetPropertySchema.parse(operation);
       const node = context.currentScene.nodes.find((candidate) => candidate.path === parsedOperation.nodePath);

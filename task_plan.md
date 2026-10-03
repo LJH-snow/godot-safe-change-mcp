@@ -286,6 +286,14 @@
 - [x] 增加 npm run release:check，拒绝 package/lockfile、tag、CI URL、CI job、README 链接和发布资产不一致。
 - [x] 将发布校验接入 prepublishOnly 与 npm package boundary CI job，并覆盖 tag、head、CI URL 和缺失资产边界测试。
 
+## Phase 22 — 安全断开场景信号
+
+状态：in_progress
+
+- [x] 增加 scene.disconnect_signal 契约、精确连接预览和缺失连接拒绝。
+- [x] 通过 Godot UndoRedo 实现 apply/rollback，并保持 preview、confirm、revision 和 history 守卫。
+- [x] 增加 TypeScript 回归和真实 Godot smoke；待双版本 CI 在本次提交上验证后收尾。
+
 ## 完成定义
 
 只有在验收标准全部满足、自动化检查通过，并且真实或 fixture Godot 链路有可复现证据后，才将所有阶段标记为 `complete`。

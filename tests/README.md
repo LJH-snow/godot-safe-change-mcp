@@ -12,7 +12,7 @@ Automated coverage currently includes:
 - task lease/recovery: acquire, renew, release, heartbeat failure pause, same-window and cross-window TTL takeover, interrupted-step operationId recovery, filtered task timeline and conflict handling;
 - diagnostics: source/line/NodePath association and preview generation from explicit repair hints;
 - script and resource changes: bounded .gd/resource replacement, temporary-file atomic apply, file revision guard, user-edit conflict and rollback;
-- scene changes: UndoRedo-backed create, property and script-attachment operations with rollback history/version/action guards;
+- scene changes: UndoRedo-backed create, property, signal connect/disconnect and script-attachment operations with rollback history/version/action guards;
 - input actions: bounded ProjectSettings key addition/removal/replacement for physical keys, direct-plugin rejection of equal, logical, duplicate and occupied keys, settings revision guard and rollback after external edits;
 - multi-step tasks: bounded task state machine with apply/rollback/run/verify/diagnostic-repair preview+apply steps, pause/resume/cancel transitions, explicit lease acquire/renew/release, retry budget, project-directory persistence and restart recovery; repair apply is gated by a separate confirmation;
 - HTTP bridge: loopback protocol envelopes, context/search/apply requests, current-scene and specified-scene run status polling;
@@ -45,6 +45,7 @@ The real EditorPlugin check uses godot-fixture and requires a local Godot 4.x ed
 6. Verify currentScene.nodes includes the full scene tree and safe properties such as position, visible, text or color.
 7. Call preview_scene_change for a Node2D named SafeMarker under parentPath . Verify that only a diff is returned.
 7a. Preview, confirm, apply, and roll back a signal connection from Canvas/Title.visibility_changed to the scene root method _ready; unknown signals, missing methods, duplicate connections, and unsafe NodePaths must be rejected.
+7b. Preview, confirm, apply, and roll back an exact disconnect of that signal connection; an absent tuple must be rejected without touching other connections.
 8. Send a direct loopback `/v1/changes/apply` request with `nodePath: "../Canvas"` and verify the plugin itself returns HTTP 400 with `VALIDATION_FAILED`, without relying on MCP/Zod validation.
 9. Call confirm_scene_change with the returned planId and expectedRevision.
 10. Call apply_scene_change and verify the node appears in the scene tree and the report contains an undo label and new revision.

@@ -86,7 +86,7 @@ After checking the editor context or running the scene, roll back the same plan 
 }
 ~~~
 
-## 3. Instantiate a scene and connect a signal
+## 3. Instantiate a scene and manage a signal
 
 Both operations are bounded to the current scene. Existing scenes, signals, target methods, duplicate connections, and NodePaths are validated before apply.
 
@@ -126,6 +126,27 @@ For a signal connection, preview the source signal and target method separately:
 ~~~
 
 Confirm and apply each plan independently, then use editor_context to verify the scene tree and signal behavior. Roll back in reverse order if the change is no longer wanted.
+
+To remove only an existing exact connection, use the same source, signal, target and method tuple:
+
+~~~json
+{
+  "name": "preview_scene_change",
+  "arguments": {
+    "projectRoot": "/path/to/my-godot-project",
+    "reason": "Disconnect the HUD visibility handler without touching other connections.",
+    "operation": {
+      "kind": "scene.disconnect_signal",
+      "sourcePath": "HUD/Panel",
+      "signalName": "visibility_changed",
+      "targetPath": ".",
+      "methodName": "_on_hud_visibility_changed"
+    }
+  }
+}
+~~~
+
+The preview is rejected when the exact connection is absent; applying and rolling back the plan only removes and restores that tuple.
 
 ## 4. Run and verify a task with a lease
 

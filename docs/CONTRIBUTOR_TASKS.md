@@ -18,11 +18,11 @@
 
 ## Intermediate
 
-### Add scene.disconnect_signal
+### Add scene.disconnect_signal — implemented
 
 - Scope: 复用 scene.connect_signal 的 signal/method 快照，预览并安全断开一个已有连接。
 - Guards: 源/目标 NodePath、signal、method、已有 connection、expected revision、UndoRedo history。
-- Acceptance: apply 只移除指定连接，rollback 恢复连接；误删其他连接必须被拒绝。
+- Acceptance: apply 只移除指定连接，rollback 恢复连接；误删其他连接必须被拒绝；TypeScript 和真实 Godot smoke 已覆盖。
 - Labels: <code>enhancement</code>、<code>godot-4.5.1</code>、<code>godot-4.7.2</code>。
 
 ### Add verify_resource_state

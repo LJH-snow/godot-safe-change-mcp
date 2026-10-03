@@ -444,6 +444,74 @@ try {
     connection.targetPath === "." &&
     connection.methodName === "_ready",
   ), false);
+  const setupContext = await bridgeRequest("/v1/context", { projectRoot: fixtureRoot });
+  assert.equal(setupContext.body.ok, true, JSON.stringify(setupContext.body));
+  const directSetup = await bridgeRequest("/v1/changes/apply", {
+    projectRoot: fixtureRoot,
+    planId: "disconnect-setup",
+    expectedRevision: setupContext.body.context.revision,
+    operations: [{
+      kind: "scene.connect_signal",
+      sourcePath: "Canvas/Title",
+      signalName: "visibility_changed",
+      targetPath: ".",
+      methodName: "_ready",
+    }],
+  });
+  assert.equal(directSetup.body.ok, true, JSON.stringify(directSetup.body));
+  const disconnectPlan = structured(await request("tools/call", {
+    name: "preview_scene_change",
+    arguments: {
+      projectRoot: fixtureRoot,
+      reason: "Disconnect one exact signal connection through UndoRedo.",
+      operation: {
+        kind: "scene.disconnect_signal",
+        sourcePath: "Canvas/Title",
+        signalName: "visibility_changed",
+        targetPath: ".",
+        methodName: "_ready",
+      },
+    },
+  }));
+  assert.deepEqual(disconnectPlan.diff[0], {
+    kind: "scene.disconnect_signal",
+    target: "res://main.tscn:Canvas/Title.visibility_changed -> ._ready",
+    summary: "Disconnect Canvas/Title.visibility_changed from ._ready in res://main.tscn",
+    sourcePath: "Canvas/Title",
+    signalName: "visibility_changed",
+    targetPath: ".",
+    methodName: "_ready",
+  });
+  structured(await request("tools/call", {
+    name: "confirm_scene_change",
+    arguments: { projectRoot: fixtureRoot, planId: disconnectPlan.planId, expectedRevision: disconnectPlan.expectedRevision },
+  }));
+  const disconnectApply = structured(await request("tools/call", {
+    name: "apply_scene_change",
+    arguments: { projectRoot: fixtureRoot, planId: disconnectPlan.planId },
+  }));
+  assert.equal(disconnectApply.status, "applied");
+  assert.equal(disconnectApply.undoLabel, "Godot Safe Change: Disconnect signal");
+  const signalAfterDisconnect = await bridgeRequest("/v1/signals/read", { projectRoot: fixtureRoot });
+  const disconnectedSignalNode = signalAfterDisconnect.body.snapshot.nodes.find((node) => node.nodePath === "Canvas/Title");
+  assert.equal(disconnectedSignalNode?.connections.some((connection) =>
+    connection.signalName === "visibility_changed" &&
+    connection.targetPath === "." &&
+    connection.methodName === "_ready",
+  ), false);
+  const disconnectRollback = structured(await request("tools/call", {
+    name: "rollback_scene_change",
+    arguments: { projectRoot: fixtureRoot, planId: disconnectPlan.planId },
+  }));
+  assert.equal(disconnectRollback.status, "rolled_back");
+  assert.equal(disconnectRollback.undoLabel, "Godot Safe Change: Disconnect signal");
+  const signalAfterDisconnectRollback = await bridgeRequest("/v1/signals/read", { projectRoot: fixtureRoot });
+  const restoredDisconnectNode = signalAfterDisconnectRollback.body.snapshot.nodes.find((node) => node.nodePath === "Canvas/Title");
+  assert.ok(restoredDisconnectNode?.connections.some((connection) =>
+    connection.signalName === "visibility_changed" &&
+    connection.targetPath === "." &&
+    connection.methodName === "_ready",
+  ));
   await expectToolError("preview_scene_change", {
     projectRoot: fixtureRoot,
     reason: "Reject an unknown signal.",
@@ -453,6 +521,17 @@ try {
       signalName: "missing_signal",
       targetPath: ".",
       methodName: "_ready",
+    },
+  }, /VALIDATION_FAILED/);
+  await expectToolError("preview_scene_change", {
+    projectRoot: fixtureRoot,
+    reason: "Reject an absent exact signal connection.",
+    operation: {
+      kind: "scene.disconnect_signal",
+      sourcePath: "Canvas/Title",
+      signalName: "visibility_changed",
+      targetPath: ".",
+      methodName: "missing_method",
     },
   }, /VALIDATION_FAILED/);
   await expectToolError("preview_scene_change", {
