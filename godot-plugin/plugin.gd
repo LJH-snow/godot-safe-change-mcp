@@ -1510,7 +1510,7 @@ func _apply_script_create(request_body: Dictionary, scene_root: Node, scene_path
         return _failure(
             "VALIDATION_FAILED",
             "The requested script already exists; use script.replace_range to edit it.",
-            409,
+            400,
             {"scriptPath": script_path},
         )
 
