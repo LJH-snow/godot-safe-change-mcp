@@ -241,6 +241,8 @@ npm run build
 
 2026-10-03 已新增 scene.disconnect_signal preview/apply/rollback：复用 signal 快照校验源/目标、signal、method 和精确 connection，UndoRedo 通过逆向 connect callback 恢复；缺失精确连接、非法路径和不匹配方法均拒绝，双版本 Godot smoke 覆盖真实断开与 rollback。
 
+2026-10-03 已新增只读 verify_resource_state task step：仅允许 res:// 资源路径和有限 contains/matchCounts 断言，可选资源 revision guard；成功和失败结果都记录有限 observed/expected、operationId 与 timeline mismatch evidence，不回传资源全文。
+
 ## 7. 待决定问题
 
 - 本地桥接使用 HTTP、WebSocket，还是两个都提供；
