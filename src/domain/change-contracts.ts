@@ -211,6 +211,14 @@ export const sceneReorderNodeSchema = z
   })
   .strict();
 
+export const sceneSetUniqueNameSchema = z
+  .object({
+    kind: z.literal("scene.set_unique_name"),
+    nodePath: nodePathSchema.describe("NodePath inside the current scene."),
+    enabled: z.boolean().describe("Whether the node exposes its name as a scene-unique %Name reference."),
+  })
+  .strict();
+
 const sceneSetVisiblePropertySchema = z
   .object({
     kind: z.literal("scene.set_property"),
@@ -387,6 +395,7 @@ export const changeOperationSchema = z.union([
   sceneAddGroupSchema,
   sceneRemoveGroupSchema,
   sceneReorderNodeSchema,
+  sceneSetUniqueNameSchema,
   sceneSetPropertySchema,
   sceneAttachScriptSchema,
   sceneDetachScriptSchema,
@@ -563,6 +572,17 @@ export const sceneReorderNodeDiffSchema = z
   })
   .strict();
 
+export const sceneSetUniqueNameDiffSchema = z
+  .object({
+    kind: z.literal("scene.set_unique_name"),
+    target: z.string().min(1),
+    summary: z.string().min(1),
+    nodePath: nodePathSchema,
+    enabled: z.boolean(),
+    previous: z.boolean(),
+  })
+  .strict();
+
 export const scriptChangeDiffSchema = z.object({
   kind: z.literal("script.replace_range"),
   target: z.string().min(1),
@@ -704,6 +724,7 @@ export const changeDiffSchema = z.union([
   sceneAddGroupDiffSchema,
   sceneRemoveGroupDiffSchema,
   sceneReorderNodeDiffSchema,
+  sceneSetUniqueNameDiffSchema,
   scenePropertyDiffSchema,
   sceneAttachScriptDiffSchema,
   sceneDetachScriptDiffSchema,

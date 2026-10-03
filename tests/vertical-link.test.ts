@@ -1268,6 +1268,126 @@ describe("ChangeCoordinator", () => {
     assert.equal(bridge.applied.length, 0);
   });
 
+  test("previews, applies and rolls back one bounded unique name toggle", async () => {
+    const bridge = new FakeGodotBridge();
+    bridge.context = {
+      ...bridge.context,
+      currentScene: {
+        ...bridge.context.currentScene,
+        nodes: [
+          { path: ".", name: "Main", type: "Node2D", properties: {} },
+          { path: "Canvas", name: "Canvas", type: "Control", properties: {} },
+          { path: "Canvas/Title", name: "Title", type: "Label", properties: {} },
+        ],
+      },
+    };
+    const coordinator = new ChangeCoordinator(bridge);
+
+    const plan = await coordinator.previewSceneChange({
+      projectRoot,
+      reason: "Reference the title label from scripts as %Title.",
+      operation: { kind: "scene.set_unique_name", nodePath: "Canvas/Title", enabled: true } as never,
+    });
+
+    assert.equal(plan.operations[0]?.kind, "scene.set_unique_name");
+    assert.deepEqual(plan.diff[0], {
+      kind: "scene.set_unique_name",
+      target: "res://main.tscn:Canvas/Title",
+      summary: "Enable the unique name %Title on Canvas/Title in res://main.tscn",
+      nodePath: "Canvas/Title",
+      enabled: true,
+      previous: false,
+    });
+    const confirmation = await coordinator.confirmChange({
+      projectRoot,
+      planId: plan.planId,
+      expectedRevision: plan.expectedRevision,
+    });
+    assert.equal(confirmation.status, "confirmed");
+    const applied = await coordinator.applyChange({ projectRoot, planId: plan.planId });
+    assert.equal(applied.status, "applied");
+    assert.equal(bridge.applied[0]?.operations[0]?.kind, "scene.set_unique_name");
+    const rolledBack = await coordinator.rollbackChange({ projectRoot, planId: plan.planId });
+    assert.equal(rolledBack.status, "rolled_back");
+  });
+
+  test("previews disabling an existing unique name", async () => {
+    const bridge = new FakeGodotBridge();
+    bridge.context = {
+      ...bridge.context,
+      currentScene: {
+        ...bridge.context.currentScene,
+        nodes: [
+          { path: ".", name: "Main", type: "Node2D", properties: {} },
+          { path: "Canvas", name: "Canvas", type: "Control", properties: {} },
+          { path: "Canvas/Title", name: "Title", type: "Label", properties: {}, uniqueNameInOwner: true },
+        ],
+      },
+    };
+    const coordinator = new ChangeCoordinator(bridge);
+
+    const plan = await coordinator.previewSceneChange({
+      projectRoot,
+      reason: "Stop exposing the title as a unique name.",
+      operation: { kind: "scene.set_unique_name", nodePath: "Canvas/Title", enabled: false } as never,
+    });
+
+    assert.deepEqual(plan.diff[0], {
+      kind: "scene.set_unique_name",
+      target: "res://main.tscn:Canvas/Title",
+      summary: "Disable the unique name %Title on Canvas/Title in res://main.tscn",
+      nodePath: "Canvas/Title",
+      enabled: false,
+      previous: true,
+    });
+    assert.equal(bridge.applied.length, 0);
+  });
+
+  test("rejects root, missing, no-op and colliding unique name operations", async () => {
+    const bridge = new FakeGodotBridge();
+    bridge.context = {
+      ...bridge.context,
+      currentScene: {
+        ...bridge.context.currentScene,
+        nodes: [
+          { path: ".", name: "Main", type: "Node2D", properties: {} },
+          { path: "Canvas", name: "Canvas", type: "Control", properties: {} },
+          { path: "Canvas/Title", name: "Title", type: "Label", properties: {}, uniqueNameInOwner: true },
+          { path: "Other/Title", name: "Title", type: "Label", properties: {} },
+        ],
+      },
+    };
+    const coordinator = new ChangeCoordinator(bridge);
+    const preview = (operation: Record<string, unknown>) =>
+      coordinator.previewSceneChange({
+        projectRoot,
+        reason: "Exercise unique name safety validation.",
+        operation: operation as never,
+      });
+
+    await assert.rejects(
+      () => preview({ kind: "scene.set_unique_name", nodePath: ".", enabled: true }),
+      (error: unknown) => error instanceof DomainError && error.code === ERROR_CODES.UNSAFE_OPERATION,
+    );
+    await assert.rejects(
+      () => preview({ kind: "scene.set_unique_name", nodePath: "Canvas/Missing", enabled: true }),
+      (error: unknown) => error instanceof DomainError && error.code === ERROR_CODES.VALIDATION_FAILED,
+    );
+    await assert.rejects(
+      () => preview({ kind: "scene.set_unique_name", nodePath: "Canvas/Title", enabled: true }),
+      (error: unknown) => error instanceof DomainError && error.code === ERROR_CODES.OPERATION_REJECTED,
+    );
+    await assert.rejects(
+      () => preview({ kind: "scene.set_unique_name", nodePath: "Other/Title", enabled: true }),
+      (error: unknown) => error instanceof DomainError && error.code === ERROR_CODES.OPERATION_REJECTED,
+    );
+    await assert.rejects(
+      () => preview({ kind: "scene.set_unique_name", nodePath: "Canvas", enabled: false }),
+      (error: unknown) => error instanceof DomainError && error.code === ERROR_CODES.OPERATION_REJECTED,
+    );
+    assert.equal(bridge.applied.length, 0);
+  });
+
   test("previews attaching an existing script without executing or editing it", async () => {
     const bridge = new FakeGodotBridge();
     const coordinator = new ChangeCoordinator(bridge);
@@ -2208,4 +2328,7 @@ test("the Godot plugin exposes only the bounded vertical-link routes", async () 
   assert.match(source, /\/v1\/autoloads\/read/);
   assert.match(source, /_is_safe_autoload_name/);
   assert.match(source, /scene\.reorder_node/);
+  assert.match(source, /scene\.set_unique_name/);
+  assert.match(source, /unique_name_in_owner/);
+  assert.match(source, /_unique_name_is_free/);
 });

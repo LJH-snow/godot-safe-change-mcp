@@ -707,6 +707,56 @@ try {
     operation: { kind: "scene.reorder_node", nodePath: "Canvas/Title", index: 0 },
   }, /OPERATION_REJECTED/);
   stage("scene node reorder complete");
+  stage("scene unique name");
+  const uniqueNamePlan = structured(await request("tools/call", {
+    name: "preview_scene_change",
+    arguments: {
+      projectRoot: fixtureRoot,
+      reason: "Expose a node to scripts through a unique name.",
+      operation: { kind: "scene.set_unique_name", nodePath: "Scriptless", enabled: true },
+    },
+  }));
+  assert.deepEqual(uniqueNamePlan.diff[0], {
+    kind: "scene.set_unique_name",
+    target: "res://main.tscn:Scriptless",
+    summary: "Enable the unique name %Scriptless on Scriptless in res://main.tscn",
+    nodePath: "Scriptless",
+    enabled: true,
+    previous: false,
+  });
+  structured(await request("tools/call", {
+    name: "confirm_scene_change",
+    arguments: { projectRoot: fixtureRoot, planId: uniqueNamePlan.planId, expectedRevision: uniqueNamePlan.expectedRevision },
+  }));
+  const uniqueNameApply = structured(await request("tools/call", {
+    name: "apply_scene_change",
+    arguments: { projectRoot: fixtureRoot, planId: uniqueNamePlan.planId },
+  }));
+  assert.equal(uniqueNameApply.status, "applied");
+  assert.equal(uniqueNameApply.undoLabel, "Godot Safe Change: Set unique name");
+  const contextAfterUniqueName = structured(await request("tools/call", {
+    name: "editor_context",
+    arguments: { projectRoot: fixtureRoot },
+  }));
+  const scriptlessAfterApply = contextAfterUniqueName.currentScene.nodes.find((node) => node.path === "Scriptless");
+  assert.equal(scriptlessAfterApply?.uniqueNameInOwner, true);
+  const uniqueNameRollback = structured(await request("tools/call", {
+    name: "rollback_scene_change",
+    arguments: { projectRoot: fixtureRoot, planId: uniqueNamePlan.planId },
+  }));
+  assert.equal(uniqueNameRollback.status, "rolled_back");
+  const contextAfterUniqueNameRollback = structured(await request("tools/call", {
+    name: "editor_context",
+    arguments: { projectRoot: fixtureRoot },
+  }));
+  const scriptlessAfterRollback = contextAfterUniqueNameRollback.currentScene.nodes.find((node) => node.path === "Scriptless");
+  assert.equal(scriptlessAfterRollback?.uniqueNameInOwner, false);
+  await expectToolError("preview_scene_change", {
+    projectRoot: fixtureRoot,
+    reason: "Reject a unique name toggle that changes nothing.",
+    operation: { kind: "scene.set_unique_name", nodePath: "Scriptless", enabled: false },
+  }, /OPERATION_REJECTED/);
+  stage("scene unique name complete");
   const initialCurrentSceneRun = structured(await request("tools/call", {
     name: "run_current_scene",
     arguments: { projectRoot: fixtureRoot, timeoutMs: 30000 },

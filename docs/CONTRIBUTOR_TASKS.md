@@ -46,6 +46,13 @@
 - Acceptance: preview 报告 fromIndex/toIndex；apply/rollback 通过 Godot UndoRedo move_child 互逆恢复；TypeScript 与真实 Godot smoke 已覆盖。
 - Labels: <code>enhancement</code>、<code>godot-4.5.1</code>、<code>godot-4.7.2</code>。
 
+### Add scene.set_unique_name — implemented
+
+- Scope: 启用或停用节点的场景唯一名，让脚本可以通过 %Name 引用。
+- Guards: 安全 NodePath、拒绝场景根、无变化拒绝、场景内同名唯一名占用拒绝、expected revision。
+- Acceptance: editor_context 暴露只读 uniqueNameInOwner；apply/rollback 通过 Godot UndoRedo 属性互逆恢复；TypeScript 与真实 Godot smoke 已覆盖。
+- Labels: <code>enhancement</code>、<code>godot-4.5.1</code>、<code>godot-4.7.2</code>。
+
 ### Add verify_resource_state — implemented
 
 - Scope: 为 task 增加只读资源内容/引用断言，不提供新的写能力。
