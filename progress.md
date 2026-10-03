@@ -389,3 +389,4 @@
 - 已先写 scene.reorder_node 的 preview diff、apply/rollback 生命周期与根节点/缺失/同索引/越界红灯测试。
 - 已实现排序操作：context 推导兄弟顺序并校验目标索引，插件通过 UndoRedo move_child 正反向恢复，拒绝场景根与无变化排序。
 - 本地 123 项测试、typecheck 通过；真实 Godot smoke 覆盖排序→context 验证→rollback 与同索引拒绝，待双版本 CI 验证后收尾。
+- push run 37135337867 的 check、package boundary、Godot 4.5.1 和 Godot 4.7.2 四个 job 全部通过；Phase 33 按完成定义收尾，经 PR #22 以 merge commit 合入 main（无 squash 冲突）。
