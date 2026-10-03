@@ -365,6 +365,9 @@ try {
     { operation: { kind: "scene.add_group", nodePath: "Canvas/Missing", group: "ci_group_probe" }, errorCode: "VALIDATION_FAILED" },
     { operation: { kind: "scene.add_group", nodePath: "Canvas/Title", group: "bad/group" }, errorCode: "VALIDATION_FAILED" },
     { operation: { kind: "scene.remove_group", nodePath: "Canvas/Title", group: "bad/group" }, errorCode: "VALIDATION_FAILED" },
+    { operation: { kind: "project.autoload.add", name: "bad/name", scriptPath: "res://diagnostic_scene.gd" }, errorCode: "VALIDATION_FAILED" },
+    { operation: { kind: "project.autoload.add", name: "CiAutoload", scriptPath: "res://../outside.gd" }, errorCode: "UNSAFE_OPERATION" },
+    { operation: { kind: "project.autoload.remove", name: "bad/name" }, errorCode: "VALIDATION_FAILED" },
     { operation: { kind: "scene.set_property", nodePath: ".", property: "script", value: null }, errorCode: "UNSAFE_OPERATION" },
     { operation: { kind: "scene.attach_script", nodePath: ".", scriptPath: "res://../outside.gd" }, errorCode: "UNSAFE_OPERATION" },
     { operation: { kind: "scene.detach_script", nodePath: "Scriptless" }, errorCode: "VALIDATION_FAILED" },
@@ -600,6 +603,50 @@ try {
     operation: { kind: "scene.add_group", nodePath: "Canvas/Missing", group: "ci_group_probe" },
   }, /VALIDATION_FAILED/);
   stage("scene group membership complete");
+  stage("project autoload registration");
+  const autoloadReadBefore = await bridgeRequest("/v1/autoloads/read", { projectRoot: fixtureRoot, name: "CiAutoload" });
+  assert.equal(autoloadReadBefore.body.ok, true, JSON.stringify(autoloadReadBefore.body));
+  assert.equal(autoloadReadBefore.body.snapshot.exists, false);
+  const addAutoloadPlan = structured(await request("tools/call", {
+    name: "preview_scene_change",
+    arguments: {
+      projectRoot: fixtureRoot,
+      reason: "Register a CI autoload singleton.",
+      operation: { kind: "project.autoload.add", name: "CiAutoload", scriptPath: "res://diagnostic_scene.gd" },
+    },
+  }));
+  assert.deepEqual(addAutoloadPlan.diff[0], {
+    kind: "project.autoload.add",
+    target: "project.godot:autoload/CiAutoload",
+    summary: "Register res://diagnostic_scene.gd as autoload CiAutoload",
+    name: "CiAutoload",
+    scriptPath: "res://diagnostic_scene.gd",
+  });
+  structured(await request("tools/call", {
+    name: "confirm_scene_change",
+    arguments: { projectRoot: fixtureRoot, planId: addAutoloadPlan.planId, expectedRevision: addAutoloadPlan.expectedRevision },
+  }));
+  const addAutoloadApply = structured(await request("tools/call", {
+    name: "apply_scene_change",
+    arguments: { projectRoot: fixtureRoot, planId: addAutoloadPlan.planId },
+  }));
+  assert.equal(addAutoloadApply.status, "applied");
+  const autoloadAfterApply = await bridgeRequest("/v1/autoloads/read", { projectRoot: fixtureRoot, name: "CiAutoload" });
+  assert.equal(autoloadAfterApply.body.snapshot.exists, true);
+  assert.equal(autoloadAfterApply.body.snapshot.scriptPath, "res://diagnostic_scene.gd");
+  await expectToolError("preview_scene_change", {
+    projectRoot: fixtureRoot,
+    reason: "Reject a duplicate autoload registration.",
+    operation: { kind: "project.autoload.add", name: "CiAutoload", scriptPath: "res://diagnostic_scene.gd" },
+  }, /VALIDATION_FAILED/);
+  const addAutoloadRollback = structured(await request("tools/call", {
+    name: "rollback_scene_change",
+    arguments: { projectRoot: fixtureRoot, planId: addAutoloadPlan.planId },
+  }));
+  assert.equal(addAutoloadRollback.status, "rolled_back");
+  const autoloadAfterRollback = await bridgeRequest("/v1/autoloads/read", { projectRoot: fixtureRoot, name: "CiAutoload" });
+  assert.equal(autoloadAfterRollback.body.snapshot.exists, false);
+  stage("project autoload registration complete");
   const initialCurrentSceneRun = structured(await request("tools/call", {
     name: "run_current_scene",
     arguments: { projectRoot: fixtureRoot, timeoutMs: 30000 },

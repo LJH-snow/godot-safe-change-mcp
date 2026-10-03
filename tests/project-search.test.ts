@@ -8,6 +8,7 @@ import { LocalProjectSearchService } from "../src/application/project-search-ser
 import { LocalProjectService } from "../src/application/project-service.js";
 import { DomainError, ERROR_CODES } from "../src/domain/errors.js";
 import type {
+  AutoloadSnapshot,
   InputActionSnapshot,
   ResourceSnapshot,
   ScriptSnapshot,
@@ -192,6 +193,10 @@ class SearchBridgeStub implements GodotBridge {
     return { actionName, revision: "test", exists: false, deadzone: null, events: [] };
   }
 
+  async readAutoload(_projectRoot: string, name: string): Promise<AutoloadSnapshot> {
+    return { name, revision: "test", exists: false, scriptPath: null };
+  }
+
   async readSceneSignals(): Promise<{ path: string; revision: string; nodes: never[] }> {
     return { path: "res://main.tscn", revision: "test", nodes: [] };
   }
@@ -288,6 +293,10 @@ class OverviewBridgeStub implements GodotBridge {
 
   async readInputAction(_projectRoot: string, actionName: string): Promise<InputActionSnapshot> {
     return { actionName, revision: "test", exists: false, deadzone: null, events: [] };
+  }
+
+  async readAutoload(_projectRoot: string, name: string): Promise<AutoloadSnapshot> {
+    return { name, revision: "test", exists: false, scriptPath: null };
   }
 
   async readSceneSignals(): Promise<{ path: string; revision: string; nodes: never[] }> {

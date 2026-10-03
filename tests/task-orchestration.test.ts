@@ -8,6 +8,7 @@ import { TaskCoordinator } from "../src/application/task-coordinator.js";
 import { DomainError, ERROR_CODES } from "../src/domain/errors.js";
 import type {
   ApplyChangeRequest,
+  AutoloadSnapshot,
   ChangeReport,
   EditorContext,
   InputActionSnapshot,
@@ -155,6 +156,10 @@ class FakeGodotBridge implements GodotBridge {
 
   async readInputAction(_projectRoot: string, actionName: string): Promise<InputActionSnapshot> {
     return { actionName, revision: "input-test", exists: false, deadzone: null, events: [] };
+  }
+
+  async readAutoload(_projectRoot: string, name: string): Promise<AutoloadSnapshot> {
+    return { name, revision: "settings-test", exists: false, scriptPath: null };
   }
 
   async readSceneSignals(): Promise<{ path: string; revision: string; nodes: never[] }> {

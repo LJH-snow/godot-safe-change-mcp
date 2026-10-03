@@ -1,5 +1,6 @@
 import type {
   ApplyChangeRequest,
+  AutoloadSnapshot,
   ChangeReport,
   EditorContext,
   InputActionSnapshot,
@@ -24,6 +25,7 @@ export interface GodotBridge {
   readScript(projectRoot: string, scriptPath: string): Promise<ScriptSnapshot>;
   readResource(projectRoot: string, resourcePath: string): Promise<ResourceSnapshot>;
   readInputAction(projectRoot: string, actionName: string): Promise<InputActionSnapshot>;
+  readAutoload(projectRoot: string, name: string): Promise<AutoloadSnapshot>;
   readSceneSignals(projectRoot: string): Promise<SceneSignalsSnapshot>;
   runCurrentScene(projectRoot: string, timeoutMs: number): Promise<RunDiagnostics>;
   runScene(projectRoot: string, scenePath: string, timeoutMs: number): Promise<RunDiagnostics>;
@@ -95,6 +97,13 @@ export class PendingGodotBridge implements GodotBridge {
   }
 
   async readInputAction(): Promise<InputActionSnapshot> {
+    throw new DomainError(
+      ERROR_CODES.EDITOR_UNAVAILABLE,
+      "The Godot EditorPlugin bridge is not connected.",
+    );
+  }
+
+  async readAutoload(): Promise<AutoloadSnapshot> {
     throw new DomainError(
       ERROR_CODES.EDITOR_UNAVAILABLE,
       "The Godot EditorPlugin bridge is not connected.",

@@ -1,10 +1,12 @@
 import { z } from "zod";
 import {
+  autoloadSnapshotSchema,
   changeReportSchema,
   editorContextSchema,
   rollbackReportSchema,
   runDiagnosticsSchema,
   type ApplyChangeRequest,
+  type AutoloadSnapshot,
   type ChangeReport,
   type EditorContext,
   inputActionSnapshotSchema,
@@ -128,6 +130,17 @@ export class HttpGodotBridge implements GodotBridge {
       .safeParse(payload);
     if (!parsed.success) {
       throw this.protocolError("The bridge returned an invalid input action snapshot.", parsed.error);
+    }
+    return parsed.data.snapshot;
+  }
+
+  async readAutoload(projectRoot: string, name: string): Promise<AutoloadSnapshot> {
+    const payload = await this.post("/v1/autoloads/read", { projectRoot, name });
+    const parsed = z
+      .object({ ok: z.literal(true), snapshot: autoloadSnapshotSchema })
+      .safeParse(payload);
+    if (!parsed.success) {
+      throw this.protocolError("The bridge returned an invalid autoload snapshot.", parsed.error);
     }
     return parsed.data.snapshot;
   }
