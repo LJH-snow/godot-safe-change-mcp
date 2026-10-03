@@ -2227,8 +2227,8 @@ func _apply_reorder_node(request_body: Dictionary, scene_root: Node, scene_path:
 
     var undo_redo := get_undo_redo()
     undo_redo.create_action("Godot Safe Change: Reorder node", 0, scene_root)
-    undo_redo.add_do_method(self, "_move_scene_node", node, to_index)
-    undo_redo.add_undo_method(self, "_move_scene_node", node, from_index)
+    undo_redo.add_do_method(self, "_reorder_scene_node", node, to_index)
+    undo_redo.add_undo_method(self, "_reorder_scene_node", node, from_index)
     undo_redo.commit_action()
     EditorInterface.mark_scene_as_unsaved()
     last_applied_plan_id = String(request_body.get("planId", ""))
@@ -2244,7 +2244,7 @@ func _apply_reorder_node(request_body: Dictionary, scene_root: Node, scene_path:
         "undoLabel": last_applied_undo_label,
     })
 
-func _move_scene_node(node: Node, target_index: int) -> void:
+func _reorder_scene_node(node: Node, target_index: int) -> void:
     if not is_instance_valid(node):
         return
     var parent := node.get_parent()
