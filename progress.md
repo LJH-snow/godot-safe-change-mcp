@@ -1,5 +1,10 @@
 # 进度记录
 
+## 2026-10-03 starter multi-process smoke
+
+- 新增 tests/starter-multiprocess-smoke.mjs，使用真实 starter 项目验证两个 MCP 进程的 PROJECT_BUSY、TTL 接管和恢复后的 verify_resource_state task。
+- 接入双版本 Godot runtime；push commit a80a77a 的 run 37100629893 四项全部通过。
+
 ## 2026-10-03 starter copy guide
 
 - 扩展 examples/starter/README.md，补充 macOS/Linux、Windows PowerShell 的插件复制命令、文件核对、插件启用和首次 editor_context 检查。

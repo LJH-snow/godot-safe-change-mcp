@@ -316,6 +316,14 @@
 - [x] 为 macOS、Linux 和 Windows PowerShell 提供插件复制命令与目标文件核对。
 - [x] 补充 Godot 插件启用、客户端配置入口和首次 editor_context 验证步骤。
 
+## Phase 26 — Starter 多进程恢复 smoke
+
+状态：complete
+
+- [x] 新增 starter 专用双 MCP 进程 smoke，验证 PROJECT_BUSY、TTL 接管和恢复后的只读任务执行。
+- [x] 接入 Godot 4.5.1/4.7.2 runtime job，并保证临时 Godot、MCP 进程和目录在失败时清理。
+- [x] push run 37100629893 的四个 job 全部通过。
+
 ## 完成定义
 
 只有在验收标准全部满足、自动化检查通过，并且真实或 fixture Godot 链路有可复现证据后，才将所有阶段标记为 `complete`。
