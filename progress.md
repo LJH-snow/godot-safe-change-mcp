@@ -375,3 +375,4 @@
 - 已先写 scene.add_group / scene.remove_group 的 preview、apply、rollback 与重复/缺失/非法组名红灯测试。
 - 已实现分组管理：context 校验、TS 与插件双端组名守卫、UndoRedo add/remove 互逆恢复；editor_context 节点快照带只读 groups 字段。
 - 本地 118 项测试、typecheck、build 通过；真实 Godot smoke 覆盖 add→context 验证→rollback 与直接桥接拒绝用例，待双版本 CI 验证后收尾。
+- push run 37133027593 的 check、package boundary、Godot 4.5.1 和 Godot 4.7.2 四个 job 全部通过；Phase 31 按完成定义收尾，经 PR #18 合入 main。

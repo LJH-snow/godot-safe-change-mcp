@@ -357,11 +357,11 @@
 
 ## Phase 31 — 场景分组管理
 
-状态：in_progress
+状态：complete
 
 - [x] 增加 scene.add_group / scene.remove_group preview/apply/rollback：组名边界校验、重复与缺失成员拒绝、expected revision 守卫。
 - [x] editor_context 节点快照新增只读 groups 字段，Agent 可以查看节点现有分组。
-- [x] 插件双重校验与 UndoRedo 正反向方法；TypeScript 回归、直接桥接拒绝用例与真实 Godot smoke 场景已就绪，待双版本 CI 验证后收尾。
+- [x] 插件双重校验与 UndoRedo 正反向方法；TypeScript 回归、直接桥接拒绝用例与真实 Godot smoke 场景全部通过；push run 37133027593 的 check、package boundary、Godot 4.5.1 和 Godot 4.7.2 四个 job 全部通过。
 
 ## 完成定义
 
