@@ -34,10 +34,10 @@
 
 ## Advanced
 
-### Add a second MCP-process starter smoke
+### Add a second MCP-process starter smoke — implemented
 
 - Scope: 使用 examples/starter 验证两个 MCP 进程的 PROJECT_BUSY、TTL 接管和任务恢复。
-- Acceptance: 两个 Godot 版本都运行；失败时清理编辑器、MCP 和临时目录进程。
+- Acceptance: tests/starter-multiprocess-smoke.mjs 已接入两个 Godot runtime job，验证 PROJECT_BUSY、TTL 接管、starter 场景恢复执行，并在失败时清理编辑器、MCP 和临时目录进程。
 - Labels: <code>enhancement</code>、<code>godot-4.5.1</code>、<code>godot-4.7.2</code>。
 
 ### Add release artifact verification — implemented
