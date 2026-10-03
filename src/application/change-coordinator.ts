@@ -20,6 +20,7 @@ import type {
   OperationHistoryReport,
   OperationKind,
   PreviewRepairFromDiagnosticInput,
+  ResourceSnapshot,
   RollbackReport,
   RunDiagnostics,
   RunSceneInput,
@@ -76,6 +77,10 @@ export class ChangeCoordinator {
 
   async getContext(projectRootInput: string): Promise<EditorContext> {
     return this.bridge.getContext(await normalizeProjectRoot(projectRootInput));
+  }
+
+  async readResource(projectRootInput: string, resourcePath: string): Promise<ResourceSnapshot> {
+    return this.bridge.readResource(await normalizeProjectRoot(projectRootInput), resourcePath);
   }
 
   async previewSceneChange(input: PreviewSceneChangeInput): Promise<ChangePlan> {

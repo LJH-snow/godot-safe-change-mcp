@@ -1,5 +1,11 @@
 # 进度记录
 
+## 2026-10-03 verify_resource_state
+
+- 新增只读 verify_resource_state task step：校验 res:// 资源 revision、有限 contains 和 matchCounts，不新增写能力。
+- 失败结果只记录资源路径、revision、断言和 mismatch evidence；成功结果不返回资源全文。
+- TypeScript 回归已通过 108/108，真实 Godot task smoke 已加入，待推送后确认双版本 CI。
+
 ## 2026-10-03 scene.disconnect_signal
 
 - 新增 scene.disconnect_signal：只允许断开当前场景中精确匹配的 source/signal/target/method tuple，缺失连接、非法路径和方法不匹配均拒绝。

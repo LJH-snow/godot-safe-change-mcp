@@ -166,6 +166,13 @@ Use a task lease when several steps must remain owned by one MCP process:
         "runStepId": "run-scene",
         "maxErrors": 0,
         "maxWarnings": 0
+      },
+      {
+        "kind": "verify_resource_state",
+        "stepId": "verify-instance-source",
+        "resourcePath": "res://ui/hud.tscn",
+        "contains": ["[gd_scene", "HUD"],
+        "matchCounts": [{ "text": "[node", "expectedCount": 2 }]
       }
     ]
   }

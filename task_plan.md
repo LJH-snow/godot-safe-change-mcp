@@ -286,6 +286,14 @@
 - [x] 增加 npm run release:check，拒绝 package/lockfile、tag、CI URL、CI job、README 链接和发布资产不一致。
 - [x] 将发布校验接入 prepublishOnly 与 npm package boundary CI job，并覆盖 tag、head、CI URL 和缺失资产边界测试。
 
+## Phase 23 — 只读资源任务验证
+
+状态：in_progress
+
+- [x] 增加 verify_resource_state step，限制为项目内资源路径、可选资源 revision、contains 和 matchCounts 断言。
+- [x] 返回有限 observed/expected 证据，不回传任意资源全文；记录 step operationId 与 timeline mismatch。
+- [x] 增加 TypeScript task 回归和 Godot runtime smoke，待双版本 CI 验证后收尾。
+
 ## Phase 22 — 安全断开场景信号
 
 状态：complete

@@ -44,7 +44,7 @@ export const scriptPathSchema = z
     "scriptPath must not contain traversal segments.",
   );
 
-const resourcePathSchema = z
+export const resourcePathSchema = z
   .string()
   .min(1)
   .max(256)

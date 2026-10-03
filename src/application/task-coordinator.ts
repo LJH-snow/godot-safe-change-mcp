@@ -49,6 +49,10 @@ function sceneValueMatches(expected: unknown, actual: unknown): boolean {
   );
 }
 
+function countResourceMatches(content: string, text: string): number {
+  return content.split(text).length - 1;
+}
+
 interface LeaseHeartbeat {
   timer: ReturnType<typeof setInterval>;
   leaseId: string;
@@ -444,6 +448,9 @@ export class TaskCoordinator {
     if (step.kind === "verify_scene_state") {
       return this.verifySceneState(projectRoot, step);
     }
+    if (step.kind === "verify_resource_state") {
+      return this.verifyResourceState(projectRoot, step);
+    }
     if (step.kind === "run_current_scene") {
       return this.changeCoordinator.runCurrentScene({
         projectRoot,
@@ -760,6 +767,66 @@ export class TaskCoordinator {
     };
   }
 
+  private async verifyResourceState(projectRoot: string, step: TaskStepState): Promise<unknown> {
+    const resourcePath = step.resourcePath;
+    if (resourcePath === null) {
+      throw new DomainError(
+        ERROR_CODES.TASK_VERIFICATION_FAILED,
+        "The verify_resource_state step is missing its resource path.",
+        { stepId: step.stepId },
+      );
+    }
+
+    const snapshot = await this.changeCoordinator.readResource(projectRoot, resourcePath);
+    if (step.expectedResourceRevision !== null && snapshot.revision !== step.expectedResourceRevision) {
+      throw new DomainError(
+        ERROR_CODES.TASK_VERIFICATION_FAILED,
+        "The resource revision does not match the expected verification revision.",
+        {
+          resourcePath,
+          expectedResourceRevision: step.expectedResourceRevision,
+          actualResourceRevision: snapshot.revision,
+        },
+      );
+    }
+
+    const assertions: Array<Record<string, unknown>> = [];
+    const mismatches: Array<Record<string, unknown>> = [];
+    for (const text of step.resourceContains) {
+      const matchCount = countResourceMatches(snapshot.content, text);
+      assertions.push({ kind: "contains", text, matchCount });
+      if (matchCount === 0) {
+        mismatches.push({ kind: "contains", text, matchCount });
+      }
+    }
+    for (const assertion of step.resourceMatchCounts) {
+      const actualCount = countResourceMatches(snapshot.content, assertion.text);
+      assertions.push({
+        kind: "match_count",
+        text: assertion.text,
+        expectedCount: assertion.expectedCount,
+        actualCount,
+      });
+      if (actualCount !== assertion.expectedCount) {
+        mismatches.push({
+          kind: "match_count",
+          text: assertion.text,
+          expectedCount: assertion.expectedCount,
+          actualCount,
+        });
+      }
+    }
+    if (mismatches.length > 0) {
+      throw new DomainError(
+        ERROR_CODES.TASK_VERIFICATION_FAILED,
+        "The resource content did not satisfy the expected assertions.",
+        { resourcePath, revision: snapshot.revision, mismatches },
+      );
+    }
+
+    return { passed: true, resourcePath, revision: snapshot.revision, assertions };
+  }
+
   private async withTaskLease<T>(input: TaskIdInput, action: () => Promise<T>): Promise<T> {
     const parsedInput = taskIdInputSchema.parse(input);
     const projectRoot = await normalizeProjectRoot(parsedInput.projectRoot);
@@ -1052,6 +1119,10 @@ export class TaskCoordinator {
       planId: "planId" in step ? step.planId : null,
       scenePath: "scenePath" in step ? step.scenePath : null,
       nodePath: "nodePath" in step ? step.nodePath : null,
+      resourcePath: "resourcePath" in step ? step.resourcePath : null,
+      expectedResourceRevision: "expectedResourceRevision" in step ? step.expectedResourceRevision ?? null : null,
+      resourceContains: "contains" in step ? step.contains ?? [] : [],
+      resourceMatchCounts: "matchCounts" in step ? step.matchCounts ?? [] : [],
       expectedProperties: "expectedProperties" in step ? step.expectedProperties ?? [] : [],
       runStepId: "runStepId" in step ? step.runStepId : null,
       maxErrors: "maxErrors" in step ? step.maxErrors ?? 0 : 0,

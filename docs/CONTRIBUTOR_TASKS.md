@@ -25,11 +25,11 @@
 - Acceptance: apply 只移除指定连接，rollback 恢复连接；误删其他连接必须被拒绝；TypeScript 和真实 Godot smoke 已覆盖。
 - Labels: <code>enhancement</code>、<code>godot-4.5.1</code>、<code>godot-4.7.2</code>。
 
-### Add verify_resource_state
+### Add verify_resource_state — implemented
 
 - Scope: 为 task 增加只读资源内容/引用断言，不提供新的写能力。
-- Guards: res:// 路径、文件 revision、匹配数量和有限断言字段。
-- Acceptance: 记录 observed/expected、operationId 和 timeline mismatch evidence。
+- Guards: res:// 路径、文件 revision、匹配数量和有限 contains/matchCounts 断言字段。
+- Acceptance: 记录 observed/expected、operationId 和 timeline mismatch evidence；TypeScript 回归已覆盖 revision 与匹配数量冲突。
 - Labels: <code>enhancement</code>、<code>good first issue</code>。
 
 ## Advanced

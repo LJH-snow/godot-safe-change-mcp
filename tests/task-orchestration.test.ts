@@ -23,7 +23,11 @@ import type { GodotBridge } from "../src/infrastructure/godot-bridge.js";
 import { FileTaskStore } from "../src/infrastructure/task-store.js";
 import { InMemoryProjectLeaseStore, type ProjectLease } from "../src/infrastructure/project-lease-store.js";
 import { normalizeProjectRoot } from "../src/infrastructure/project-root.js";
-import { previewDiagnosticRepairStepDeclSchema, verifySceneStateStepDeclSchema } from "../src/domain/task-contracts.js";
+import {
+  previewDiagnosticRepairStepDeclSchema,
+  verifyResourceStateStepDeclSchema,
+  verifySceneStateStepDeclSchema,
+} from "../src/domain/task-contracts.js";
 
 class RenewalFailureLeaseStore extends InMemoryProjectLeaseStore {
   failRenewal = true;
@@ -64,6 +68,11 @@ class FakeGodotBridge implements GodotBridge {
     path: "res://diagnostic_scene.gd",
     revision: "script-revision-1",
     content: "extends Node2D\n\nfunc _ready() -> void:\n    pass\n",
+  };
+  resourceSnapshot: ResourceSnapshot = {
+    path: "res://instance_source.tscn",
+    revision: "resource-revision-1",
+    content: "[gd_scene load_steps=1 format=3]\n[node name=\"Instance\" type=\"Node2D\"]\n[node name=\"Child\" type=\"Label\" parent=\".\"]\n",
   };
   applyError: Error | null = null;
   runCalls = 0;
@@ -140,7 +149,7 @@ class FakeGodotBridge implements GodotBridge {
   }
 
   async readResource(_projectRoot: string, resourcePath: string): Promise<ResourceSnapshot> {
-    return { path: resourcePath, revision: "resource-test", content: "" };
+    return { ...this.resourceSnapshot, path: resourcePath };
   }
 
   async readInputAction(_projectRoot: string, actionName: string): Promise<InputActionSnapshot> {
@@ -847,6 +856,81 @@ describe("TaskCoordinator", () => {
     });
   });
 
+  test("verifies bounded resource content with revision and match-count evidence", async () => {
+    const { projectRoot, taskCoordinator, bridge } = harness;
+    const task = await taskCoordinator.createTask({
+      projectRoot,
+      title: "Verify an instance resource",
+      steps: [{
+        kind: "verify_resource_state",
+        stepId: "verify-resource",
+        resourcePath: "res://instance_source.tscn",
+        expectedResourceRevision: "resource-revision-1",
+        contains: ["[gd_scene", "[node name=\"Child\""],
+        matchCounts: [{ text: "[node", expectedCount: 2 }],
+      }],
+    });
+
+    const completed = await taskCoordinator.advanceTask({ projectRoot, taskId: task.taskId });
+
+    assert.equal(completed.status, "completed");
+    assert.deepEqual(completed.steps[0]?.result, {
+      passed: true,
+      resourcePath: "res://instance_source.tscn",
+      revision: "resource-revision-1",
+      assertions: [
+        { kind: "contains", text: "[gd_scene", matchCount: 1 },
+        { kind: "contains", text: "[node name=\"Child\"", matchCount: 1 },
+        { kind: "match_count", text: "[node", expectedCount: 2, actualCount: 2 },
+      ],
+    });
+    assert.equal(bridge.resourceSnapshot.revision, "resource-revision-1");
+  });
+
+  test("fails resource verification with revision and match-count evidence", async () => {
+    const { projectRoot, taskCoordinator, bridge } = harness;
+    const task = await taskCoordinator.createTask({
+      projectRoot,
+      title: "Reject stale resource evidence",
+      steps: [{
+        kind: "verify_resource_state",
+        stepId: "verify-resource",
+        resourcePath: "res://instance_source.tscn",
+        expectedResourceRevision: "resource-revision-old",
+        matchCounts: [{ text: "[node", expectedCount: 3 }],
+      }],
+    });
+    bridge.resourceSnapshot.revision = "resource-revision-2";
+
+    const failed = await taskCoordinator.advanceTask({ projectRoot, taskId: task.taskId });
+
+    assert.equal(failed.status, "failed");
+    assert.equal(failed.steps[0]?.error?.code, ERROR_CODES.TASK_VERIFICATION_FAILED);
+    assert.deepEqual(failed.steps[0]?.error?.details, {
+      resourcePath: "res://instance_source.tscn",
+      expectedResourceRevision: "resource-revision-old",
+      actualResourceRevision: "resource-revision-2",
+    });
+
+    const matchTask = await taskCoordinator.createTask({
+      projectRoot,
+      title: "Reject a resource match count",
+      steps: [{
+        kind: "verify_resource_state",
+        stepId: "verify-resource-count",
+        resourcePath: "res://instance_source.tscn",
+        matchCounts: [{ text: "[node", expectedCount: 3 }],
+      }],
+    });
+    bridge.resourceSnapshot.revision = "resource-revision-1";
+    const matchFailed = await taskCoordinator.advanceTask({ projectRoot, taskId: matchTask.taskId });
+    assert.deepEqual(matchFailed.steps[0]?.error?.details, {
+      resourcePath: "res://instance_source.tscn",
+      revision: "resource-revision-1",
+      mismatches: [{ kind: "match_count", text: "[node", expectedCount: 3, actualCount: 2 }],
+    });
+  });
+
   test("rejects unsafe node paths and unallowlisted properties in verification steps", async () => {
     const { projectRoot, taskCoordinator } = harness;
     await assert.rejects(() => taskCoordinator.createTask({
@@ -861,6 +945,12 @@ describe("TaskCoordinator", () => {
       expectedProperties: [{ property: "script", expected: "res://unsafe.gd" }],
     });
     assert.equal(invalidPropertyStep.success, false);
+    const invalidResourceStep = verifyResourceStateStepDeclSchema.safeParse({
+      kind: "verify_resource_state",
+      stepId: "verify-resource-invalid",
+      resourcePath: "res://instance_source.tscn",
+    });
+    assert.equal(invalidResourceStep.success, false);
   });
 
   test("rejects unknown tasks and stops retries after the attempt limit", async () => {

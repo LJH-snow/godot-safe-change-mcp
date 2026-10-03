@@ -7,6 +7,7 @@ All notable changes to Godot Safe Change MCP will be documented here.
 - Continue the community adoption work tracked in docs/GROWTH.md.
 - Keep the preview, confirmation, lease, revision, verification, and rollback lifecycle stable.
 - Added bounded scene signal disconnection with exact-match validation and UndoRedo rollback coverage.
+- Added read-only task resource verification with bounded content assertions, revision evidence, and mismatch timelines.
 
 ## 1.1.0 - 2026-10-03
 
