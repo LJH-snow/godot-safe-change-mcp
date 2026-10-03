@@ -13,6 +13,7 @@ All notable changes to Godot Safe Change MCP will be documented here.
 - Added a tool contract test suite covering all 23 tool registrations, annotation completeness, and read-only handler smoke checks.
 - Added a repository privacy policy covering local-only data handling; it ships with the npm package.
 - Improved npm discovery keywords for Godot, safe changes, automation, and UndoRedo; publish only with the next authorized version release.
+- Made the default README English and preserved the Chinese guide as README.zh-CN.md for clearer first-time discovery.
 
 ## 1.1.0 - 2026-10-03
 

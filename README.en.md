@@ -16,7 +16,7 @@
   <a href="https://m8ven.ai/mcp/ljh-snow/godot-safe-change-mcp"><img src="https://m8ven.ai/badge/mcp/ljh-snow/godot-safe-change-mcp" alt="M8ven Score"></a>
 </p>
 
-<p align="center"><a href="README.en.md">English</a> · <a href="README.md">简体中文</a></p>
+<p align="center">English · <a href="README.zh-CN.md">简体中文</a></p>
 
 Godot Safe Change MCP is an MCP server for AI-assisted Godot development. TypeScript owns contracts, preview plans, confirmation, task orchestration, and audit evidence; the Godot EditorPlugin owns live editor context, UndoRedo, run control, and diagnostics.
 
@@ -238,7 +238,7 @@ More detail:
 - [Test boundaries and Godot acceptance](tests/README.md)
 - [Product plan](docs/PLAN.md)
 - [Godot plugin guide](godot-plugin/README.md)
-- [简体中文 README](README.md)
+- [简体中文 README](README.zh-CN.md)
 
 ## License
 
