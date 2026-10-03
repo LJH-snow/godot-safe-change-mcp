@@ -59,5 +59,6 @@ The real EditorPlugin check uses godot-fixture and requires a local Godot 4.x ed
 18. Call create_task with run, verify_resource_state, preview_diagnostic_repair carrying a bounded repairHint, apply_diagnostic_repair, rerun and verify_diagnostics steps; verify resource revision/match evidence and timeline links the run/diagnostic/plan, preview pauses, and apply succeeds only after confirm_scene_change.
 19. Create a second task, pause it and verify advance_task returns TASK_INVALID_STATUS; resume, advance once, then cancel and verify the remaining steps become "cancelled".
 20. Restart the MCP server and call get_task; verify the task state is restored from `.godot-safe-change/tasks/` inside the project.
+21. Call create_task with a `verify_script_state` step on a project script and verify contains/matchCounts assertions pass with bounded evidence; change the script and verify the revision conflict, then verify a failed assertion records observed/expected in the timeline without returning the script body.
 
 The first write-operation test must keep preview, confirmation, apply and rollback as separate states.
