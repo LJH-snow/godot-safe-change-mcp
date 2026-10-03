@@ -1,5 +1,10 @@
 # 进度记录
 
+## 2026-10-03 starter copy guide
+
+- 扩展 examples/starter/README.md，补充 macOS/Linux、Windows PowerShell 的插件复制命令、文件核对、插件启用和首次 editor_context 检查。
+- 连接客户端统一指向 docs/CLIENTS.md；社区发布仍按用户要求暂停。
+
 ## 2026-10-03 client configuration guide
 
 - 新增 docs/CLIENTS.md，覆盖 Claude Code、Codex CLI、Cursor 和通用 Streamable HTTP 的最小配置。

@@ -40,6 +40,7 @@
 
 - [x] 提供 examples/starter fixture，用户无需理解内部实现即可运行第一条安全变更。
 - [x] GitHub Actions 在 Godot 4.5.1/4.7.2 中打开 starter fixture，防止示例随版本漂移。
+- [x] 为 macOS、Linux 和 Windows PowerShell 补充 starter 插件复制与启用步骤。
 - [x] 增加 5 个可复制的 Agent 示例请求：搜索、创建节点、实例化场景、脚本/资源安全修改、任务恢复。
 - [x] 增加 docs/EXAMPLES.md，覆盖搜索、场景变更、实例化/信号、任务 Lease 和冲突恢复。
 - [x] 增加 docs/DEMO.md，固定 60 秒录制分镜、旁白和验收标准。

@@ -309,6 +309,13 @@
 - [x] 增加 Claude Code、Codex CLI、Cursor 和通用 Streamable HTTP 的最小配置示例。
 - [x] 明确 MCP endpoint 与 Godot bridge 的 loopback 边界，并给出只读到安全写入的首次验证顺序。
 
+## Phase 25 — Starter 跨平台复制指引
+
+状态：complete
+
+- [x] 为 macOS、Linux 和 Windows PowerShell 提供插件复制命令与目标文件核对。
+- [x] 补充 Godot 插件启用、客户端配置入口和首次 editor_context 验证步骤。
+
 ## 完成定义
 
 只有在验收标准全部满足、自动化检查通过，并且真实或 fixture Godot 链路有可复现证据后，才将所有阶段标记为 `complete`。

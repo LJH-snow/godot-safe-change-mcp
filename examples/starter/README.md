@@ -15,11 +15,27 @@ npm ci
 npm run build
 ~~~
 
-把 Godot bridge 插件复制到这个示例项目：
+把 Godot bridge 插件复制到这个示例项目。选择与你的系统对应的命令：
+
+### macOS / Linux
 
 ~~~bash
 mkdir -p examples/starter/addons
 cp -R godot-plugin examples/starter/addons/godot-safe-change-bridge
+~~~
+
+### Windows PowerShell
+
+~~~powershell
+New-Item -ItemType Directory -Force examples/starter/addons | Out-Null
+Copy-Item -Recurse -Force godot-plugin examples/starter/addons/godot-safe-change-bridge
+~~~
+
+复制完成后，确认以下两个文件存在：
+
+~~~text
+examples/starter/addons/godot-safe-change-bridge/plugin.cfg
+examples/starter/addons/godot-safe-change-bridge/plugin.gd
 ~~~
 
 然后：
@@ -27,7 +43,11 @@ cp -R godot-plugin examples/starter/addons/godot-safe-change-bridge
 1. 用 Godot 4.x 打开 examples/starter/project.godot。
 2. 在 Project → Project Settings → Plugins 中启用 Godot Safe Change Bridge。
 3. 在仓库根目录运行 npm run dev。
-4. 打开 MCP Inspector 或连接你常用的 MCP 客户端。
+4. 在 Project → Project Settings → Plugins 中确认插件状态为 Enabled。
+5. 在仓库根目录运行 npm run dev，然后打开 MCP Inspector 或按 docs/CLIENTS.md 连接客户端。
+6. 首次调用 editor_context，确认 connection 为 connected 后再进行写操作。
+
+Inspector 截图和完整 preview → confirm → apply → verify → rollback 流程见 README 和 docs/DEMO.md。
 
 ## 可以尝试的请求
 

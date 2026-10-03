@@ -10,10 +10,10 @@
 - Acceptance: docs/CLIENTS.md 为每个客户端指向 <code>http://127.0.0.1:3000/mcp</code>，说明 bridge 与 MCP endpoint 的边界，并给出首次只读验证流程。
 - Labels: <code>good first issue</code>、<code>documentation</code>、<code>starter</code>。
 
-### Improve the starter fixture copy guide
+### Improve the starter fixture copy guide — implemented
 
 - Scope: 为 macOS、Linux、Windows 补充 Godot 插件复制和启用截图说明。
-- Acceptance: 新用户可以从 examples/starter 启动到 editor_context 成功。
+- Acceptance: examples/starter/README.md 已提供 macOS/Linux、Windows PowerShell、插件文件核对、启用和 editor_context 首次连接步骤。
 - Labels: <code>good first issue</code>、<code>documentation</code>、<code>starter</code>。
 
 ## Intermediate
