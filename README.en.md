@@ -222,6 +222,7 @@ More detail:
 - [Contributor task board](docs/CONTRIBUTOR_TASKS.md)
 - [Code of Conduct](CODE_OF_CONDUCT.md)
 - [Security policy](SECURITY.md)
+- [Privacy policy](PRIVACY.md)
 - [Growth and adoption plan](docs/GROWTH.md)
 - [Long-term adoption roadmap](docs/ROADMAP.md)
 - [Agent examples](docs/EXAMPLES.md)

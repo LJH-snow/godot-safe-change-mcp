@@ -236,6 +236,7 @@ npm run release:check
 - [贡献任务清单](docs/CONTRIBUTOR_TASKS.md)
 - [行为准则](CODE_OF_CONDUCT.md)
 - [安全策略](SECURITY.md)
+- [隐私政策](PRIVACY.md)
 - [增长与社区采用计划](docs/GROWTH.md)
 - [长期采用路线图](docs/ROADMAP.md)
 - [Agent 示例](docs/EXAMPLES.md)

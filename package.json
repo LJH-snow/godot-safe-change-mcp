@@ -33,6 +33,7 @@
     "godot-plugin",
     "README.md",
     "README.en.md",
+    "PRIVACY.md",
     "LICENSE",
     ".env.example"
   ],
