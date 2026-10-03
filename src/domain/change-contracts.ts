@@ -203,6 +203,14 @@ export const sceneRemoveGroupSchema = z
   })
   .strict();
 
+export const sceneReorderNodeSchema = z
+  .object({
+    kind: z.literal("scene.reorder_node"),
+    nodePath: nodePathSchema.describe("NodePath inside the current scene."),
+    index: z.number().int().min(0).max(10000).describe("Final sibling index for the node after the move."),
+  })
+  .strict();
+
 const sceneSetVisiblePropertySchema = z
   .object({
     kind: z.literal("scene.set_property"),
@@ -378,6 +386,7 @@ export const changeOperationSchema = z.union([
   sceneDisconnectSignalSchema,
   sceneAddGroupSchema,
   sceneRemoveGroupSchema,
+  sceneReorderNodeSchema,
   sceneSetPropertySchema,
   sceneAttachScriptSchema,
   sceneDetachScriptSchema,
@@ -543,6 +552,17 @@ export const sceneRemoveGroupDiffSchema = z
   })
   .strict();
 
+export const sceneReorderNodeDiffSchema = z
+  .object({
+    kind: z.literal("scene.reorder_node"),
+    target: z.string().min(1),
+    summary: z.string().min(1),
+    nodePath: nodePathSchema,
+    fromIndex: z.number().int().nonnegative(),
+    toIndex: z.number().int().nonnegative(),
+  })
+  .strict();
+
 export const scriptChangeDiffSchema = z.object({
   kind: z.literal("script.replace_range"),
   target: z.string().min(1),
@@ -683,6 +703,7 @@ export const changeDiffSchema = z.union([
   sceneDisconnectSignalDiffSchema,
   sceneAddGroupDiffSchema,
   sceneRemoveGroupDiffSchema,
+  sceneReorderNodeDiffSchema,
   scenePropertyDiffSchema,
   sceneAttachScriptDiffSchema,
   sceneDetachScriptDiffSchema,
