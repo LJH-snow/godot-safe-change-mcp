@@ -30,6 +30,7 @@
 - [x] 项目本地技能、发布边界、Godot 双版本 CI 和真实 smoke。
 - [x] 贡献指南和可复现的 issue 入口。
 - [x] Code of Conduct 和 Security policy，明确社区行为和漏洞反馈路径。
+- [x] 准备 docs/CONTRIBUTOR_TASKS.md，给未来贡献者提供带验收标准的 good first issue 候选。
 - [x] 创建第一个 GitHub Release/tag，并在 Release 页面固定安装方式、兼容版本和 CI 证据。
 - [x] 提供真实 GIF 演示：搜索 → preview → confirm → apply → rollback；后续可扩展为带 verify/run 的 60 秒视频。
 - [x] 准备中英文社区发布文案、渠道适配和反馈问题模板。

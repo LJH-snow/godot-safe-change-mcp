@@ -216,6 +216,7 @@ npm run package:check
 More detail:
 
 - [Contributing](CONTRIBUTING.md)
+- [Contributor task board](docs/CONTRIBUTOR_TASKS.md)
 - [Code of Conduct](CODE_OF_CONDUCT.md)
 - [Security policy](SECURITY.md)
 - [Growth and adoption plan](docs/GROWTH.md)

@@ -1,5 +1,10 @@
 # 进度记录
 
+## 2026-10-03 contributor task board
+
+- 新增 docs/CONTRIBUTOR_TASKS.md，拆分 good first issue、starter 文档、disconnect_signal、verify_resource_state、双进程 smoke 和 Release 校验任务。
+- 社区发布继续暂停；任务清单先作为内部路线和未来外部贡献入口。
+
 ## 2026-10-03 onboarding FAQ
 
 - 新增 docs/FAQ.md，覆盖 Inspector 下载/使用、Godot bridge、EDITOR_UNAVAILABLE、PROJECT_BUSY、REVISION_CONFLICT、rollback、CI smoke 和 npm 安装。
