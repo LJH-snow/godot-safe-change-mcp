@@ -219,6 +219,7 @@ More detail:
 - [Contributing](CONTRIBUTING.md)
 - [Code of Conduct](CODE_OF_CONDUCT.md)
 - [Security policy](SECURITY.md)
+- [Privacy policy](PRIVACY.md)
 - [Growth and adoption plan](docs/GROWTH.md)
 - [Agent examples](docs/EXAMPLES.md)
 - [60-second demo storyboard](docs/DEMO.md)

@@ -37,6 +37,7 @@ try {
     "godot-plugin/plugin.gd",
     "godot-plugin/README.md",
     "package.json",
+    "PRIVACY.md",
   ]);
   const forbiddenPrefixes = [
     "tests/",
