@@ -397,3 +397,11 @@
 - 已实现唯一名管理：布尔开关操作，context 推导 previous 并校验同名占用，editor_context 节点快照带只读 uniqueNameInOwner，插件通过 UndoRedo 属性正反向恢复并独立重验占用。
 - 本地 126 项测试、typecheck 通过；真实 Godot smoke 覆盖启用→context 验证→rollback 与无变化拒绝，待双版本 CI 验证后收尾。
 - push run 37136333892 的 check、package boundary、Godot 4.5.1 和 Godot 4.7.2 四个 job 全部通过；Phase 34 按完成定义收尾，经 PR #24 以 merge commit 合入 main。
+
+## 2026-10-04 first-run dogfood (offline, no Godot editor)
+
+- 按 CLIENTS.md 全新 clone → npm ci → build → dev -- --no-open 全流程计时：clone 3s、安装+构建 8s（本机有 npm 缓存，真实新用户更慢）、端点 200。
+- 发现 1：本机 8765 被无关 Python 服务占用时，桥接返回 HTML，用户看到费解的 JSON 解析错误。已修复：非 JSON 响应返回可操作的 EDITOR_UNAVAILABLE 提示（端口占用或插件未启用）。
+- 发现 2：插件桥接端口硬编码 8765，端口冲突无逃生门。已修复：插件读取可选 godot_safe_change/bridge_port 设置（默认 8765），服务端 GODOT_BRIDGE_URL 配对，CLIENTS.md 新增排障章节。
+- 发现 3：.env.example 中 GODOT_BRIDGE_URL 仍标注 "Reserved for the future"，与现状不符，已更正。
+- 离线验证：search_project、find_references 经本地只读索引正常工作；project_overview 依赖编辑器 context，离线返回 EDITOR_UNAVAILABLE（文案已随本次修复变得可操作）。

@@ -49,7 +49,10 @@ var diagnostics := {
 
 func _enter_tree() -> void:
     _create_dock()
-    bridge_server = SafeChangeBridgeServer.new(self, BRIDGE_PORT)
+    var configured_port := int(ProjectSettings.get_setting("godot_safe_change/bridge_port", BRIDGE_PORT))
+    if configured_port < 1 or configured_port > 65535:
+        configured_port = BRIDGE_PORT
+    bridge_server = SafeChangeBridgeServer.new(self, configured_port)
     var listen_error := bridge_server.start()
     bridge_status = "connected" if listen_error == OK else "error"
 

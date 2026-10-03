@@ -94,6 +94,17 @@ Run this sequence in the client:
 
 If the first call returns EDITOR_UNAVAILABLE, check that Godot is open with the plugin enabled and that the MCP server is using the same project. If a write returns PROJECT_BUSY, inspect task_status and task_timeline instead of retrying in a tight loop.
 
+## Troubleshooting the bridge connection
+
+The Godot EditorPlugin listens on loopback port 8765 by default. Two failure shapes exist:
+
+- **Connection refused** (`could not be reached` with a `cause` mentioning fetch or ECONNREFUSED): Godot is not running, the plugin is not enabled in the project, or the MCP server points at a different project. Enable the plugin per the starter guide and retry.
+- **A non-Godot service answered** (`Something other than the Godot Safe Change EditorPlugin answered on the bridge endpoint`): another program on your machine already owns port 8765, so the bridge request reached it instead of the plugin. Free the port, or move both sides:
+  1. Add `godot_safe_change/bridge_port = 8899` to the `[application]`-adjacent custom settings in the target project's `project.godot` and reload the editor plugin.
+  2. Set `GODOT_BRIDGE_URL=http://127.0.0.1:8899` in the MCP server environment (see `.env.example`) before `npm run dev`.
+
+Both services stay on loopback in every configuration; never expose either port beyond 127.0.0.1.
+
 ## Official client references
 
 - [Claude Code MCP](https://code.claude.com/docs/en/mcp)
