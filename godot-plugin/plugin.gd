@@ -10,6 +10,15 @@ const ALLOWED_NODE_TYPES := {
     "Control": true,
     "Label": true,
     "ColorRect": true,
+    "Sprite2D": true,
+    "Marker2D": true,
+    "Camera2D": true,
+    "Timer": true,
+    "AudioStreamPlayer": true,
+    "CharacterBody2D": true,
+    "StaticBody2D": true,
+    "Area2D": true,
+    "CollisionShape2D": true,
 }
 
 var dock: PanelContainer

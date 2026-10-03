@@ -412,3 +412,9 @@
 - 已实现脚本创建：res:// .gd 路径与内容双端校验，原子写入复用 _atomic_replace_script，回滚在内容哈希未变时删除创建的文件（用户修改后拒绝删除），coordinator file-revision 重读分支覆盖 create。
 - 本地 129 项测试、typecheck 通过；真实 Godot smoke 覆盖创建→读取验证→重复拒绝→rollback 删除，待双版本 CI 验证后收尾。
 - push run 37138962606 的 check、package boundary、Godot 4.5.1 和 Godot 4.7.2 四个 job 全部通过；Phase 35 按完成定义收尾，经 PR #27 以 merge commit 合入 main。
+
+## 2026-10-04 create_node type expansion
+
+- safeNodeTypeSchema 与插件 ALLOWED_NODE_TYPES 同步扩展九种游戏常用类型，未知类仍被 schema 拒绝。
+- TypeScript 回归逐类型断言创建预览；真实 Godot smoke 覆盖 Sprite2D/Timer 的创建→context 类型验证→rollback。
+- 本地 130 项测试、typecheck、build、package:check 通过，待双版本 CI 验证后收尾。
