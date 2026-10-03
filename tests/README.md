@@ -16,7 +16,7 @@ Automated coverage currently includes:
 - input actions: bounded ProjectSettings key addition/removal/replacement for physical keys, direct-plugin rejection of equal, logical, duplicate and occupied keys, settings revision guard and rollback after external edits;
 - autoload management: bounded project.godot singleton registration/removal with name and script-path gates, settings revision guard, save-failure restoration and rollback;
 - multi-step tasks: bounded task state machine with apply/rollback/run/scene/resource/diagnostics verification and diagnostic-repair preview+apply steps, pause/resume/cancel transitions, explicit lease acquire/renew/release, retry budget, project-directory persistence and restart recovery; repair apply is gated by a separate confirmation;
-- HTTP bridge: loopback protocol envelopes, context/search/apply requests, current-scene and specified-scene run status polling;
+- HTTP bridge: loopback protocol envelopes, context/search/apply requests, current-scene and specified-scene run status polling, and an actionable EDITOR_UNAVAILABLE error when the bridge endpoint answers with a non-protocol payload;
 - plugin boundary: fixed TCPServer transport, independent validation of forged apply/rollback requests, unchanged project state after rejected payloads, context/apply/rollback/run/run-scene routes, safe paths and forbidden-operation checks.
 - real Godot integration: two MCP processes sharing one EditorPlugin bridge, starter and fixture lease contention, write apply rejection, forced owner termination, TTL takeover, and task execution plus rollback through the real bridge.
 

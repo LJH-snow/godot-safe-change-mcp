@@ -216,7 +216,7 @@ export class HttpGodotBridge implements GodotBridge {
         body: JSON.stringify(body),
         signal: controller.signal,
       });
-      const payload: unknown = await response.json();
+      const payload = await this.parseBridgeResponse(route, response);
       if (!response.ok) {
         throw this.errorFromPayload(payload, response.status);
       }
@@ -232,6 +232,30 @@ export class HttpGodotBridge implements GodotBridge {
       );
     } finally {
       clearTimeout(timeout);
+    }
+  }
+
+  private async parseBridgeResponse(route: string, response: Response): Promise<unknown> {
+    const rawBody = await response.text();
+    const trimmedBody = rawBody.trimStart();
+    if (!trimmedBody.startsWith("{") && !trimmedBody.startsWith("[")) {
+      throw new DomainError(
+        ERROR_CODES.EDITOR_UNAVAILABLE,
+        "Something other than the Godot Safe Change EditorPlugin answered on the bridge endpoint. " +
+          "Close the program using " + this.endpoint + " (or set GODOT_BRIDGE_URL to a free port before starting the MCP server), " +
+          "and make sure Godot is open with the Safe Change plugin enabled.",
+        { route, status: response.status },
+      );
+    }
+    try {
+      return JSON.parse(rawBody) as unknown;
+    } catch (error) {
+      throw new DomainError(
+        ERROR_CODES.EDITOR_UNAVAILABLE,
+        "The Godot Safe Change EditorPlugin bridge returned a response that is not valid JSON. " +
+          "Make sure Godot is open with the Safe Change plugin enabled.",
+        { route, status: response.status, cause: error instanceof Error ? error.message : String(error) },
+      );
     }
   }
 

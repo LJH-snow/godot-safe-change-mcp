@@ -2222,8 +2222,29 @@ describe("HttpGodotBridge", () => {
     await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
   });
 
-  test("uses the local bridge protocol for context and apply", async () => {
-    const context = await bridge.getContext(projectRoot);
+  test("explains a non-protocol bridge response instead of a JSON parse error", async () => {
+    const squatter = createServer((_request, response) => {
+      response.setHeader("content-type", "text/html");
+      response.end("<!DOCTYPE html><html><body>not the bridge</body></html>");
+    });
+    await new Promise<void>((resolve) => squatter.listen(0, "127.0.0.1", resolve));
+    const squatterAddress = squatter.address() as AddressInfo;
+    const squatterBridge = new HttpGodotBridge("http://127.0.0.1:" + squatterAddress.port);
+
+    try {
+      await assert.rejects(
+        () => squatterBridge.getContext(projectRoot),
+        (error: unknown) =>
+          error instanceof DomainError &&
+          error.code === ERROR_CODES.EDITOR_UNAVAILABLE &&
+          /Something other than the Godot Safe Change EditorPlugin/.test(error.message),
+      );
+    } finally {
+      await new Promise<void>((resolve) => squatter.close(() => resolve()));
+    }
+  });
+
+  test("uses the local bridge protocol for context and apply", async () => {    const context = await bridge.getContext(projectRoot);
     assert.equal(context.currentScene.path, "res://main.tscn");
 
     const report = await bridge.applyChange(projectRoot, {
@@ -2331,4 +2352,5 @@ test("the Godot plugin exposes only the bounded vertical-link routes", async () 
   assert.match(source, /scene\.set_unique_name/);
   assert.match(source, /unique_name_in_owner/);
   assert.match(source, /_unique_name_is_free/);
+  assert.match(source, /godot_safe_change\/bridge_port/);
 });
