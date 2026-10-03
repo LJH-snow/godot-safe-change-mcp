@@ -347,6 +347,14 @@
 - [x] 将 Star 目标降级为结果指标，改用首次成功时间、真实反馈、贡献者和 CI 证据作为主要门槛。
 - [x] 在路线图中保留社区发布授权、安全边界和不绕过用户确认的约束。
 
+## Phase 30 — 只读脚本任务验证
+
+状态：in_progress
+
+- [x] 增加 verify_script_state step，限制为项目内脚本路径、可选脚本 revision、contains 和 matchCounts 断言。
+- [x] 返回有限 observed/expected 证据，不回传脚本全文；记录 step operationId 与 timeline mismatch。
+- [x] 增加 TypeScript task 回归和真实 Godot task smoke；待双版本 CI 验证后收尾。
+
 ## 完成定义
 
 只有在验收标准全部满足、自动化检查通过，并且真实或 fixture Godot 链路有可复现证据后，才将所有阶段标记为 `complete`。

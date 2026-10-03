@@ -451,6 +451,9 @@ export class TaskCoordinator {
     if (step.kind === "verify_resource_state") {
       return this.verifyResourceState(projectRoot, step);
     }
+    if (step.kind === "verify_script_state") {
+      return this.verifyScriptState(projectRoot, step);
+    }
     if (step.kind === "run_current_scene") {
       return this.changeCoordinator.runCurrentScene({
         projectRoot,
@@ -827,6 +830,66 @@ export class TaskCoordinator {
     return { passed: true, resourcePath, revision: snapshot.revision, assertions };
   }
 
+  private async verifyScriptState(projectRoot: string, step: TaskStepState): Promise<unknown> {
+    const scriptPath = step.scriptPath;
+    if (scriptPath === null) {
+      throw new DomainError(
+        ERROR_CODES.TASK_VERIFICATION_FAILED,
+        "The verify_script_state step is missing its script path.",
+        { stepId: step.stepId },
+      );
+    }
+
+    const snapshot = await this.changeCoordinator.readScript(projectRoot, scriptPath);
+    if (step.expectedScriptRevision !== null && snapshot.revision !== step.expectedScriptRevision) {
+      throw new DomainError(
+        ERROR_CODES.TASK_VERIFICATION_FAILED,
+        "The script revision does not match the expected verification revision.",
+        {
+          scriptPath,
+          expectedScriptRevision: step.expectedScriptRevision,
+          actualScriptRevision: snapshot.revision,
+        },
+      );
+    }
+
+    const assertions: Array<Record<string, unknown>> = [];
+    const mismatches: Array<Record<string, unknown>> = [];
+    for (const text of step.scriptContains) {
+      const matchCount = countResourceMatches(snapshot.content, text);
+      assertions.push({ kind: "contains", text, matchCount });
+      if (matchCount === 0) {
+        mismatches.push({ kind: "contains", text, matchCount });
+      }
+    }
+    for (const assertion of step.scriptMatchCounts) {
+      const actualCount = countResourceMatches(snapshot.content, assertion.text);
+      assertions.push({
+        kind: "match_count",
+        text: assertion.text,
+        expectedCount: assertion.expectedCount,
+        actualCount,
+      });
+      if (actualCount !== assertion.expectedCount) {
+        mismatches.push({
+          kind: "match_count",
+          text: assertion.text,
+          expectedCount: assertion.expectedCount,
+          actualCount,
+        });
+      }
+    }
+    if (mismatches.length > 0) {
+      throw new DomainError(
+        ERROR_CODES.TASK_VERIFICATION_FAILED,
+        "The script content did not satisfy the expected assertions.",
+        { scriptPath, revision: snapshot.revision, mismatches },
+      );
+    }
+
+    return { passed: true, scriptPath, revision: snapshot.revision, assertions };
+  }
+
   private async withTaskLease<T>(input: TaskIdInput, action: () => Promise<T>): Promise<T> {
     const parsedInput = taskIdInputSchema.parse(input);
     const projectRoot = await normalizeProjectRoot(parsedInput.projectRoot);
@@ -1123,6 +1186,10 @@ export class TaskCoordinator {
       expectedResourceRevision: "expectedResourceRevision" in step ? step.expectedResourceRevision ?? null : null,
       resourceContains: "contains" in step ? step.contains ?? [] : [],
       resourceMatchCounts: "matchCounts" in step ? step.matchCounts ?? [] : [],
+      scriptPath: "scriptPath" in step ? step.scriptPath : null,
+      expectedScriptRevision: "expectedScriptRevision" in step ? step.expectedScriptRevision ?? null : null,
+      scriptContains: "contains" in step ? step.contains ?? [] : [],
+      scriptMatchCounts: "matchCounts" in step ? step.matchCounts ?? [] : [],
       expectedProperties: "expectedProperties" in step ? step.expectedProperties ?? [] : [],
       runStepId: "runStepId" in step ? step.runStepId : null,
       maxErrors: "maxErrors" in step ? step.maxErrors ?? 0 : 0,

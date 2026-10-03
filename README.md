@@ -167,7 +167,7 @@ flowchart LR
 | 场景内容 | <code>scene.set_property</code>、<code>scene.attach_script</code>、<code>scene.detach_script</code> | 仅开放 visible、position、rotation_degrees、scale、size、text、color，以及项目内现有 GDScript 的挂载/卸载。 |
 | 文件/设置 | resource reference、input action、script range | 使用文件或 project.godot revision guard，原子写入并支持 rollback。 |
 | 运行诊断 | <code>run_current_scene</code>、<code>run_scene</code> | 返回 run ID、状态、输出、warning、error、source、line 和 NodePath。 |
-| 多步骤任务 | create/get/advance/pause/resume/cancel | 支持 verify_scene_state、verify_resource_state、verify_diagnostics、诊断修复预览和 step-level operation ID。 |
+| 多步骤任务 | create/get/advance/pause/resume/cancel | 支持 verify_scene_state、verify_resource_state、verify_script_state、verify_diagnostics、诊断修复预览和 step-level operation ID。 |
 | 并发恢复 | acquire/renew/release task lease、<code>task_status</code>、<code>task_timeline</code> | Lease 持有期间 heartbeat 续租；进程崩溃后按 TTL 接管，并保留审计时间线。 |
 
 ## 安全模型

@@ -1,5 +1,10 @@
 # 进度记录
 
+## 2026-10-03 verify_script_state
+
+- 新增只读 verify_script_state task step，补齐场景、资源、脚本三类验证闭环。
+- TypeScript 回归已通过 115/115，真实 Godot task smoke 已加入，待推送后确认双版本 CI。
+
 ## 2026-10-03 long-term adoption roadmap
 
 - 新增 docs/ROADMAP.md，覆盖 30/90/180/365 天的采用、反馈、贡献和信任门槛。

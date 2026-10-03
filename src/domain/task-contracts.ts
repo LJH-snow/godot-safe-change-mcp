@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { changePlanSchema, nodePathSchema, resourcePathSchema, scenePropertyAssertionSchema } from "./change-contracts.js";
+import { changePlanSchema, nodePathSchema, resourcePathSchema, scriptPathSchema, scenePropertyAssertionSchema } from "./change-contracts.js";
 import { diagnosticEntrySchema, diagnosticRepairHintSchema } from "./contracts.js";
 
 export const taskIdSchema = z
@@ -101,6 +101,31 @@ export const verifyResourceStateStepDeclSchema = z
     }
   });
 
+export const verifyScriptStateStepDeclSchema = z
+  .object({
+    kind: z.literal("verify_script_state"),
+    stepId: taskStepIdSchema,
+    scriptPath: scriptPathSchema,
+    expectedScriptRevision: z.string().min(1).optional(),
+    contains: z.array(z.string().min(1).max(512)).max(10).optional(),
+    matchCounts: z.array(resourceMatchCountAssertionSchema).max(10).optional(),
+    note: taskStepNoteSchema.optional(),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    if (
+      value.expectedScriptRevision === undefined &&
+      (value.contains?.length ?? 0) === 0 &&
+      (value.matchCounts?.length ?? 0) === 0
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["contains"],
+        message: "A script verification step needs a revision, contains assertion, or match count.",
+      });
+    }
+  });
+
 export const verifyDiagnosticsStepDeclSchema = z
   .object({
     kind: z.literal("verify_diagnostics"),
@@ -152,6 +177,7 @@ export const taskStepDeclSchema = z.discriminatedUnion("kind", [
   rollbackPlanStepDeclSchema,
   verifySceneStateStepDeclSchema,
   verifyResourceStateStepDeclSchema,
+  verifyScriptStateStepDeclSchema,
   verifyDiagnosticsStepDeclSchema,
   previewDiagnosticRepairStepDeclSchema,
   applyDiagnosticRepairStepDeclSchema,
@@ -311,7 +337,7 @@ export const acquireTaskLeaseInputSchema = z.object({
 
 export const taskStepStateSchema = z.object({
   stepId: taskStepIdSchema,
-  kind: z.enum(["run_current_scene", "run_scene", "apply_plan", "rollback_plan", "verify_scene_state", "verify_resource_state", "verify_diagnostics", "preview_diagnostic_repair", "apply_diagnostic_repair"]),
+  kind: z.enum(["run_current_scene", "run_scene", "apply_plan", "rollback_plan", "verify_scene_state", "verify_resource_state", "verify_script_state", "verify_diagnostics", "preview_diagnostic_repair", "apply_diagnostic_repair"]),
   planId: z.string().nullable(),
   scenePath: z.string().nullable().default(null),
   nodePath: z.string().nullable().default(null),
@@ -319,6 +345,10 @@ export const taskStepStateSchema = z.object({
   expectedResourceRevision: z.string().nullable().default(null),
   resourceContains: z.array(z.string()).default([]),
   resourceMatchCounts: z.array(resourceMatchCountAssertionSchema).default([]),
+  scriptPath: z.string().nullable().default(null),
+  expectedScriptRevision: z.string().nullable().default(null),
+  scriptContains: z.array(z.string()).default([]),
+  scriptMatchCounts: z.array(resourceMatchCountAssertionSchema).default([]),
   expectedProperties: z.array(scenePropertyAssertionSchema).default([]),
   runStepId: taskStepIdSchema.nullable().default(null),
   maxErrors: z.number().int().min(0).max(1000).default(0),
@@ -373,6 +403,7 @@ export const taskTimelineReportSchema = z.object({
 export type TaskStepDecl = z.infer<typeof taskStepDeclSchema>;
 export type VerifySceneStateStepDecl = z.infer<typeof verifySceneStateStepDeclSchema>;
 export type VerifyResourceStateStepDecl = z.infer<typeof verifyResourceStateStepDeclSchema>;
+export type VerifyScriptStateStepDecl = z.infer<typeof verifyScriptStateStepDeclSchema>;
 export type VerifyDiagnosticsStepDecl = z.infer<typeof verifyDiagnosticsStepDeclSchema>;
 export type PreviewDiagnosticRepairStepDecl = z.infer<typeof previewDiagnosticRepairStepDeclSchema>;
 export type ApplyDiagnosticRepairStepDecl = z.infer<typeof applyDiagnosticRepairStepDeclSchema>;

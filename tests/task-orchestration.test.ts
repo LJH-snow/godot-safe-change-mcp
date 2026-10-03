@@ -26,6 +26,7 @@ import { normalizeProjectRoot } from "../src/infrastructure/project-root.js";
 import {
   previewDiagnosticRepairStepDeclSchema,
   verifyResourceStateStepDeclSchema,
+  verifyScriptStateStepDeclSchema,
   verifySceneStateStepDeclSchema,
 } from "../src/domain/task-contracts.js";
 
@@ -931,6 +932,37 @@ describe("TaskCoordinator", () => {
     });
   });
 
+  test("verifies bounded script content with revision and match-count evidence", async () => {
+    const { projectRoot, taskCoordinator, bridge } = harness;
+    const task = await taskCoordinator.createTask({
+      projectRoot,
+      title: "Verify a script snapshot",
+      steps: [{
+        kind: "verify_script_state",
+        stepId: "verify-script",
+        scriptPath: "res://diagnostic_scene.gd",
+        expectedScriptRevision: "script-revision-1",
+        contains: ["extends Node2D", "func _ready"],
+        matchCounts: [{ text: "func", expectedCount: 1 }],
+      }],
+    });
+
+    const completed = await taskCoordinator.advanceTask({ projectRoot, taskId: task.taskId });
+
+    assert.equal(completed.status, "completed");
+    assert.deepEqual(completed.steps[0]?.result, {
+      passed: true,
+      scriptPath: "res://diagnostic_scene.gd",
+      revision: "script-revision-1",
+      assertions: [
+        { kind: "contains", text: "extends Node2D", matchCount: 1 },
+        { kind: "contains", text: "func _ready", matchCount: 1 },
+        { kind: "match_count", text: "func", expectedCount: 1, actualCount: 1 },
+      ],
+    });
+    assert.equal(bridge.scriptSnapshot.revision, "script-revision-1");
+  });
+
   test("rejects unsafe node paths and unallowlisted properties in verification steps", async () => {
     const { projectRoot, taskCoordinator } = harness;
     await assert.rejects(() => taskCoordinator.createTask({
@@ -951,6 +983,12 @@ describe("TaskCoordinator", () => {
       resourcePath: "res://instance_source.tscn",
     });
     assert.equal(invalidResourceStep.success, false);
+    const invalidScriptStep = verifyScriptStateStepDeclSchema.safeParse({
+      kind: "verify_script_state",
+      stepId: "verify-script-invalid",
+      scriptPath: "res://diagnostic_scene.gd",
+    });
+    assert.equal(invalidScriptStep.success, false);
   });
 
   test("rejects unknown tasks and stops retries after the attempt limit", async () => {

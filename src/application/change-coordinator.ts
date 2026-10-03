@@ -24,6 +24,7 @@ import type {
   RollbackReport,
   RunDiagnostics,
   RunSceneInput,
+  ScriptSnapshot,
 } from "../domain/contracts.js";
 import { previewRepairFromDiagnosticInputSchema } from "../domain/contracts.js";
 import { operationHistoryInputSchema } from "../domain/contracts.js";
@@ -81,6 +82,10 @@ export class ChangeCoordinator {
 
   async readResource(projectRootInput: string, resourcePath: string): Promise<ResourceSnapshot> {
     return this.bridge.readResource(await normalizeProjectRoot(projectRootInput), resourcePath);
+  }
+
+  async readScript(projectRootInput: string, scriptPath: string): Promise<ScriptSnapshot> {
+    return this.bridge.readScript(await normalizeProjectRoot(projectRootInput), scriptPath);
   }
 
   async previewSceneChange(input: PreviewSceneChangeInput): Promise<ChangePlan> {
