@@ -4,10 +4,10 @@
 
 ## Good first issue
 
-### Add client configuration examples
+### Add client configuration examples — implemented
 
 - Scope: document Claude Code、Codex、Cursor 和通用 Streamable HTTP 客户端的最小配置。
-- Acceptance: 每个示例能连接 <code>http://127.0.0.1:3000/mcp</code>，不要求用户暴露 Godot bridge。
+- Acceptance: docs/CLIENTS.md 为每个客户端指向 <code>http://127.0.0.1:3000/mcp</code>，说明 bridge 与 MCP endpoint 的边界，并给出首次只读验证流程。
 - Labels: <code>good first issue</code>、<code>documentation</code>、<code>starter</code>。
 
 ### Improve the starter fixture copy guide

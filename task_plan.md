@@ -302,6 +302,13 @@
 - [x] 通过 Godot UndoRedo 实现 apply/rollback，并保持 preview、confirm、revision 和 history 守卫。
 - [x] 增加 TypeScript 回归和真实 Godot smoke；push run 37096577872 的 check、package boundary、Godot 4.5.1 和 Godot 4.7.2 全部通过。
 
+## Phase 24 — 客户端首次连接文档
+
+状态：complete
+
+- [x] 增加 Claude Code、Codex CLI、Cursor 和通用 Streamable HTTP 的最小配置示例。
+- [x] 明确 MCP endpoint 与 Godot bridge 的 loopback 边界，并给出只读到安全写入的首次验证顺序。
+
 ## 完成定义
 
 只有在验收标准全部满足、自动化检查通过，并且真实或 fixture Godot 链路有可复现证据后，才将所有阶段标记为 `complete`。

@@ -1,5 +1,11 @@
 # 进度记录
 
+## 2026-10-03 client configuration guide
+
+- 新增 docs/CLIENTS.md，覆盖 Claude Code、Codex CLI、Cursor 和通用 Streamable HTTP 的最小配置。
+- 明确 MCP endpoint 与 Godot bridge 的 loopback 边界，提供 editor_context → search → preview → confirm/apply → verify/rollback 首次验证顺序。
+- 社区发布仍按用户要求暂停；文档资产先用于内部 onboarding 和未来真实反馈。
+
 ## 2026-10-03 verify_resource_state
 
 - 新增只读 verify_resource_state task step：校验 res:// 资源 revision、有限 contains 和 matchCounts，不新增写能力。
