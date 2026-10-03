@@ -239,6 +239,7 @@ npm run release:check
 - [Agent 示例](docs/EXAMPLES.md)
 - [客户端配置](docs/CLIENTS.md)
 - [验证证据索引](docs/SMOKE_EVIDENCE.md)
+- [反馈指南](docs/FEEDBACK.md)
 - [常见问题](docs/FAQ.md)
 - [60 秒演示脚本](docs/DEMO.md)
 - [社区发布文案](docs/ANNOUNCEMENTS.md)

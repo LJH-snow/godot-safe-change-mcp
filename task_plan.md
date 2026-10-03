@@ -331,6 +331,14 @@
 - [x] 增加 docs/SMOKE_EVIDENCE.md，把主要能力映射到单元测试、真实 Godot smoke、starter 并发 smoke 和发布边界检查。
 - [x] 将证据索引加入双语 README，并明确四项 CI job、日志 artifact 和安全边界解释。
 
+## Phase 28 — 真实反馈收集入口
+
+状态：complete
+
+- [x] 增加 docs/FEEDBACK.md，规定环境、复现、证据和隐私信息的最小反馈格式。
+- [x] 增加 release-feedback GitHub Issue template；不自动创建 issue、不代用户发布社区反馈。
+- [x] 在双语 README 和 FAQ 中提供反馈入口。
+
 ## 完成定义
 
 只有在验收标准全部满足、自动化检查通过，并且真实或 fixture Godot 链路有可复现证据后，才将所有阶段标记为 `complete`。

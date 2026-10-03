@@ -1,5 +1,10 @@
 # 进度记录
 
+## 2026-10-03 release feedback guide
+
+- 新增 docs/FEEDBACK.md 和 release-feedback issue template，帮助真实用户提供可复现、脱敏的安装与 starter 结果。
+- README/FAQ 增加反馈入口；没有代用户创建 issue 或发布社区内容。
+
 ## 2026-10-03 smoke evidence map
 
 - 新增 docs/SMOKE_EVIDENCE.md，把主要能力映射到可复制的测试、真实 Godot smoke、starter 多进程恢复和发布边界检查。

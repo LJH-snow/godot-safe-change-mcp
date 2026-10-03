@@ -73,4 +73,4 @@ The npm package contains the MCP entry, built bundle, public README files, and G
 
 ## Where should I report a problem?
 
-Use the repository issue templates for reproducible bugs and bounded feature requests. Do not put tokens, private project files, or vulnerability details in a public issue; read SECURITY.md first for sensitive reports.
+Use the repository issue templates and docs/FEEDBACK.md for reproducible bugs, release feedback, and bounded feature requests. Do not put tokens, private project files, or vulnerability details in a public issue; read SECURITY.md first for sensitive reports.
