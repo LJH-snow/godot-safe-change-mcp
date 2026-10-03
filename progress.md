@@ -405,3 +405,9 @@
 - 发现 2：插件桥接端口硬编码 8765，端口冲突无逃生门。已修复：插件读取可选 godot_safe_change/bridge_port 设置（默认 8765），服务端 GODOT_BRIDGE_URL 配对，CLIENTS.md 新增排障章节。
 - 发现 3：.env.example 中 GODOT_BRIDGE_URL 仍标注 "Reserved for the future"，与现状不符，已更正。
 - 离线验证：search_project、find_references 经本地只读索引正常工作；project_overview 依赖编辑器 context，离线返回 EDITOR_UNAVAILABLE（文案已随本次修复变得可操作）。
+
+## 2026-10-04 script file creation
+
+- 已先写 script.create_file 的 preview/apply/rollback 与已存在/遍历路径/非 .gd/空内容/超长内容红灯测试。
+- 已实现脚本创建：res:// .gd 路径与内容双端校验，原子写入复用 _atomic_replace_script，回滚在内容哈希未变时删除创建的文件（用户修改后拒绝删除），coordinator file-revision 重读分支覆盖 create。
+- 本地 129 项测试、typecheck 通过；真实 Godot smoke 覆盖创建→读取验证→重复拒绝→rollback 删除，待双版本 CI 验证后收尾。

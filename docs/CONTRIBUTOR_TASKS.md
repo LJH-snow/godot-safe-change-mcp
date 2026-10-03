@@ -53,6 +53,13 @@
 - Acceptance: editor_context 暴露只读 uniqueNameInOwner；apply/rollback 通过 Godot UndoRedo 属性互逆恢复；TypeScript 与真实 Godot smoke 已覆盖。
 - Labels: <code>enhancement</code>、<code>godot-4.5.1</code>、<code>godot-4.7.2</code>。
 
+### Add script.create_file — implemented
+
+- Scope: 创建新的项目内 GDScript 文件，让 Agent 可以从零引导项目脚本。
+- Guards: res:// .gd 路径、内容非空且 ≤100000 字符、已存在拒绝、原子写入、回滚在内容未变时删除文件。
+- Acceptance: 只读脚本快照验证创建结果；TypeScript 与真实 Godot smoke 已覆盖。
+- Labels: <code>enhancement</code>、<code>good first issue</code>、<code>godot-4.5.1</code>、<code>godot-4.7.2</code>。
+
 ### Add verify_resource_state — implemented
 
 - Scope: 为 task 增加只读资源内容/引用断言，不提供新的写能力。

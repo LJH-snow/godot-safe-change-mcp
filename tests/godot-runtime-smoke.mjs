@@ -368,6 +368,9 @@ try {
     { operation: { kind: "project.autoload.add", name: "bad/name", scriptPath: "res://diagnostic_scene.gd" }, errorCode: "VALIDATION_FAILED" },
     { operation: { kind: "project.autoload.add", name: "CiAutoload", scriptPath: "res://../outside.gd" }, errorCode: "UNSAFE_OPERATION" },
     { operation: { kind: "project.autoload.remove", name: "bad/name" }, errorCode: "VALIDATION_FAILED" },
+    { operation: { kind: "script.create_file", scriptPath: "res://../outside.gd", content: "extends Node\n" }, errorCode: "UNSAFE_OPERATION" },
+    { operation: { kind: "script.create_file", scriptPath: "res://diagnostic_scene.gd", content: "extends Node\n" }, errorCode: "VALIDATION_FAILED" },
+    { operation: { kind: "script.create_file", scriptPath: "res://empty.gd", content: "" }, errorCode: "VALIDATION_FAILED" },
     { operation: { kind: "scene.set_property", nodePath: ".", property: "script", value: null }, errorCode: "UNSAFE_OPERATION" },
     { operation: { kind: "scene.attach_script", nodePath: ".", scriptPath: "res://../outside.gd" }, errorCode: "UNSAFE_OPERATION" },
     { operation: { kind: "scene.detach_script", nodePath: "Scriptless" }, errorCode: "VALIDATION_FAILED" },
@@ -757,6 +760,51 @@ try {
     operation: { kind: "scene.set_unique_name", nodePath: "Scriptless", enabled: false },
   }, /OPERATION_REJECTED/);
   stage("scene unique name complete");
+  stage("script file creation");
+  const createScriptPlan = structured(await request("tools/call", {
+    name: "preview_scene_change",
+    arguments: {
+      projectRoot: fixtureRoot,
+      reason: "Bootstrap a new gameplay script.",
+      operation: {
+        kind: "script.create_file",
+        scriptPath: "res://ci_created_script.gd",
+        content: "extends Node\n\nfunc _ready() -> void:\n\tprint(\"ci script ready\")\n",
+      },
+    },
+  }));
+  assert.equal(createScriptPlan.diff[0]?.kind, "script.create_file");
+  structured(await request("tools/call", {
+    name: "confirm_scene_change",
+    arguments: { projectRoot: fixtureRoot, planId: createScriptPlan.planId, expectedRevision: createScriptPlan.expectedRevision },
+  }));
+  const createScriptApply = structured(await request("tools/call", {
+    name: "apply_scene_change",
+    arguments: { projectRoot: fixtureRoot, planId: createScriptPlan.planId },
+  }));
+  assert.equal(createScriptApply.status, "applied");
+  const createdScriptRead = await bridgeRequest("/v1/scripts/read", { projectRoot: fixtureRoot, scriptPath: "res://ci_created_script.gd" });
+  assert.equal(createdScriptRead.body.ok, true, JSON.stringify(createdScriptRead.body));
+  assert.ok(createdScriptRead.body.snapshot.content.includes("ci script ready"));
+  await expectToolError("preview_scene_change", {
+    projectRoot: fixtureRoot,
+    reason: "Reject creating a script that already exists.",
+    operation: {
+      kind: "script.create_file",
+      scriptPath: "res://ci_created_script.gd",
+      content: "extends Node\n",
+    },
+  }, /VALIDATION_FAILED/);
+  const createScriptRollback = structured(await request("tools/call", {
+    name: "rollback_scene_change",
+    arguments: { projectRoot: fixtureRoot, planId: createScriptPlan.planId },
+  }));
+  assert.equal(createScriptRollback.status, "rolled_back");
+  assert.equal(createScriptRollback.undoLabel, "Godot Safe Change: Delete created script");
+  const createdScriptReadAfterRollback = await bridgeRequest("/v1/scripts/read", { projectRoot: fixtureRoot, scriptPath: "res://ci_created_script.gd" });
+  assert.equal(createdScriptReadAfterRollback.body.ok, false, JSON.stringify(createdScriptReadAfterRollback.body));
+  assert.equal(createdScriptReadAfterRollback.body.error.code, "PROJECT_NOT_FOUND");
+  stage("script file creation complete");
   const initialCurrentSceneRun = structured(await request("tools/call", {
     name: "run_current_scene",
     arguments: { projectRoot: fixtureRoot, timeoutMs: 30000 },

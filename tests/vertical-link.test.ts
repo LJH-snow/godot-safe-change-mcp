@@ -64,6 +64,7 @@ class FakeGodotBridge implements GodotBridge {
     revision: "script-revision-1",
     content: "extends Node2D\n\nfunc _ready() -> void:\n    pass\n",
   };
+  missingScriptPaths = new Set<string>();
   resourceSnapshot: ResourceSnapshot = {
     path: "res://resources/theme.tres",
     revision: "resource-revision-1",
@@ -201,6 +202,9 @@ class FakeGodotBridge implements GodotBridge {
   }
 
   async readScript(_projectRoot: string, scriptPath: string): Promise<ScriptSnapshot> {
+    if (this.missingScriptPaths.has(scriptPath)) {
+      throw new DomainError(ERROR_CODES.PROJECT_NOT_FOUND, "The requested script does not exist.", { scriptPath });
+    }
     return { ...this.scriptSnapshot, path: scriptPath };
   }
 
@@ -1385,6 +1389,67 @@ describe("ChangeCoordinator", () => {
       () => preview({ kind: "scene.set_unique_name", nodePath: "Canvas", enabled: false }),
       (error: unknown) => error instanceof DomainError && error.code === ERROR_CODES.OPERATION_REJECTED,
     );
+    assert.equal(bridge.applied.length, 0);
+  });
+
+  test("previews, applies and rolls back one bounded script file creation", async () => {
+    const bridge = new FakeGodotBridge();
+    bridge.missingScriptPaths.add("res://scripts/new_player.gd");
+    const coordinator = new ChangeCoordinator(bridge);
+
+    const plan = await coordinator.previewSceneChange({
+      projectRoot,
+      reason: "Bootstrap the player script for a new scene.",
+      operation: {
+        kind: "script.create_file",
+        scriptPath: "res://scripts/new_player.gd",
+        content: "extends CharacterBody2D\n\nfunc _ready() -> void:\n\tprint(\"ready\")\n",
+      } as never,
+    });
+
+    assert.equal(plan.operations[0]?.kind, "script.create_file");
+    assert.deepEqual(plan.diff[0], {
+      kind: "script.create_file",
+      target: "res://scripts/new_player.gd",
+      summary: "Create res://scripts/new_player.gd (5 lines)",
+      scriptPath: "res://scripts/new_player.gd",
+      content: "extends CharacterBody2D\n\nfunc _ready() -> void:\n\tprint(\"ready\")\n",
+    });
+    const confirmation = await coordinator.confirmChange({
+      projectRoot,
+      planId: plan.planId,
+      expectedRevision: plan.expectedRevision,
+    });
+    assert.equal(confirmation.status, "confirmed");
+    const applied = await coordinator.applyChange({ projectRoot, planId: plan.planId });
+    assert.equal(applied.status, "applied");
+    assert.equal(bridge.applied[0]?.operations[0]?.kind, "script.create_file");
+    const rolledBack = await coordinator.rollbackChange({ projectRoot, planId: plan.planId });
+    assert.equal(rolledBack.status, "rolled_back");
+  });
+
+  test("rejects creating a script file that already exists or violates the path and content bounds", async () => {
+    const bridge = new FakeGodotBridge();
+    const coordinator = new ChangeCoordinator(bridge);
+    const preview = (operation: Record<string, unknown>) =>
+      coordinator.previewSceneChange({
+        projectRoot,
+        reason: "Exercise script creation safety validation.",
+        operation: operation as never,
+      });
+
+    await assert.rejects(
+      () => preview({ kind: "script.create_file", scriptPath: "res://diagnostic_scene.gd", content: "extends Node\n" }),
+      (error: unknown) => error instanceof DomainError && error.code === ERROR_CODES.VALIDATION_FAILED,
+    );
+    await assert.rejects(() =>
+      preview({ kind: "script.create_file", scriptPath: "res://../outside.gd", content: "extends Node\n" }));
+    await assert.rejects(() =>
+      preview({ kind: "script.create_file", scriptPath: "res://notes.txt", content: "hello" }));
+    await assert.rejects(() =>
+      preview({ kind: "script.create_file", scriptPath: "res://empty.gd", content: "" }));
+    await assert.rejects(() =>
+      preview({ kind: "script.create_file", scriptPath: "res://huge.gd", content: "x".repeat(100001) }));
     assert.equal(bridge.applied.length, 0);
   });
 
