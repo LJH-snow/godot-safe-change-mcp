@@ -16,7 +16,11 @@ let requestId = 1;
 let godotProcess;
 let primaryMcpProcess;
 let secondaryMcpProcess;
-const output = { godot: "", primary: "", secondary: "" };
+const output = {
+  godot: { value: "" },
+  primary: { value: "" },
+  secondary: { value: "" },
+};
 
 if (!godotBinary) {
   throw new Error("GODOT_BIN is required for the starter multi-process smoke test.");
@@ -219,9 +223,9 @@ try {
   assert.equal(completed.steps[0]?.result?.scenePath, "res://main.tscn");
   console.log("Starter multi-process smoke passed");
 } catch (error) {
-  console.error("Godot output:\n" + output.godot);
-  console.error("Primary MCP output:\n" + output.primary);
-  console.error("Secondary MCP output:\n" + output.secondary);
+  console.error("Godot output:\n" + output.godot.value);
+  console.error("Primary MCP output:\n" + output.primary.value);
+  console.error("Secondary MCP output:\n" + output.secondary.value);
   throw error;
 } finally {
   await stopProcess(secondaryMcpProcess);
