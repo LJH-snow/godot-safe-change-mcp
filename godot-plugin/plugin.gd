@@ -487,6 +487,7 @@ func _node_context(scene_root: Node, node: Node) -> Dictionary:
         "type": String(node.get_class()),
         "properties": _safe_node_properties(node),
         "groups": group_names,
+        "uniqueNameInOwner": node.unique_name_in_owner,
     }
 
 func _scene_node(scene_root: Node, node_path: String) -> Node:
@@ -796,6 +797,13 @@ func _validate_change_request(request_body: Dictionary) -> Dictionary:
             return _failure("VALIDATION_FAILED", "nodePath must be a safe relative NodePath.")
         if not _is_valid_integer(operation["index"], 0.0, 10000.0) or int(operation["index"]) != float(operation["index"]):
             return _failure("VALIDATION_FAILED", "index must be a non-negative integer.")
+    elif kind == "scene.set_unique_name":
+        if not _has_exact_keys(operation, ["kind", "nodePath", "enabled"]):
+            return _failure("VALIDATION_FAILED", "scene.set_unique_name contains unsupported or missing fields.")
+        if not _is_safe_node_path(String(operation["nodePath"])):
+            return _failure("VALIDATION_FAILED", "nodePath must be a safe relative NodePath.")
+        if typeof(operation["enabled"]) != TYPE_BOOL:
+            return _failure("VALIDATION_FAILED", "enabled must be a boolean.")
     elif kind == "scene.set_property":
         if not _has_exact_keys(operation, ["kind", "nodePath", "property", "value"]):
             return _failure("VALIDATION_FAILED", "scene.set_property contains unsupported or missing fields.")
@@ -989,6 +997,8 @@ func _apply_change(body: Variant) -> Dictionary:
         return _apply_remove_group(request_body, scene_root, scene_path)
     if String(operation.get("kind", "")) == "scene.reorder_node":
         return _apply_reorder_node(request_body, scene_root, scene_path)
+    if String(operation.get("kind", "")) == "scene.set_unique_name":
+        return _apply_set_unique_name(request_body, scene_root, scene_path)
     if String(operation.get("kind", "")) == "resource.replace_reference":
         return _apply_resource_change(request_body, scene_root, scene_path)
     if String(operation.get("kind", "")) in ["project.input_action.add_key", "project.input_action.remove_key", "project.input_action.replace_key"]:
@@ -2253,6 +2263,62 @@ func _reorder_scene_node(node: Node, target_index: int) -> void:
     var clamped := mini(target_index, parent.get_child_count() - 1)
     if clamped >= 0:
         parent.move_child(node, clamped)
+
+func _apply_set_unique_name(request_body: Dictionary, scene_root: Node, scene_path: String) -> Dictionary:
+    var operation: Dictionary = request_body["operations"][0]
+    var node_path := String(operation.get("nodePath", ""))
+    var enabled_value: Variant = operation.get("enabled")
+    if not _is_safe_node_path(node_path):
+        return _failure("VALIDATION_FAILED", "nodePath must be a safe relative NodePath.")
+    if node_path == ".":
+        return _failure("UNSAFE_OPERATION", "The scene root cannot expose a unique name.")
+    if typeof(enabled_value) != TYPE_BOOL:
+        return _failure("VALIDATION_FAILED", "enabled must be a boolean.")
+
+    var node: Node = _scene_node(scene_root, node_path)
+    if node == null:
+        return _failure("VALIDATION_FAILED", "The target node must exist in the current scene.")
+    var enabled := bool(enabled_value)
+    var current := node.unique_name_in_owner
+    if enabled == current:
+        return _failure("OPERATION_REJECTED", "The node already " + ("has" if enabled else "does not have") + " the unique name flag.")
+    if enabled and not _unique_name_is_free(scene_root, node):
+        return _failure(
+            "OPERATION_REJECTED",
+            "Another node already uses the unique name %" + String(node.name) + ".",
+            409,
+            {"name": String(node.name)},
+        )
+
+    var undo_redo := get_undo_redo()
+    undo_redo.create_action("Godot Safe Change: Set unique name", 0, scene_root)
+    undo_redo.add_do_property(node, "unique_name_in_owner", enabled)
+    undo_redo.add_undo_property(node, "unique_name_in_owner", current)
+    undo_redo.commit_action()
+    EditorInterface.mark_scene_as_unsaved()
+    last_applied_plan_id = String(request_body.get("planId", ""))
+    last_applied_revision = _current_revision(scene_root, scene_path)
+    _clear_file_action_state()
+    _record_scene_action(scene_root, scene_path, "scene.set_unique_name", "Godot Safe Change: Set unique name")
+    return _success("report", {
+        "schemaVersion": "0.2",
+        "planId": last_applied_plan_id,
+        "status": "applied",
+        "revision": last_applied_revision,
+        "operationCount": 1,
+        "undoLabel": last_applied_undo_label,
+    })
+
+func _unique_name_is_free(scene_root: Node, node: Node) -> bool:
+    var claimed_name := String(node.name)
+    if scene_root != node and scene_root.unique_name_in_owner and String(scene_root.name) == claimed_name:
+        return false
+    for other in scene_root.find_children("*", "", true, false):
+        if other is Node and other != node:
+            var other_node := other as Node
+            if other_node.unique_name_in_owner and String(other_node.name) == claimed_name:
+                return false
+    return true
 
 func _scene_subtree_owned_by(node: Node, scene_root: Node) -> bool:
     if node != scene_root and node.owner != null and node.owner != scene_root:

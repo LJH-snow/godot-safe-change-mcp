@@ -12,7 +12,7 @@ Automated coverage currently includes:
 - task lease/recovery: acquire, renew, release, heartbeat failure pause, same-window and cross-window TTL takeover, interrupted-step operationId recovery, filtered task timeline and conflict handling;
 - diagnostics: source/line/NodePath association and preview generation from explicit repair hints;
 - script and resource changes: bounded .gd/resource replacement, temporary-file atomic apply, file revision guard, user-edit conflict and rollback;
-- scene changes: UndoRedo-backed create, property, signal connect/disconnect, group membership, sibling reorder and script-attachment operations with rollback history/version/action guards;
+- scene changes: UndoRedo-backed create, property, signal connect/disconnect, group membership, sibling reorder, unique-name exposure and script-attachment operations with rollback history/version/action guards;
 - input actions: bounded ProjectSettings key addition/removal/replacement for physical keys, direct-plugin rejection of equal, logical, duplicate and occupied keys, settings revision guard and rollback after external edits;
 - autoload management: bounded project.godot singleton registration/removal with name and script-path gates, settings revision guard, save-failure restoration and rollback;
 - multi-step tasks: bounded task state machine with apply/rollback/run/scene/resource/diagnostics verification and diagnostic-repair preview+apply steps, pause/resume/cancel transitions, explicit lease acquire/renew/release, retry budget, project-directory persistence and restart recovery; repair apply is gated by a separate confirmation;
@@ -49,6 +49,7 @@ The real EditorPlugin check uses godot-fixture and requires a local Godot 4.x ed
 7b. Preview, confirm, apply, and roll back an exact disconnect of that signal connection; an absent tuple must be rejected without touching other connections.
 7c. Preview, confirm, apply, and roll back a scene.add_group on the scene root; a duplicate add and a remove_group on an absent membership must be rejected, and editor_context must expose the node's groups.
 7d. Preview, confirm, apply, and roll back a scene.reorder_node moving a fixture node to a new sibling index; verify editor_context reports the new order after apply and the original order after rollback, and a same-index reorder must be rejected.
+7e. Preview, confirm, apply, and roll back a scene.set_unique_name on a fixture node; verify editor_context reports the flag after apply and its absence after rollback, and a same-state toggle must be rejected.
 8. Send a direct loopback `/v1/changes/apply` request with `nodePath: "../Canvas"` and verify the plugin itself returns HTTP 400 with `VALIDATION_FAILED`, without relying on MCP/Zod validation.
 9. Call confirm_scene_change with the returned planId and expectedRevision.
 10. Call apply_scene_change and verify the node appears in the scene tree and the report contains an undo label and new revision.

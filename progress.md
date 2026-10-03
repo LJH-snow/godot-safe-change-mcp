@@ -390,3 +390,9 @@
 - 已实现排序操作：context 推导兄弟顺序并校验目标索引，插件通过 UndoRedo move_child 正反向恢复，拒绝场景根与无变化排序。
 - 本地 123 项测试、typecheck 通过；真实 Godot smoke 覆盖排序→context 验证→rollback 与同索引拒绝，待双版本 CI 验证后收尾。
 - push run 37135337867 的 check、package boundary、Godot 4.5.1 和 Godot 4.7.2 四个 job 全部通过；Phase 33 按完成定义收尾，经 PR #22 以 merge commit 合入 main（无 squash 冲突）。
+
+## 2026-10-04 scene unique name management
+
+- 已先写 scene.set_unique_name 的 preview、apply、rollback 与根节点/缺失/无变化/同名占用红灯测试。
+- 已实现唯一名管理：布尔开关操作，context 推导 previous 并校验同名占用，editor_context 节点快照带只读 uniqueNameInOwner，插件通过 UndoRedo 属性正反向恢复并独立重验占用。
+- 本地 126 项测试、typecheck 通过；真实 Godot smoke 覆盖启用→context 验证→rollback 与无变化拒绝，待双版本 CI 验证后收尾。

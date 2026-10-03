@@ -663,6 +663,55 @@ export class ChangeCoordinator {
         fromIndex,
         toIndex: operation.index,
       };
+    } else if (operation.kind === "scene.set_unique_name") {
+      if (operation.nodePath === ".") {
+        throw new DomainError(
+          ERROR_CODES.UNSAFE_OPERATION,
+          "The scene root cannot expose a unique name.",
+          { nodePath: operation.nodePath },
+        );
+      }
+      const node = context.currentScene.nodes.find((candidate) => candidate.path === operation.nodePath);
+      if (node === undefined) {
+        throw new DomainError(
+          ERROR_CODES.VALIDATION_FAILED,
+          "The target node must exist in the current scene.",
+          { nodePath: operation.nodePath },
+        );
+      }
+      const previous = node.uniqueNameInOwner ?? false;
+      if (previous === operation.enabled) {
+        throw new DomainError(
+          ERROR_CODES.OPERATION_REJECTED,
+          "The node already " + (operation.enabled ? "has" : "does not have") + " the unique name flag.",
+          { nodePath: operation.nodePath },
+        );
+      }
+      if (operation.enabled) {
+        const collision = context.currentScene.nodes.find(
+          (candidate) =>
+            candidate.path !== operation.nodePath &&
+            candidate.name === node.name &&
+            (candidate.uniqueNameInOwner ?? false),
+        );
+        if (collision !== undefined) {
+          throw new DomainError(
+            ERROR_CODES.OPERATION_REJECTED,
+            "Another node already uses the unique name %" + node.name + ".",
+            { name: node.name, collisionPath: collision.path },
+          );
+        }
+      }
+      diff = {
+        kind: "scene.set_unique_name" as const,
+        target: scenePath + ":" + operation.nodePath,
+        summary:
+          (operation.enabled ? "Enable the unique name %" : "Disable the unique name %") +
+          node.name + " on " + operation.nodePath + " in " + scenePath,
+        nodePath: operation.nodePath,
+        enabled: operation.enabled,
+        previous,
+      };
     } else if (operation.kind === "scene.set_property") {
       const parsedOperation = sceneSetPropertySchema.parse(operation);
       const node = context.currentScene.nodes.find((candidate) => candidate.path === parsedOperation.nodePath);
