@@ -288,11 +288,11 @@
 
 ## Phase 23 — 只读资源任务验证
 
-状态：in_progress
+状态：complete
 
 - [x] 增加 verify_resource_state step，限制为项目内资源路径、可选资源 revision、contains 和 matchCounts 断言。
 - [x] 返回有限 observed/expected 证据，不回传任意资源全文；记录 step operationId 与 timeline mismatch。
-- [x] 增加 TypeScript task 回归和 Godot runtime smoke，待双版本 CI 验证后收尾。
+- [x] 增加 TypeScript task 回归和 Godot runtime smoke；push run 37097926747 的 check、package boundary、Godot 4.5.1 和 Godot 4.7.2 全部通过。
 
 ## Phase 22 — 安全断开场景信号
 

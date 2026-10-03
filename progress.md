@@ -4,7 +4,7 @@
 
 - 新增只读 verify_resource_state task step：校验 res:// 资源 revision、有限 contains 和 matchCounts，不新增写能力。
 - 失败结果只记录资源路径、revision、断言和 mismatch evidence；成功结果不返回资源全文。
-- TypeScript 回归已通过 108/108，真实 Godot task smoke 已加入，待推送后确认双版本 CI。
+- TypeScript 回归已通过 108/108；push commit fe266df 的 run 37097926747 已通过 check、package boundary、Godot 4.5.1 和 Godot 4.7.2 全部验证。
 
 ## 2026-10-03 scene.disconnect_signal
 
