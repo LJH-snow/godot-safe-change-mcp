@@ -15,6 +15,7 @@
 
 - 合并 PR #15 到默认分支，并确认默认分支的 README、starter、Release、CI badge 和反馈入口一致。
 - 保持 npm 包、GitHub Release、双语 README 和版本化 release evidence 同步。
+- 在下一次授权版本发布前复核 npm 关键词、README 搜索词和 Release 说明，避免修改已发布的 1.1.0。
 - 使用同一套 starter fixture 维护 Inspector GIF、客户端配置和 smoke evidence map。
 - 在用户授权社区发布前，只完善内部文档、Issue 模板和回归测试，不自动发帖或创建反馈。
 

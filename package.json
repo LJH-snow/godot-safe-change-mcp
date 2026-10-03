@@ -15,7 +15,14 @@
     "claude connector",
     "mcp-app",
     "mcp-use",
-    "manufact"
+    "manufact",
+    "godot",
+    "godot-editor",
+    "godot-plugin",
+    "godot-automation",
+    "godot-ai",
+    "undo-redo",
+    "safe-changes"
   ],
   "bin": {
     "godot-safe-change-mcp": "bin/mcp-server.mjs"
