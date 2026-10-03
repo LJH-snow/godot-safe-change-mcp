@@ -8,7 +8,7 @@
 | --- | ---: | --- |
 | GitHub Stars | 0 | GitHub 仓库 API 快照 |
 | Forks | 0 | GitHub 仓库 API 快照 |
-| Open issues | 0 | 还没有形成公开反馈入口 |
+| Open issues | 1 | PR #15 是当前唯一公开开放条目；真实反馈 issue 仍等用户授权和外部测试 |
 | Topics | 7 | 已包含 godot、mcp、mcp-server、ai-agents 等关键词 |
 | Release tags | 1 | v1.1.0 已发布，并有版本化发布证据 |
 | CI | 4 个 job | Node、package boundary、Godot 4.5.1/4.7.2 |

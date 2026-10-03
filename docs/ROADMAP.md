@@ -6,6 +6,11 @@
 
 让一个没有读过源码的 Godot 开发者在 15 分钟内完成：安装 → 连接 → 只读理解 → preview → confirm → apply → verify → rollback，并能在遇到问题时提交脱敏、可复现的反馈。
 
+## Current baseline
+
+- PR #15 contains the verified internal adoption and release-gate work and is intentionally left open for manual review.
+- Community posting and external issue creation remain paused until the user explicitly authorizes distribution.
+
 ## 0–30 days: make the public baseline trustworthy
 
 - 合并 PR #15 到默认分支，并确认默认分支的 README、starter、Release、CI badge 和反馈入口一致。
