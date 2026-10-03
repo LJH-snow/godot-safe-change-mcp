@@ -381,11 +381,11 @@
 
 ## Phase 34 — 场景唯一名管理
 
-状态：in_progress
+状态：complete
 
 - [x] 增加 scene.set_unique_name preview/apply/rollback：布尔开关、场景根拒绝、无变化拒绝、同名唯一名占用拒绝、expected revision 守卫。
 - [x] editor_context 节点快照新增只读 uniqueNameInOwner 字段；插件通过 UndoRedo 属性正反向恢复并独立校验同名占用。
-- [x] TypeScript 回归与真实 Godot smoke 场景（启用 → context 验证 → rollback）已就绪，待双版本 CI 验证后收尾。
+- [x] TypeScript 回归与真实 Godot smoke 场景（启用 → context 验证 → rollback）全部通过；push run 37136333892 的 check、package boundary、Godot 4.5.1 和 Godot 4.7.2 四个 job 全部通过。
 
 ## 完成定义
 
