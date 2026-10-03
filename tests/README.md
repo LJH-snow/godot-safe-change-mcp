@@ -11,7 +11,7 @@ Automated coverage currently includes:
 - multi-process lease recovery: independent worker processes, stable `PROJECT_BUSY`, single expired-lease takeover, crashed running-step recovery and operation ID continuity;
 - task lease/recovery: acquire, renew, release, heartbeat failure pause, same-window and cross-window TTL takeover, interrupted-step operationId recovery, filtered task timeline and conflict handling;
 - diagnostics: source/line/NodePath association and preview generation from explicit repair hints;
-- script and resource changes: bounded .gd/resource replacement, temporary-file atomic apply, file revision guard, user-edit conflict and rollback;
+- script and resource changes: bounded .gd/resource replacement, new script creation with path/content gates, temporary-file atomic apply, file revision guard, user-edit conflict and rollback;
 - scene changes: UndoRedo-backed create, property, signal connect/disconnect, group membership, sibling reorder, unique-name exposure and script-attachment operations with rollback history/version/action guards;
 - input actions: bounded ProjectSettings key addition/removal/replacement for physical keys, direct-plugin rejection of equal, logical, duplicate and occupied keys, settings revision guard and rollback after external edits;
 - autoload management: bounded project.godot singleton registration/removal with name and script-path gates, settings revision guard, save-failure restoration and rollback;
@@ -57,6 +57,7 @@ The real EditorPlugin check uses godot-fixture and requires a local Godot 4.x ed
 12. For `scene.set_property`, round-trip visible, position, rotation_degrees, scale, size, text and color on compatible fixture nodes; verify each revision changes on apply, the property value changes, the UndoRedo label is specific, and rollback restores the prior value.
 13. Instantiate `res://instance_source.tscn` under the current scene root, verify the instance and child NodePaths appear after apply and disappear after rollback; a source-file revision change before apply must be rejected.
 14. Attach `res://diagnostic_scene.gd` to the fixture's scriptless node, verify the script path appears after apply and returns to null after rollback; then detach the scene root's existing script and verify apply returns its path to null and rollback restores it; a second rollback must be rejected.
+14a. Preview, confirm, and apply a script.create_file on a new project path, verify /v1/scripts/read returns the created content, then roll back and verify the file is deleted; a duplicate creation must be rejected.
 15. Run run_current_scene and verify the returned run ID, status and diagnostics.
 16. Call run_scene with `res://main.tscn` and verify the custom-scene output, run ID and stopped diagnostics; also verify a `.gd` or traversal path is rejected before the bridge.
 17. Change the scene after apply and verify rollback_scene_change returns REVISION_CONFLICT; change a resource after apply and verify its user edit remains after the rejected rollback.

@@ -32,6 +32,7 @@ var last_applied_scene_path := ""
 var last_script_path := ""
 var last_script_original_content := ""
 var last_script_applied_revision := ""
+var last_script_did_not_exist := false
 var last_resource_path := ""
 var last_resource_original_content := ""
 var last_resource_applied_revision := ""
@@ -892,6 +893,13 @@ func _validate_change_request(request_body: Dictionary) -> Dictionary:
             return _failure("VALIDATION_FAILED", "script.replace_range contains unsupported or missing fields.")
         if not _is_safe_script_path(String(operation["scriptPath"])) or not _is_valid_integer(operation["startLine"], 1.0, 1000000.0) or not _is_valid_integer(operation["endLine"], 1.0, 1000000.0) or int(operation["endLine"]) < int(operation["startLine"]) or typeof(operation["replacement"]) != TYPE_STRING or String(operation["replacement"]).length() > 100000:
             return _failure("VALIDATION_FAILED", "The script replacement range or content is invalid.")
+    elif kind == "script.create_file":
+        if not _has_exact_keys(operation, ["kind", "scriptPath", "content"]):
+            return _failure("VALIDATION_FAILED", "script.create_file contains unsupported or missing fields.")
+        if not _is_safe_script_path(String(operation["scriptPath"])):
+            return _failure("UNSAFE_OPERATION", "scriptPath must be a safe project GDScript path.")
+        if typeof(operation["content"]) != TYPE_STRING or String(operation["content"]).is_empty() or String(operation["content"]).length() > 100000:
+            return _failure("VALIDATION_FAILED", "content must be a non-empty string of at most 100000 characters.")
     else:
         return _failure("UNSAFE_OPERATION", "Only the bounded safe change operations are enabled.")
     return {}
@@ -931,6 +939,8 @@ func _apply_change(body: Variant) -> Dictionary:
         return _failure("UNSAFE_OPERATION", "The operation must be a bounded object.")
     if String(operation.get("kind", "")) == "script.replace_range":
         return _apply_script_change(request_body, scene_root, scene_path)
+    if String(operation.get("kind", "")) == "script.create_file":
+        return _apply_script_create(request_body, scene_root, scene_path)
     if String(operation.get("kind", "")) == "scene.set_property":
         return _apply_scene_property_change(request_body, scene_root, scene_path)
     if String(operation.get("kind", "")) == "scene.attach_script":
@@ -1470,6 +1480,7 @@ func _clear_file_action_state() -> void:
     last_script_path = ""
     last_script_original_content = ""
     last_script_applied_revision = ""
+    last_script_did_not_exist = false
     last_resource_path = ""
     last_resource_original_content = ""
     last_resource_applied_revision = ""
@@ -1487,8 +1498,48 @@ func _clear_applied_state() -> void:
     _clear_scene_action_state()
     _clear_file_action_state()
 
-func _apply_script_change(request_body: Dictionary, scene_root: Node, scene_path: String) -> Dictionary:
+func _apply_script_create(request_body: Dictionary, scene_root: Node, scene_path: String) -> Dictionary:
     var operation: Dictionary = request_body["operations"][0]
+    var script_path := String(operation.get("scriptPath", ""))
+    var content := String(operation.get("content", ""))
+    if not _is_safe_script_path(script_path):
+        return _failure("UNSAFE_OPERATION", "Only project-relative .gd scripts can be created.")
+    if content.is_empty():
+        return _failure("VALIDATION_FAILED", "The new script content must not be empty.")
+    if FileAccess.file_exists(script_path):
+        return _failure(
+            "VALIDATION_FAILED",
+            "The requested script already exists; use script.replace_range to edit it.",
+            409,
+            {"scriptPath": script_path},
+        )
+
+    var plan_id := String(request_body.get("planId", ""))
+    var write_error := _atomic_replace_script(script_path, content, plan_id)
+    if not write_error.is_empty():
+        return write_error
+
+    var file_revision := str(content.hash())
+    _clear_scene_action_state()
+    _clear_file_action_state()
+    last_applied_plan_id = plan_id
+    last_applied_revision = _current_revision(scene_root, scene_path)
+    last_applied_kind = "script"
+    last_script_path = script_path
+    last_script_original_content = ""
+    last_script_did_not_exist = true
+    last_script_applied_revision = file_revision
+    return _success("report", {
+        "schemaVersion": "0.2",
+        "planId": plan_id,
+        "status": "applied",
+        "revision": last_applied_revision,
+        "fileRevision": file_revision,
+        "operationCount": 1,
+        "undoLabel": "Godot Safe Change: Create script",
+    })
+
+func _apply_script_change(request_body: Dictionary, scene_root: Node, scene_path: String) -> Dictionary:    var operation: Dictionary = request_body["operations"][0]
     var script_path := String(operation.get("scriptPath", ""))
     if not _is_safe_script_path(script_path):
         return _failure("UNSAFE_OPERATION", "Only project-relative .gd scripts can be modified.")
@@ -1660,6 +1711,35 @@ func _rollback_script_change(request_body: Dictionary, scene_root: Node, scene_p
     var expected_file_revision := String(request_body.get("expectedFileRevision", ""))
     if expected_file_revision == "" or expected_file_revision != last_script_applied_revision:
         return _failure("REVISION_CONFLICT", "The script revision does not match the applied plan.", 409)
+
+    if last_script_did_not_exist:
+        var created_snapshot := _read_script_snapshot(last_script_path)
+        if not created_snapshot.is_empty() and created_snapshot.get("ok", false):
+            var created_content: Dictionary = created_snapshot["snapshot"]
+            if String(created_content["revision"]) != last_script_applied_revision:
+                return _failure(
+                    "REVISION_CONFLICT",
+                    "The created script changed after apply; refusing to delete it.",
+                    409,
+                    {"scriptPath": last_script_path},
+                )
+        var delete_error := DirAccess.remove_absolute(ProjectSettings.globalize_path(last_script_path))
+        if delete_error != OK and FileAccess.file_exists(last_script_path):
+            return _failure(
+                "OPERATION_REJECTED",
+                "Godot could not delete the created script during rollback.",
+                409,
+                {"error": delete_error},
+            )
+        var creation_rollback_revision := _current_revision(scene_root, scene_path)
+        _clear_applied_state()
+        return _success("report", {
+            "schemaVersion": "0.2",
+            "planId": plan_id,
+            "status": "rolled_back",
+            "revision": creation_rollback_revision,
+            "undoLabel": "Godot Safe Change: Delete created script",
+        })
 
     var snapshot_result := _read_script_snapshot(last_script_path)
     if snapshot_result.is_empty() or not snapshot_result.get("ok", false):

@@ -921,6 +921,32 @@ export class ChangeCoordinator {
         name: operation.name,
         previousScriptPath: snapshot.scriptPath,
       };
+    } else if (operation.kind === "script.create_file") {
+      let fileExists = true;
+      try {
+        await this.bridge.readScript(projectRoot, operation.scriptPath);
+      } catch (error) {
+        if (error instanceof DomainError && error.code === ERROR_CODES.PROJECT_NOT_FOUND) {
+          fileExists = false;
+        } else {
+          throw error;
+        }
+      }
+      if (fileExists) {
+        throw new DomainError(
+          ERROR_CODES.VALIDATION_FAILED,
+          "The requested script already exists; use script.replace_range to edit it.",
+          { scriptPath: operation.scriptPath },
+        );
+      }
+      const lineCount = operation.content.split("\n").length;
+      diff = {
+        kind: "script.create_file" as const,
+        target: operation.scriptPath,
+        summary: "Create " + operation.scriptPath + " (" + lineCount + " lines)",
+        scriptPath: operation.scriptPath,
+        content: operation.content,
+      };
     } else {
       const snapshot = await this.bridge.readScript(projectRoot, operation.scriptPath);
       const lines = snapshot.content.split("\n");
@@ -1107,6 +1133,7 @@ export class ChangeCoordinator {
       const operation = storedPlan.plan.operations[0];
       if (
         operation.kind !== "script.replace_range" &&
+        operation.kind !== "script.create_file" &&
         operation.kind !== "resource.replace_reference" &&
         operation.kind !== "project.input_action.add_key" &&
         operation.kind !== "project.input_action.remove_key" &&
@@ -1121,7 +1148,7 @@ export class ChangeCoordinator {
         );
       }
       const snapshot =
-        operation.kind === "script.replace_range"
+        operation.kind === "script.replace_range" || operation.kind === "script.create_file"
           ? await this.bridge.readScript(storedPlan.plan.projectRoot, operation.scriptPath)
           : operation.kind === "resource.replace_reference"
             ? await this.bridge.readResource(storedPlan.plan.projectRoot, operation.resourcePath)
@@ -1271,6 +1298,7 @@ export class ChangeCoordinator {
       const operation = plan.operations[0];
       if (
         operation.kind !== "script.replace_range" &&
+        operation.kind !== "script.create_file" &&
         operation.kind !== "resource.replace_reference" &&
         operation.kind !== "project.input_action.add_key" &&
         operation.kind !== "project.input_action.remove_key" &&
@@ -1285,7 +1313,7 @@ export class ChangeCoordinator {
         );
       }
       const snapshot =
-        operation.kind === "script.replace_range"
+        operation.kind === "script.replace_range" || operation.kind === "script.create_file"
           ? await this.bridge.readScript(plan.projectRoot, operation.scriptPath)
           : operation.kind === "resource.replace_reference"
             ? await this.bridge.readResource(plan.projectRoot, operation.resourcePath)

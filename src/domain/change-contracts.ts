@@ -362,6 +362,14 @@ export const scriptReplaceRangeSchema = z
     message: "startLine must be less than or equal to endLine.",
   });
 
+export const scriptCreateFileSchema = z
+  .object({
+    kind: z.literal("script.create_file"),
+    scriptPath: scriptPathSchema,
+    content: z.string().min(1).max(100000),
+  })
+  .strict();
+
 export const autoloadNameSchema = z
   .string()
   .min(1)
@@ -406,6 +414,7 @@ export const changeOperationSchema = z.union([
   autoloadAddSchema,
   autoloadRemoveSchema,
   scriptReplaceRangeSchema,
+  scriptCreateFileSchema,
 ]);
 
 export const previewSceneChangeInputSchema = z.object({
@@ -593,6 +602,16 @@ export const scriptChangeDiffSchema = z.object({
   after: z.string(),
 });
 
+export const scriptCreateFileDiffSchema = z
+  .object({
+    kind: z.literal("script.create_file"),
+    target: z.string().min(1),
+    summary: z.string().min(1),
+    scriptPath: scriptPathSchema,
+    content: z.string().min(1),
+  })
+  .strict();
+
 export const resourceReferenceDiffSchema = z.object({
   kind: z.literal("resource.replace_reference"),
   target: z.string().min(1),
@@ -735,6 +754,7 @@ export const changeDiffSchema = z.union([
   autoloadAddDiffSchema,
   autoloadRemoveDiffSchema,
   scriptChangeDiffSchema,
+  scriptCreateFileDiffSchema,
 ]);
 
 export const changePlanSchema = z.object({

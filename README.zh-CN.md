@@ -165,7 +165,7 @@ flowchart LR
 | 编辑器上下文 | <code>editor_context</code> | 返回完整当前场景树（含节点分组）、选中节点安全属性、打开资源、运行状态和诊断。 |
 | 场景结构 | create、delete、reparent、rename、duplicate、reorder、instantiate、connect/disconnect signal、add/remove group | 所有 NodePath、名称、父子关系、实例源路径、兄弟索引、signal/method 和分组名都经过边界校验；连接、断开和分组变更通过 Godot UndoRedo apply/rollback。 |
 | 场景内容 | <code>scene.set_property</code>、<code>scene.attach_script</code>、<code>scene.detach_script</code>、<code>scene.set_unique_name</code> | 仅开放 visible、position、rotation_degrees、scale、size、text、color，以及项目内现有 GDScript 的挂载/卸载和场景唯一名 %Name 暴露。 |
-| 文件/设置 | resource reference、input action、script range、autoload 注册 | 使用文件或 project.godot revision guard，原子写入并支持 rollback。 |
+| 文件/设置 | resource reference、input action、script 创建与区间、autoload 注册 | 使用文件或 project.godot revision guard，原子写入并支持 rollback。 |
 | 运行诊断 | <code>run_current_scene</code>、<code>run_scene</code> | 返回 run ID、状态、输出、warning、error、source、line 和 NodePath。 |
 | 多步骤任务 | create/get/advance/pause/resume/cancel | 支持 verify_scene_state、verify_resource_state、verify_script_state、verify_diagnostics、诊断修复预览和 step-level operation ID。 |
 | 并发恢复 | acquire/renew/release task lease、<code>task_status</code>、<code>task_timeline</code> | Lease 持有期间 heartbeat 续租；进程崩溃后按 TTL 接管，并保留审计时间线。 |
