@@ -444,21 +444,6 @@ try {
     connection.targetPath === "." &&
     connection.methodName === "_ready",
   ), false);
-  const setupContext = await bridgeRequest("/v1/context", { projectRoot: fixtureRoot });
-  assert.equal(setupContext.body.ok, true, JSON.stringify(setupContext.body));
-  const directSetup = await bridgeRequest("/v1/changes/apply", {
-    projectRoot: fixtureRoot,
-    planId: "disconnect-setup",
-    expectedRevision: setupContext.body.context.revision,
-    operations: [{
-      kind: "scene.connect_signal",
-      sourcePath: "Canvas/Title",
-      signalName: "visibility_changed",
-      targetPath: ".",
-      methodName: "_ready",
-    }],
-  });
-  assert.equal(directSetup.body.ok, true, JSON.stringify(directSetup.body));
   const disconnectPlan = structured(await request("tools/call", {
     name: "preview_scene_change",
     arguments: {
@@ -467,7 +452,7 @@ try {
       operation: {
         kind: "scene.disconnect_signal",
         sourcePath: "Canvas/Title",
-        signalName: "visibility_changed",
+        signalName: "tree_entered",
         targetPath: ".",
         methodName: "_ready",
       },
@@ -475,10 +460,10 @@ try {
   }));
   assert.deepEqual(disconnectPlan.diff[0], {
     kind: "scene.disconnect_signal",
-    target: "res://main.tscn:Canvas/Title.visibility_changed -> ._ready",
-    summary: "Disconnect Canvas/Title.visibility_changed from ._ready in res://main.tscn",
+    target: "res://main.tscn:Canvas/Title.tree_entered -> ._ready",
+    summary: "Disconnect Canvas/Title.tree_entered from ._ready in res://main.tscn",
     sourcePath: "Canvas/Title",
-    signalName: "visibility_changed",
+    signalName: "tree_entered",
     targetPath: ".",
     methodName: "_ready",
   });
@@ -495,7 +480,7 @@ try {
   const signalAfterDisconnect = await bridgeRequest("/v1/signals/read", { projectRoot: fixtureRoot });
   const disconnectedSignalNode = signalAfterDisconnect.body.snapshot.nodes.find((node) => node.nodePath === "Canvas/Title");
   assert.equal(disconnectedSignalNode?.connections.some((connection) =>
-    connection.signalName === "visibility_changed" &&
+    connection.signalName === "tree_entered" &&
     connection.targetPath === "." &&
     connection.methodName === "_ready",
   ), false);
@@ -508,7 +493,7 @@ try {
   const signalAfterDisconnectRollback = await bridgeRequest("/v1/signals/read", { projectRoot: fixtureRoot });
   const restoredDisconnectNode = signalAfterDisconnectRollback.body.snapshot.nodes.find((node) => node.nodePath === "Canvas/Title");
   assert.ok(restoredDisconnectNode?.connections.some((connection) =>
-    connection.signalName === "visibility_changed" &&
+    connection.signalName === "tree_entered" &&
     connection.targetPath === "." &&
     connection.methodName === "_ready",
   ));
@@ -529,7 +514,7 @@ try {
     operation: {
       kind: "scene.disconnect_signal",
       sourcePath: "Canvas/Title",
-      signalName: "visibility_changed",
+      signalName: "tree_entered",
       targetPath: ".",
       methodName: "missing_method",
     },

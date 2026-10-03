@@ -23,3 +23,5 @@ color = Color(0.2, 0.4, 0.6, 1)
 
 [node name="Scriptless" type="Node2D" parent="."]
 position = Vector2(24, 36)
+
+[connection signal="tree_entered" from="Canvas/Title" to="." method="_ready"]
