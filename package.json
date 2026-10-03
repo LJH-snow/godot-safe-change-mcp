@@ -15,7 +15,14 @@
     "claude connector",
     "mcp-app",
     "mcp-use",
-    "manufact"
+    "manufact",
+    "godot",
+    "godot-editor",
+    "godot-plugin",
+    "godot-automation",
+    "godot-ai",
+    "undo-redo",
+    "safe-changes"
   ],
   "bin": {
     "godot-safe-change-mcp": "bin/mcp-server.mjs"
@@ -43,7 +50,8 @@
     "deploy": "mcp-use deploy",
     "prepare": "mcp-use build",
     "package:check": "npm run build && node scripts/package-smoke.mjs",
-    "prepublishOnly": "npm run typecheck && npm test && npm run package:check",
+    "release:check": "node scripts/release-check.mjs",
+    "prepublishOnly": "npm run typecheck && npm test && npm run package:check && npm run release:check",
     "typecheck": "mcp-use typecheck",
     "test": "rm -rf .test-dist && tsc -p tsconfig.test.json && node --test .test-dist/tests/**/*.test.js"
   },

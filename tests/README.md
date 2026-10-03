@@ -12,12 +12,12 @@ Automated coverage currently includes:
 - task lease/recovery: acquire, renew, release, heartbeat failure pause, same-window and cross-window TTL takeover, interrupted-step operationId recovery, filtered task timeline and conflict handling;
 - diagnostics: source/line/NodePath association and preview generation from explicit repair hints;
 - script and resource changes: bounded .gd/resource replacement, temporary-file atomic apply, file revision guard, user-edit conflict and rollback;
-- scene changes: UndoRedo-backed create, property and script-attachment operations with rollback history/version/action guards;
+- scene changes: UndoRedo-backed create, property, signal connect/disconnect and script-attachment operations with rollback history/version/action guards;
 - input actions: bounded ProjectSettings key addition/removal/replacement for physical keys, direct-plugin rejection of equal, logical, duplicate and occupied keys, settings revision guard and rollback after external edits;
-- multi-step tasks: bounded task state machine with apply/rollback/run/verify/diagnostic-repair preview+apply steps, pause/resume/cancel transitions, explicit lease acquire/renew/release, retry budget, project-directory persistence and restart recovery; repair apply is gated by a separate confirmation;
+- multi-step tasks: bounded task state machine with apply/rollback/run/scene/resource/diagnostics verification and diagnostic-repair preview+apply steps, pause/resume/cancel transitions, explicit lease acquire/renew/release, retry budget, project-directory persistence and restart recovery; repair apply is gated by a separate confirmation;
 - HTTP bridge: loopback protocol envelopes, context/search/apply requests, current-scene and specified-scene run status polling;
 - plugin boundary: fixed TCPServer transport, independent validation of forged apply/rollback requests, unchanged project state after rejected payloads, context/apply/rollback/run/run-scene routes, safe paths and forbidden-operation checks.
-- real Godot integration: two MCP processes sharing one EditorPlugin bridge, lease contention, write apply rejection, forced owner termination, TTL takeover, and task execution plus rollback through the real bridge.
+- real Godot integration: two MCP processes sharing one EditorPlugin bridge, starter and fixture lease contention, write apply rejection, forced owner termination, TTL takeover, and task execution plus rollback through the real bridge.
 
 Run the automated suite with:
 
@@ -45,6 +45,7 @@ The real EditorPlugin check uses godot-fixture and requires a local Godot 4.x ed
 6. Verify currentScene.nodes includes the full scene tree and safe properties such as position, visible, text or color.
 7. Call preview_scene_change for a Node2D named SafeMarker under parentPath . Verify that only a diff is returned.
 7a. Preview, confirm, apply, and roll back a signal connection from Canvas/Title.visibility_changed to the scene root method _ready; unknown signals, missing methods, duplicate connections, and unsafe NodePaths must be rejected.
+7b. Preview, confirm, apply, and roll back an exact disconnect of that signal connection; an absent tuple must be rejected without touching other connections.
 8. Send a direct loopback `/v1/changes/apply` request with `nodePath: "../Canvas"` and verify the plugin itself returns HTTP 400 with `VALIDATION_FAILED`, without relying on MCP/Zod validation.
 9. Call confirm_scene_change with the returned planId and expectedRevision.
 10. Call apply_scene_change and verify the node appears in the scene tree and the report contains an undo label and new revision.
@@ -55,7 +56,7 @@ The real EditorPlugin check uses godot-fixture and requires a local Godot 4.x ed
 15. Run run_current_scene and verify the returned run ID, status and diagnostics.
 16. Call run_scene with `res://main.tscn` and verify the custom-scene output, run ID and stopped diagnostics; also verify a `.gd` or traversal path is rejected before the bridge.
 17. Change the scene after apply and verify rollback_scene_change returns REVISION_CONFLICT; change a resource after apply and verify its user edit remains after the rejected rollback.
-18. Call create_task with a run step, preview_diagnostic_repair carrying a bounded repairHint, apply_diagnostic_repair, rerun and verify_diagnostics; verify timeline links the run/diagnostic/plan, preview pauses, and apply succeeds only after confirm_scene_change.
+18. Call create_task with run, verify_resource_state, preview_diagnostic_repair carrying a bounded repairHint, apply_diagnostic_repair, rerun and verify_diagnostics steps; verify resource revision/match evidence and timeline links the run/diagnostic/plan, preview pauses, and apply succeeds only after confirm_scene_change.
 19. Create a second task, pause it and verify advance_task returns TASK_INVALID_STATUS; resume, advance once, then cancel and verify the remaining steps become "cancelled".
 20. Restart the MCP server and call get_task; verify the task state is restored from `.godot-safe-change/tasks/` inside the project.
 

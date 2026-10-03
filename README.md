@@ -9,8 +9,8 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/LJH-snow/godot-safe-change-mcp/actions/workflows/ci.yml?query=branch%3Afeature%2Frun-scene-project-leases"><img src="https://github.com/LJH-snow/godot-safe-change-mcp/actions/workflows/ci.yml/badge.svg?branch=feature/run-scene-project-leases" alt="CI"></a>
-  <a href="https://github.com/LJH-snow/godot-safe-change-mcp/blob/feature/run-scene-project-leases/LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT License"></a>
+  <a href="https://github.com/LJH-snow/godot-safe-change-mcp/actions/workflows/ci.yml?query=branch%3Amain"><img src="https://github.com/LJH-snow/godot-safe-change-mcp/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a>
+  <a href="https://github.com/LJH-snow/godot-safe-change-mcp/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT License"></a>
   <a href="https://nodejs.org/"><img src="https://img.shields.io/badge/Node.js-%3E%3D22.22.2-339933.svg?logo=node.js&logoColor=white" alt="Node.js 22.22.2 or newer"></a>
   <a href="https://godotengine.org/"><img src="https://img.shields.io/badge/Godot-4.x-478CBF.svg?logo=godot-engine&logoColor=white" alt="Godot 4.x"></a>
   <a href="https://m8ven.ai/mcp/ljh-snow/godot-safe-change-mcp"><img src="https://m8ven.ai/badge/mcp/ljh-snow/godot-safe-change-mcp" alt="M8ven Score"></a>
@@ -163,11 +163,11 @@ flowchart LR
 | --- | --- | --- |
 | 项目理解 | <code>project_overview</code>、<code>search_project</code>、<code>find_references</code> | 搜索场景、节点、脚本、资源、信号、输入和反向引用；编辑器离线时使用本地只读索引。 |
 | 编辑器上下文 | <code>editor_context</code> | 返回完整当前场景树、选中节点安全属性、打开资源、运行状态和诊断。 |
-| 场景结构 | create、delete、reparent、rename、duplicate、instantiate、connect signal | 所有 NodePath、名称、父子关系、实例源路径和 signal/method 都经过边界校验；连接通过 Godot UndoRedo apply/rollback。 |
+| 场景结构 | create、delete、reparent、rename、duplicate、instantiate、connect/disconnect signal | 所有 NodePath、名称、父子关系、实例源路径和 signal/method 都经过边界校验；连接和断开通过 Godot UndoRedo apply/rollback。 |
 | 场景内容 | <code>scene.set_property</code>、<code>scene.attach_script</code>、<code>scene.detach_script</code> | 仅开放 visible、position、rotation_degrees、scale、size、text、color，以及项目内现有 GDScript 的挂载/卸载。 |
 | 文件/设置 | resource reference、input action、script range | 使用文件或 project.godot revision guard，原子写入并支持 rollback。 |
 | 运行诊断 | <code>run_current_scene</code>、<code>run_scene</code> | 返回 run ID、状态、输出、warning、error、source、line 和 NodePath。 |
-| 多步骤任务 | create/get/advance/pause/resume/cancel | 支持 verify_scene_state、verify_diagnostics、诊断修复预览和 step-level operation ID。 |
+| 多步骤任务 | create/get/advance/pause/resume/cancel | 支持 verify_scene_state、verify_resource_state、verify_diagnostics、诊断修复预览和 step-level operation ID。 |
 | 并发恢复 | acquire/renew/release task lease、<code>task_status</code>、<code>task_timeline</code> | Lease 持有期间 heartbeat 续租；进程崩溃后按 TTL 接管，并保留审计时间线。 |
 
 ## 安全模型
@@ -199,6 +199,7 @@ npm test
 npm run typecheck
 npm run build
 npm run package:check
+npm run release:check
 git diff --check
 ~~~
 
@@ -226,16 +227,23 @@ npm run typecheck
 npm test
 npm run build
 npm run package:check
+npm run release:check
 ~~~
 
 推荐先阅读：
 
 - [贡献指南](CONTRIBUTING.md)
+- [贡献任务清单](docs/CONTRIBUTOR_TASKS.md)
 - [行为准则](CODE_OF_CONDUCT.md)
 - [安全策略](SECURITY.md)
 - [隐私政策](PRIVACY.md)
 - [增长与社区采用计划](docs/GROWTH.md)
+- [长期采用路线图](docs/ROADMAP.md)
 - [Agent 示例](docs/EXAMPLES.md)
+- [客户端配置](docs/CLIENTS.md)
+- [验证证据索引](docs/SMOKE_EVIDENCE.md)
+- [反馈指南](docs/FEEDBACK.md)
+- [常见问题](docs/FAQ.md)
 - [60 秒演示脚本](docs/DEMO.md)
 - [社区发布文案](docs/ANNOUNCEMENTS.md)
 - [Starter fixture](examples/starter/README.md)

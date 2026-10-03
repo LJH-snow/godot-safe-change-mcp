@@ -44,7 +44,7 @@ export const scriptPathSchema = z
     "scriptPath must not contain traversal segments.",
   );
 
-const resourcePathSchema = z
+export const resourcePathSchema = z
   .string()
   .min(1)
   .max(256)
@@ -164,6 +164,16 @@ export const sceneInstantiateSceneSchema = z
 export const sceneConnectSignalSchema = z
   .object({
     kind: z.literal("scene.connect_signal"),
+    sourcePath: nodePathSchema,
+    signalName: signalNameSchema,
+    targetPath: nodePathSchema,
+    methodName: methodNameSchema,
+  })
+  .strict();
+
+export const sceneDisconnectSignalSchema = z
+  .object({
+    kind: z.literal("scene.disconnect_signal"),
     sourcePath: nodePathSchema,
     signalName: signalNameSchema,
     targetPath: nodePathSchema,
@@ -322,6 +332,7 @@ export const changeOperationSchema = z.union([
   sceneDuplicateNodeSchema,
   sceneInstantiateSceneSchema,
   sceneConnectSignalSchema,
+  sceneDisconnectSignalSchema,
   sceneSetPropertySchema,
   sceneAttachScriptSchema,
   sceneDetachScriptSchema,
@@ -453,6 +464,18 @@ export const sceneConnectSignalDiffSchema = z
   })
   .strict();
 
+export const sceneDisconnectSignalDiffSchema = z
+  .object({
+    kind: z.literal("scene.disconnect_signal"),
+    target: z.string().min(1),
+    summary: z.string().min(1),
+    sourcePath: nodePathSchema,
+    signalName: signalNameSchema,
+    targetPath: nodePathSchema,
+    methodName: methodNameSchema,
+  })
+  .strict();
+
 export const scriptChangeDiffSchema = z.object({
   kind: z.literal("script.replace_range"),
   target: z.string().min(1),
@@ -570,6 +593,7 @@ export const changeDiffSchema = z.union([
   sceneDuplicateNodeDiffSchema,
   sceneInstantiateSceneDiffSchema,
   sceneConnectSignalDiffSchema,
+  sceneDisconnectSignalDiffSchema,
   scenePropertyDiffSchema,
   sceneAttachScriptDiffSchema,
   sceneDetachScriptDiffSchema,

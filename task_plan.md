@@ -268,13 +268,84 @@
 - [x] 增加 examples/starter 最小 Godot 项目，提供可复制的首条安全变更体验。
 - [x] 在双版本 Godot CI 中打开并验证 examples/starter 项目。
 - [x] 增加 60 秒 demo storyboard，固定录制步骤、旁白和发布前检查。
+- [x] 增加 FAQ，集中说明 Inspector、Godot bridge、错误码、rollback 和 npm 安装。
 - [x] 录制真实 starter fixture GIF，覆盖 context、search、preview、confirm、apply 和 rollback。
 - [x] 准备中英文社区发布文案和反馈问题，发布前先由用户选择渠道并确认发送。
 - [x] 为外部反馈和新贡献者准备 GitHub 标签：starter、release-feedback、growth 和 Godot 版本标签。
 - [x] 增加 Code of Conduct 和 Security policy，降低外部贡献和安全反馈的信任门槛。
+- [x] 增加带验收标准的贡献任务清单，覆盖文档、starter、Godot 操作、task verification 和 release 校验。
 - [x] 创建第一个 GitHub Release/tag，并保留四项 CI 证据和安装说明。
-- [ ] 提供可复制的 starter fixture、5 个示例请求和 60 秒演示素材。
+- [x] 提供可复制的 starter fixture、5 个示例请求和 60 秒演示素材。
 - [ ] 获取至少 3 个外部安装/测试反馈和 1 个外部 issue 或 PR，并根据反馈迭代。
+
+## Phase 21 — 发布资产一致性
+
+状态：complete
+
+- [x] 增加 docs/releases/v1.1.0.json，记录发布 tag、精确 commit、四项 CI job、starter 和 demo 资产。
+- [x] 增加 npm run release:check，拒绝 package/lockfile、tag、CI URL、CI job、README 链接和发布资产不一致。
+- [x] 将发布校验接入 prepublishOnly 与 npm package boundary CI job，并覆盖 tag、head、CI URL 和缺失资产边界测试。
+
+## Phase 23 — 只读资源任务验证
+
+状态：complete
+
+- [x] 增加 verify_resource_state step，限制为项目内资源路径、可选资源 revision、contains 和 matchCounts 断言。
+- [x] 返回有限 observed/expected 证据，不回传任意资源全文；记录 step operationId 与 timeline mismatch。
+- [x] 增加 TypeScript task 回归和 Godot runtime smoke；push run 37097926747 的 check、package boundary、Godot 4.5.1 和 Godot 4.7.2 全部通过。
+
+## Phase 22 — 安全断开场景信号
+
+状态：complete
+
+- [x] 增加 scene.disconnect_signal 契约、精确连接预览和缺失连接拒绝。
+- [x] 通过 Godot UndoRedo 实现 apply/rollback，并保持 preview、confirm、revision 和 history 守卫。
+- [x] 增加 TypeScript 回归和真实 Godot smoke；push run 37096577872 的 check、package boundary、Godot 4.5.1 和 Godot 4.7.2 全部通过。
+
+## Phase 24 — 客户端首次连接文档
+
+状态：complete
+
+- [x] 增加 Claude Code、Codex CLI、Cursor 和通用 Streamable HTTP 的最小配置示例。
+- [x] 明确 MCP endpoint 与 Godot bridge 的 loopback 边界，并给出只读到安全写入的首次验证顺序。
+
+## Phase 25 — Starter 跨平台复制指引
+
+状态：complete
+
+- [x] 为 macOS、Linux 和 Windows PowerShell 提供插件复制命令与目标文件核对。
+- [x] 补充 Godot 插件启用、客户端配置入口和首次 editor_context 验证步骤。
+
+## Phase 26 — Starter 多进程恢复 smoke
+
+状态：complete
+
+- [x] 新增 starter 专用双 MCP 进程 smoke，验证 PROJECT_BUSY、TTL 接管和恢复后的只读任务执行。
+- [x] 接入 Godot 4.5.1/4.7.2 runtime job，并保证临时 Godot、MCP 进程和目录在失败时清理。
+- [x] push run 37100629893 的四个 job 全部通过。
+
+## Phase 27 — 可链接验证证据索引
+
+状态：complete
+
+- [x] 增加 docs/SMOKE_EVIDENCE.md，把主要能力映射到单元测试、真实 Godot smoke、starter 并发 smoke 和发布边界检查。
+- [x] 将证据索引加入双语 README，并明确四项 CI job、日志 artifact 和安全边界解释。
+
+## Phase 28 — 真实反馈收集入口
+
+状态：complete
+
+- [x] 增加 docs/FEEDBACK.md，规定环境、复现、证据和隐私信息的最小反馈格式。
+- [x] 增加 release-feedback GitHub Issue template；不自动创建 issue、不代用户发布社区反馈。
+- [x] 在双语 README 和 FAQ 中提供反馈入口。
+
+## Phase 29 — 长期采用路线图
+
+状态：complete
+
+- [x] 增加 docs/ROADMAP.md，按 30/90/180/365 天拆分默认分支、反馈、贡献和信任目标。
+- [x] 将 Star 目标降级为结果指标，改用首次成功时间、真实反馈、贡献者和 CI 证据作为主要门槛。
+- [x] 在路线图中保留社区发布授权、安全边界和不绕过用户确认的约束。
 
 ## 完成定义
 

@@ -65,6 +65,14 @@ jobs:
           timeout --signal=TERM --kill-after=15s 150s \
             xvfb-run --auto-servernum --server-args="-screen 0 1280x720x24" \
             node tests/godot-runtime-smoke.mjs 2>&1 | tee "$RUNNER_TEMP/godot-runtime-smoke.log"
+      - name: Run starter multi-process smoke
+        timeout-minutes: 3
+        shell: bash
+        run: |
+          set -o pipefail
+          timeout --signal=TERM --kill-after=15s 150s \
+            xvfb-run --auto-servernum --server-args="-screen 0 1280x720x24" \
+            node tests/starter-multiprocess-smoke.mjs 2>&1
       - name: Upload Godot runtime smoke log
         if: always()
         uses: actions/upload-artifact@v4
@@ -85,3 +93,4 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run package:check
+      - run: npm run release:check

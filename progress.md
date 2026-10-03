@@ -1,5 +1,64 @@
 # 进度记录
 
+## 2026-10-03 long-term adoption roadmap
+
+- 新增 docs/ROADMAP.md，覆盖 30/90/180/365 天的采用、反馈、贡献和信任门槛。
+- 将 Star 定位为真实采用结果，明确首次成功时间、真实反馈、贡献者和双版本 CI 证据等可验证指标。
+
+## 2026-10-03 release feedback guide
+
+- 新增 docs/FEEDBACK.md 和 release-feedback issue template，帮助真实用户提供可复现、脱敏的安装与 starter 结果。
+- README/FAQ 增加反馈入口；没有代用户创建 issue 或发布社区内容。
+
+## 2026-10-03 smoke evidence map
+
+- 新增 docs/SMOKE_EVIDENCE.md，把主要能力映射到可复制的测试、真实 Godot smoke、starter 多进程恢复和发布边界检查。
+- README 增加验证证据入口；外部社区发布仍按用户要求暂停。
+
+## 2026-10-03 starter multi-process smoke
+
+- 新增 tests/starter-multiprocess-smoke.mjs，使用真实 starter 项目验证两个 MCP 进程的 PROJECT_BUSY、TTL 接管和恢复后的 verify_resource_state task。
+- 接入双版本 Godot runtime；push commit a80a77a 的 run 37100629893 四项全部通过。
+
+## 2026-10-03 starter copy guide
+
+- 扩展 examples/starter/README.md，补充 macOS/Linux、Windows PowerShell 的插件复制命令、文件核对、插件启用和首次 editor_context 检查。
+- 连接客户端统一指向 docs/CLIENTS.md；社区发布仍按用户要求暂停。
+
+## 2026-10-03 client configuration guide
+
+- 新增 docs/CLIENTS.md，覆盖 Claude Code、Codex CLI、Cursor 和通用 Streamable HTTP 的最小配置。
+- 明确 MCP endpoint 与 Godot bridge 的 loopback 边界，提供 editor_context → search → preview → confirm/apply → verify/rollback 首次验证顺序。
+- 社区发布仍按用户要求暂停；文档资产先用于内部 onboarding 和未来真实反馈。
+
+## 2026-10-03 verify_resource_state
+
+- 新增只读 verify_resource_state task step：校验 res:// 资源 revision、有限 contains 和 matchCounts，不新增写能力。
+- 失败结果只记录资源路径、revision、断言和 mismatch evidence；成功结果不返回资源全文。
+- TypeScript 回归已通过 108/108；push commit fe266df 的 run 37097926747 已通过 check、package boundary、Godot 4.5.1 和 Godot 4.7.2 全部验证。
+
+## 2026-10-03 scene.disconnect_signal
+
+- 新增 scene.disconnect_signal：只允许断开当前场景中精确匹配的 source/signal/target/method tuple，缺失连接、非法路径和方法不匹配均拒绝。
+- Godot 插件通过 UndoRedo 记录 disconnect/connect inverse callbacks，应用和 rollback 保持既有 revision/history 守卫。
+- TypeScript 回归已通过 106/106；push commit e19d1e3 的 run 37096577872 已通过 check、package boundary、Godot 4.5.1 和 Godot 4.7.2 全部验证。
+
+## 2026-10-03 release artifact verification
+
+- 新增 docs/releases/v1.1.0.json，固定已发布版本的 tag、精确 commit 256c11dbc19b4be7106a036e3946c97220c0bb92、四项全绿 CI run 37037985489、starter 和 GIF 资产。
+- 新增 npm run release:check，并接入 prepublishOnly 与 GitHub Actions package job；边界测试覆盖 tag/CI URL、expected head 和缺失 onboarding 资产。
+- 修正双语 README 的 CI 徽章指向默认 main；社区发布仍按用户要求暂停。
+
+## 2026-10-03 contributor task board
+
+- 新增 docs/CONTRIBUTOR_TASKS.md，拆分 good first issue、starter 文档、disconnect_signal、verify_resource_state、双进程 smoke 和 Release 校验任务。
+- 社区发布继续暂停；任务清单先作为内部路线和未来外部贡献入口。
+
+## 2026-10-03 onboarding FAQ
+
+- 新增 docs/FAQ.md，覆盖 Inspector 下载/使用、Godot bridge、EDITOR_UNAVAILABLE、PROJECT_BUSY、REVISION_CONFLICT、rollback、CI smoke 和 npm 安装。
+- README 加入 FAQ 入口；社区发布仍按用户要求暂缓。
+
 ## 2026-10-03 community trust documents
 
 - 新增 CODE_OF_CONDUCT.md 和 SECURITY.md，并在双语 README 加入入口。

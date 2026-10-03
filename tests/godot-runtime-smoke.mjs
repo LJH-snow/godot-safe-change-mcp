@@ -444,6 +444,59 @@ try {
     connection.targetPath === "." &&
     connection.methodName === "_ready",
   ), false);
+  const disconnectPlan = structured(await request("tools/call", {
+    name: "preview_scene_change",
+    arguments: {
+      projectRoot: fixtureRoot,
+      reason: "Disconnect one exact signal connection through UndoRedo.",
+      operation: {
+        kind: "scene.disconnect_signal",
+        sourcePath: "Canvas/Title",
+        signalName: "tree_entered",
+        targetPath: ".",
+        methodName: "_ready",
+      },
+    },
+  }));
+  assert.deepEqual(disconnectPlan.diff[0], {
+    kind: "scene.disconnect_signal",
+    target: "res://main.tscn:Canvas/Title.tree_entered -> ._ready",
+    summary: "Disconnect Canvas/Title.tree_entered from ._ready in res://main.tscn",
+    sourcePath: "Canvas/Title",
+    signalName: "tree_entered",
+    targetPath: ".",
+    methodName: "_ready",
+  });
+  structured(await request("tools/call", {
+    name: "confirm_scene_change",
+    arguments: { projectRoot: fixtureRoot, planId: disconnectPlan.planId, expectedRevision: disconnectPlan.expectedRevision },
+  }));
+  const disconnectApply = structured(await request("tools/call", {
+    name: "apply_scene_change",
+    arguments: { projectRoot: fixtureRoot, planId: disconnectPlan.planId },
+  }));
+  assert.equal(disconnectApply.status, "applied");
+  assert.equal(disconnectApply.undoLabel, "Godot Safe Change: Disconnect signal");
+  const signalAfterDisconnect = await bridgeRequest("/v1/signals/read", { projectRoot: fixtureRoot });
+  const disconnectedSignalNode = signalAfterDisconnect.body.snapshot.nodes.find((node) => node.nodePath === "Canvas/Title");
+  assert.equal(disconnectedSignalNode?.connections.some((connection) =>
+    connection.signalName === "tree_entered" &&
+    connection.targetPath === "." &&
+    connection.methodName === "_ready",
+  ), false);
+  const disconnectRollback = structured(await request("tools/call", {
+    name: "rollback_scene_change",
+    arguments: { projectRoot: fixtureRoot, planId: disconnectPlan.planId },
+  }));
+  assert.equal(disconnectRollback.status, "rolled_back");
+  assert.equal(disconnectRollback.undoLabel, "Godot Safe Change: Disconnect signal");
+  const signalAfterDisconnectRollback = await bridgeRequest("/v1/signals/read", { projectRoot: fixtureRoot });
+  const restoredDisconnectNode = signalAfterDisconnectRollback.body.snapshot.nodes.find((node) => node.nodePath === "Canvas/Title");
+  assert.ok(restoredDisconnectNode?.connections.some((connection) =>
+    connection.signalName === "tree_entered" &&
+    connection.targetPath === "." &&
+    connection.methodName === "_ready",
+  ));
   await expectToolError("preview_scene_change", {
     projectRoot: fixtureRoot,
     reason: "Reject an unknown signal.",
@@ -453,6 +506,17 @@ try {
       signalName: "missing_signal",
       targetPath: ".",
       methodName: "_ready",
+    },
+  }, /VALIDATION_FAILED/);
+  await expectToolError("preview_scene_change", {
+    projectRoot: fixtureRoot,
+    reason: "Reject an absent exact signal connection.",
+    operation: {
+      kind: "scene.disconnect_signal",
+      sourcePath: "Canvas/Title",
+      signalName: "tree_entered",
+      targetPath: ".",
+      methodName: "missing_method",
     },
   }, /VALIDATION_FAILED/);
   await expectToolError("preview_scene_change", {
@@ -1093,6 +1157,13 @@ try {
         { kind: "apply_plan", stepId: "apply-marker", planId: taskPlan.planId, expectedRevision: taskPlan.expectedRevision },
         { kind: "run_scene", stepId: "run-current", scenePath: "res://main.tscn", timeoutMs: 30000 },
         { kind: "verify_scene_state", stepId: "verify-marker", nodePath: "TaskMarker", expectedProperties: [{ property: "visible", expected: true }] },
+        {
+          kind: "verify_resource_state",
+          stepId: "verify-resource",
+          resourcePath: "res://instance_source.tscn",
+          contains: ["[gd_scene", "InstanceSource"],
+          matchCounts: [{ text: "[node", expectedCount: 2 }],
+        },
         { kind: "verify_diagnostics", stepId: "verify-diagnostics", runStepId: "run-current", maxErrors: 0, maxWarnings: 100 },
       ],
     },
@@ -1139,17 +1210,31 @@ try {
     arguments: { projectRoot: fixtureRoot, taskId: task.taskId, stepId: "verify-marker", operationId: verifyStepOperationId },
   }));
   assert.deepEqual(verifyStepTimeline.events.map((event) => event.status), ["running", "succeeded"]);
+  const afterResourceVerification = structured(await request("tools/call", {
+    name: "advance_task",
+    arguments: { projectRoot: fixtureRoot, taskId: task.taskId },
+  }));
+  assert.equal(afterResourceVerification.status, "active");
+  assert.equal(afterResourceVerification.steps[3]?.status, "succeeded");
+  assert.equal(afterResourceVerification.steps[3]?.result?.passed, true);
+  assert.equal(afterResourceVerification.steps[3]?.result?.resourcePath, "res://instance_source.tscn");
+  const resourceStepOperationId = afterResourceVerification.steps[3]?.operationId;
+  const resourceStepTimeline = structured(await request("tools/call", {
+    name: "task_timeline",
+    arguments: { projectRoot: fixtureRoot, taskId: task.taskId, stepId: "verify-resource", operationId: resourceStepOperationId },
+  }));
+  assert.deepEqual(resourceStepTimeline.events.map((event) => event.status), ["running", "succeeded"]);
   const afterDiagnosticsVerification = structured(await request("tools/call", {
     name: "advance_task",
     arguments: { projectRoot: fixtureRoot, taskId: task.taskId },
   }));
   assert.equal(afterDiagnosticsVerification.status, "completed");
-  assert.equal(afterDiagnosticsVerification.steps[3]?.status, "succeeded");
-  assert.equal(afterDiagnosticsVerification.steps[3]?.result?.passed, true);
-  assert.equal(afterDiagnosticsVerification.steps[3]?.result?.status, "stopped");
-  assert.equal(afterDiagnosticsVerification.steps[3]?.result?.errorCount, 0);
-  assert.ok(afterDiagnosticsVerification.steps[3]?.result?.warningCount <= 100);
-  const diagnosticsStepOperationId = afterDiagnosticsVerification.steps[3]?.operationId;
+  assert.equal(afterDiagnosticsVerification.steps[4]?.status, "succeeded");
+  assert.equal(afterDiagnosticsVerification.steps[4]?.result?.passed, true);
+  assert.equal(afterDiagnosticsVerification.steps[4]?.result?.status, "stopped");
+  assert.equal(afterDiagnosticsVerification.steps[4]?.result?.errorCount, 0);
+  assert.ok(afterDiagnosticsVerification.steps[4]?.result?.warningCount <= 100);
+  const diagnosticsStepOperationId = afterDiagnosticsVerification.steps[4]?.operationId;
   const diagnosticsStepTimeline = structured(await request("tools/call", {
     name: "task_timeline",
     arguments: { projectRoot: fixtureRoot, taskId: task.taskId, stepId: "verify-diagnostics", operationId: diagnosticsStepOperationId },
@@ -1164,7 +1249,7 @@ try {
   assert.ok(completedTask.timeline.some((event) => event.status === "lease_acquired"));
   assert.ok(completedTask.timeline.some((event) => event.status === "lease_released"));
   assert.ok(sceneNode(await readEditorContext(fixtureRoot), "TaskMarker"));
-  stage("task lease, apply, run, scene verify, diagnostics verify and timeline complete");
+  stage("task lease, apply, run, scene/resource verify, diagnostics verify and timeline complete");
   const taskPlanRollback = structured(await request("tools/call", {
     name: "rollback_scene_change",
     arguments: { projectRoot: fixtureRoot, planId: taskPlan.planId },

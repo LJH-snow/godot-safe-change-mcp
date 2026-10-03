@@ -9,8 +9,8 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/LJH-snow/godot-safe-change-mcp/actions/workflows/ci.yml?query=branch%3Afeature%2Frun-scene-project-leases"><img src="https://github.com/LJH-snow/godot-safe-change-mcp/actions/workflows/ci.yml/badge.svg?branch=feature/run-scene-project-leases" alt="CI"></a>
-  <a href="https://github.com/LJH-snow/godot-safe-change-mcp/blob/feature/run-scene-project-leases/LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT License"></a>
+  <a href="https://github.com/LJH-snow/godot-safe-change-mcp/actions/workflows/ci.yml?query=branch%3Amain"><img src="https://github.com/LJH-snow/godot-safe-change-mcp/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a>
+  <a href="https://github.com/LJH-snow/godot-safe-change-mcp/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT License"></a>
   <a href="https://nodejs.org/"><img src="https://img.shields.io/badge/Node.js-%3E%3D22.22.2-339933.svg?logo=node.js&logoColor=white" alt="Node.js 22.22.2 or newer"></a>
   <a href="https://godotengine.org/"><img src="https://img.shields.io/badge/Godot-4.x-478CBF.svg?logo=godot-engine&logoColor=white" alt="Godot 4.x"></a>
   <a href="https://m8ven.ai/mcp/ljh-snow/godot-safe-change-mcp"><img src="https://m8ven.ai/badge/mcp/ljh-snow/godot-safe-change-mcp" alt="M8ven Score"></a>
@@ -159,11 +159,11 @@ flowchart LR
 | --- | --- | --- |
 | Project intelligence | <code>project_overview</code>, <code>search_project</code>, <code>find_references</code> | Scenes, nodes, scripts, resources, signals, input actions, and reverse references. |
 | Editor context | <code>editor_context</code> | Full current scene tree, selected-node properties, open resources, run state, and diagnostics. |
-| Scene structure | create, delete, reparent, rename, duplicate, instantiate, connect signal | Safe NodePaths, ownership, names, parent relationships, instance source paths, and signal/method validation; connections use Godot UndoRedo apply/rollback. |
+| Scene structure | create, delete, reparent, rename, duplicate, instantiate, connect/disconnect signal | Safe NodePaths, ownership, names, parent relationships, instance source paths, and signal/method validation; connections and disconnections use Godot UndoRedo apply/rollback. |
 | Scene content | <code>scene.set_property</code>, <code>scene.attach_script</code>, <code>scene.detach_script</code> | Allowlisted visible, position, rotation_degrees, scale, size, text, and color properties plus project-local GDScript attachment/detachment. |
 | Files and settings | resource references, input actions, script ranges | File or project-settings revision guards, atomic writes, and rollback. |
 | Runtime evidence | <code>run_current_scene</code>, <code>run_scene</code> | Run IDs, terminal state, output, warnings, errors, source, line, and NodePath evidence. |
-| Multi-step work | create/get/advance/pause/resume/cancel | Verification steps, diagnostics repair preview, and step-level operation IDs. |
+| Multi-step work | create/get/advance/pause/resume/cancel | Scene/resource verification steps, diagnostics repair preview, and step-level operation IDs. |
 | Recovery | task leases, <code>task_status</code>, <code>task_timeline</code> | Heartbeats, TTL takeover, owner visibility, and auditable recovery events. |
 
 ## Safety model
@@ -185,6 +185,7 @@ npm test
 npm run typecheck
 npm run build
 npm run package:check
+npm run release:check
 git diff --check
 ~~~
 
@@ -212,16 +213,23 @@ npm run typecheck
 npm test
 npm run build
 npm run package:check
+npm run release:check
 ~~~
 
 More detail:
 
 - [Contributing](CONTRIBUTING.md)
+- [Contributor task board](docs/CONTRIBUTOR_TASKS.md)
 - [Code of Conduct](CODE_OF_CONDUCT.md)
 - [Security policy](SECURITY.md)
 - [Privacy policy](PRIVACY.md)
 - [Growth and adoption plan](docs/GROWTH.md)
+- [Long-term adoption roadmap](docs/ROADMAP.md)
 - [Agent examples](docs/EXAMPLES.md)
+- [Client configuration](docs/CLIENTS.md)
+- [Verification evidence map](docs/SMOKE_EVIDENCE.md)
+- [Feedback guide](docs/FEEDBACK.md)
+- [FAQ](docs/FAQ.md)
 - [60-second demo storyboard](docs/DEMO.md)
 - [Community launch kit](docs/ANNOUNCEMENTS.md)
 - [Starter fixture](examples/starter/README.md)
