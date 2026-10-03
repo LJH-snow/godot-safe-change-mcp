@@ -783,6 +783,41 @@ export class ChangeCoordinator {
           " in input action " +
           operation.actionName,
       };
+    } else if (operation.kind === "project.autoload.add") {
+      const snapshot = await this.bridge.readAutoload(projectRoot, operation.name);
+      if (snapshot.exists) {
+        throw new DomainError(
+          ERROR_CODES.VALIDATION_FAILED,
+          "An autoload with the requested name already exists.",
+          { name: operation.name, scriptPath: snapshot.scriptPath },
+        );
+      }
+      await this.bridge.readScript(projectRoot, operation.scriptPath);
+      expectedFileRevision = snapshot.revision;
+      diff = {
+        kind: "project.autoload.add" as const,
+        target: "project.godot:autoload/" + operation.name,
+        summary: "Register " + operation.scriptPath + " as autoload " + operation.name,
+        name: operation.name,
+        scriptPath: operation.scriptPath,
+      };
+    } else if (operation.kind === "project.autoload.remove") {
+      const snapshot = await this.bridge.readAutoload(projectRoot, operation.name);
+      if (!snapshot.exists || snapshot.scriptPath === null) {
+        throw new DomainError(
+          ERROR_CODES.VALIDATION_FAILED,
+          "The requested autoload does not exist.",
+          { name: operation.name },
+        );
+      }
+      expectedFileRevision = snapshot.revision;
+      diff = {
+        kind: "project.autoload.remove" as const,
+        target: "project.godot:autoload/" + operation.name,
+        summary: "Remove autoload " + operation.name + " (" + snapshot.scriptPath + ")",
+        name: operation.name,
+        previousScriptPath: snapshot.scriptPath,
+      };
     } else {
       const snapshot = await this.bridge.readScript(projectRoot, operation.scriptPath);
       const lines = snapshot.content.split("\n");
@@ -973,6 +1008,8 @@ export class ChangeCoordinator {
         operation.kind !== "project.input_action.add_key" &&
         operation.kind !== "project.input_action.remove_key" &&
         operation.kind !== "project.input_action.replace_key" &&
+        operation.kind !== "project.autoload.add" &&
+        operation.kind !== "project.autoload.remove" &&
         operation.kind !== "scene.instantiate_scene"
       ) {
         throw new DomainError(
@@ -987,7 +1024,9 @@ export class ChangeCoordinator {
             ? await this.bridge.readResource(storedPlan.plan.projectRoot, operation.resourcePath)
             : operation.kind === "scene.instantiate_scene"
               ? await this.bridge.readResource(storedPlan.plan.projectRoot, operation.scenePath)
-              : await this.bridge.readInputAction(storedPlan.plan.projectRoot, operation.actionName);
+              : operation.kind === "project.autoload.add" || operation.kind === "project.autoload.remove"
+                ? await this.bridge.readAutoload(storedPlan.plan.projectRoot, operation.name)
+                : await this.bridge.readInputAction(storedPlan.plan.projectRoot, operation.actionName);
       if (snapshot.revision !== storedPlan.appliedFileRevision) {
         throw new DomainError(
           ERROR_CODES.REVISION_CONFLICT,
@@ -1133,6 +1172,8 @@ export class ChangeCoordinator {
         operation.kind !== "project.input_action.add_key" &&
         operation.kind !== "project.input_action.remove_key" &&
         operation.kind !== "project.input_action.replace_key" &&
+        operation.kind !== "project.autoload.add" &&
+        operation.kind !== "project.autoload.remove" &&
         operation.kind !== "scene.instantiate_scene"
       ) {
         throw new DomainError(
@@ -1147,7 +1188,9 @@ export class ChangeCoordinator {
             ? await this.bridge.readResource(plan.projectRoot, operation.resourcePath)
             : operation.kind === "scene.instantiate_scene"
               ? await this.bridge.readResource(plan.projectRoot, operation.scenePath)
-              : await this.bridge.readInputAction(plan.projectRoot, operation.actionName);
+              : operation.kind === "project.autoload.add" || operation.kind === "project.autoload.remove"
+                ? await this.bridge.readAutoload(plan.projectRoot, operation.name)
+                : await this.bridge.readInputAction(plan.projectRoot, operation.actionName);
       if (snapshot.revision !== plan.expectedFileRevision) {
         throw new DomainError(
           ERROR_CODES.REVISION_CONFLICT,

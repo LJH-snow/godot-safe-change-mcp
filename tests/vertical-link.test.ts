@@ -9,6 +9,7 @@ import { DomainError, ERROR_CODES } from "../src/domain/errors.js";
 import { changeOperationSchema } from "../src/domain/change-contracts.js";
 import type {
   ApplyChangeRequest,
+  AutoloadSnapshot,
   ChangeReport,
   EditorContext,
   InputActionSnapshot,
@@ -209,6 +210,17 @@ class FakeGodotBridge implements GodotBridge {
 
   async readInputAction(_projectRoot: string, actionName: string): Promise<InputActionSnapshot> {
     return { ...this.inputActionSnapshot, actionName };
+  }
+
+  autoloadSnapshot: AutoloadSnapshot = {
+    name: "Game",
+    revision: "settings-revision-1",
+    exists: false,
+    scriptPath: null,
+  };
+
+  async readAutoload(_projectRoot: string, name: string): Promise<AutoloadSnapshot> {
+    return { ...this.autoloadSnapshot, name };
   }
 
   async readSceneSignals() {
@@ -1064,6 +1076,110 @@ describe("ChangeCoordinator", () => {
     );
     await assert.rejects(() => preview({ kind: "scene.add_group", nodePath: "Player", group: "bad/group" }));
     await assert.rejects(() => preview({ kind: "scene.add_group", nodePath: "Player", group: "" }));
+    assert.equal(bridge.applied.length, 0);
+  });
+
+  test("previews, applies and rolls back one bounded autoload registration", async () => {
+    const bridge = new FakeGodotBridge();
+    const coordinator = new ChangeCoordinator(bridge);
+
+    const plan = await coordinator.previewSceneChange({
+      projectRoot,
+      reason: "Register the game state singleton.",
+      operation: { kind: "project.autoload.add", name: "Game", scriptPath: "res://diagnostic_scene.gd" } as never,
+    });
+
+    assert.equal(plan.operations[0]?.kind, "project.autoload.add");
+    assert.deepEqual(plan.diff[0], {
+      kind: "project.autoload.add",
+      target: "project.godot:autoload/Game",
+      summary: "Register res://diagnostic_scene.gd as autoload Game",
+      name: "Game",
+      scriptPath: "res://diagnostic_scene.gd",
+    });
+    assert.equal(plan.expectedFileRevision, "settings-revision-1");
+    const confirmation = await coordinator.confirmChange({
+      projectRoot,
+      planId: plan.planId,
+      expectedRevision: plan.expectedRevision,
+    });
+    assert.equal(confirmation.status, "confirmed");
+    const applied = await coordinator.applyChange({ projectRoot, planId: plan.planId });
+    assert.equal(applied.status, "applied");
+    assert.equal(bridge.applied[0]?.operations[0]?.kind, "project.autoload.add");
+    assert.equal(bridge.applied[0]?.expectedFileRevision, "settings-revision-1");
+    const rolledBack = await coordinator.rollbackChange({ projectRoot, planId: plan.planId });
+    assert.equal(rolledBack.status, "rolled_back");
+  });
+
+  test("previews removing an existing autoload registration", async () => {
+    const bridge = new FakeGodotBridge();
+    bridge.autoloadSnapshot = {
+      name: "Game",
+      revision: "settings-revision-1",
+      exists: true,
+      scriptPath: "res://game_state.gd",
+    };
+    const coordinator = new ChangeCoordinator(bridge);
+
+    const plan = await coordinator.previewSceneChange({
+      projectRoot,
+      reason: "Drop the unused game state singleton.",
+      operation: { kind: "project.autoload.remove", name: "Game" } as never,
+    });
+
+    assert.equal(plan.operations[0]?.kind, "project.autoload.remove");
+    assert.deepEqual(plan.diff[0], {
+      kind: "project.autoload.remove",
+      target: "project.godot:autoload/Game",
+      summary: "Remove autoload Game (res://game_state.gd)",
+      name: "Game",
+      previousScriptPath: "res://game_state.gd",
+    });
+    assert.equal(bridge.applied.length, 0);
+  });
+
+  test("rejects duplicate, absent and unsafe autoload operations", async () => {
+    const bridge = new FakeGodotBridge();
+    bridge.autoloadSnapshot = {
+      name: "Game",
+      revision: "settings-revision-1",
+      exists: true,
+      scriptPath: "res://game_state.gd",
+    };
+    const coordinator = new ChangeCoordinator(bridge);
+    const preview = (operation: Record<string, unknown>) =>
+      coordinator.previewSceneChange({
+        projectRoot,
+        reason: "Exercise autoload safety validation.",
+        operation: operation as never,
+      });
+
+    await assert.rejects(
+      () => preview({ kind: "project.autoload.add", name: "Game", scriptPath: "res://diagnostic_scene.gd" }),
+      (error: unknown) => error instanceof DomainError && error.code === ERROR_CODES.VALIDATION_FAILED,
+    );
+    const absentBridge = new FakeGodotBridge();
+    absentBridge.autoloadSnapshot = {
+      name: "Missing",
+      revision: "settings-revision-1",
+      exists: false,
+      scriptPath: null,
+    };
+    const absentCoordinator = new ChangeCoordinator(absentBridge);
+    await assert.rejects(
+      () =>
+        absentCoordinator.previewSceneChange({
+          projectRoot,
+          reason: "Reject removing an autoload that does not exist.",
+          operation: { kind: "project.autoload.remove", name: "Missing" } as never,
+        }),
+      (error: unknown) => error instanceof DomainError && error.code === ERROR_CODES.VALIDATION_FAILED,
+    );
+    await assert.rejects(() =>
+      preview({ kind: "project.autoload.add", name: "bad/name", scriptPath: "res://diagnostic_scene.gd" }));
+    await assert.rejects(() =>
+      preview({ kind: "project.autoload.add", name: "Game", scriptPath: "res://../outside.gd" }));
     assert.equal(bridge.applied.length, 0);
   });
 
@@ -2003,4 +2119,7 @@ test("the Godot plugin exposes only the bounded vertical-link routes", async () 
   assert.match(source, /add_to_group/);
   assert.match(source, /remove_from_group/);
   assert.match(source, /"groups": group_names/);
+  assert.match(source, /project\.autoload\.add/);
+  assert.match(source, /\/v1\/autoloads\/read/);
+  assert.match(source, /_is_safe_autoload_name/);
 });

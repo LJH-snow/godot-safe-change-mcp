@@ -224,6 +224,15 @@ export const inputActionSnapshotSchema = z.object({
 
 export type InputActionSnapshot = z.infer<typeof inputActionSnapshotSchema>;
 
+export const autoloadSnapshotSchema = z.object({
+  name: z.string().min(1),
+  revision: z.string().min(1),
+  exists: z.boolean(),
+  scriptPath: z.string().nullable(),
+});
+
+export type AutoloadSnapshot = z.infer<typeof autoloadSnapshotSchema>;
+
 export const sceneSignalConnectionSchema = z.object({
   signalName: signalNameSchema,
   targetPath: nodePathSchema,

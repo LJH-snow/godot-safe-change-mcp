@@ -32,6 +32,13 @@
 - Acceptance: editor_context 暴露只读 groups；apply/rollback 通过 Godot UndoRedo 互逆恢复；TypeScript 与真实 Godot smoke 已覆盖。
 - Labels: <code>enhancement</code>、<code>godot-4.5.1</code>、<code>godot-4.7.2</code>。
 
+### Add project autoload management — implemented
+
+- Scope: 通过 project.autoload.add / project.autoload.remove 管理 project.godot 的自动加载单例注册。
+- Guards: 单例名字符集与长度、项目内 .gd 脚本存在性、重复注册和缺失注册拒绝、project.godot revision guard。
+- Acceptance: 只读 autoload 快照路由支撑 preview；apply 原子保存并在失败时恢复，rollback 恢复注册前状态；TypeScript 与真实 Godot smoke 已覆盖。
+- Labels: <code>enhancement</code>、<code>godot-4.5.1</code>、<code>godot-4.7.2</code>。
+
 ### Add verify_resource_state — implemented
 
 - Scope: 为 task 增加只读资源内容/引用断言，不提供新的写能力。

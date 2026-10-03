@@ -346,6 +346,27 @@ export const scriptReplaceRangeSchema = z
     message: "startLine must be less than or equal to endLine.",
   });
 
+export const autoloadNameSchema = z
+  .string()
+  .min(1)
+  .max(64)
+  .regex(/^[A-Za-z_][A-Za-z0-9_]*$/, "Autoload names must use letters, digits and underscores.");
+
+export const autoloadAddSchema = z
+  .object({
+    kind: z.literal("project.autoload.add"),
+    name: autoloadNameSchema.describe("Singleton name for the autoload entry."),
+    scriptPath: scriptPathSchema.describe("Project GDScript script to register."),
+  })
+  .strict();
+
+export const autoloadRemoveSchema = z
+  .object({
+    kind: z.literal("project.autoload.remove"),
+    name: autoloadNameSchema.describe("Autoload singleton name to remove."),
+  })
+  .strict();
+
 export const changeOperationSchema = z.union([
   createNodeOperationSchema,
   sceneDeleteNodeSchema,
@@ -364,6 +385,8 @@ export const changeOperationSchema = z.union([
   inputActionAddKeySchema,
   inputActionRemoveKeySchema,
   inputActionReplaceKeySchema,
+  autoloadAddSchema,
+  autoloadRemoveSchema,
   scriptReplaceRangeSchema,
 ]);
 
@@ -555,6 +578,26 @@ export const inputActionReplaceKeyDiffSchema = z.object({
   summary: z.string().min(1),
 });
 
+export const autoloadAddDiffSchema = z
+  .object({
+    kind: z.literal("project.autoload.add"),
+    target: z.string().min(1),
+    summary: z.string().min(1),
+    name: autoloadNameSchema,
+    scriptPath: scriptPathSchema,
+  })
+  .strict();
+
+export const autoloadRemoveDiffSchema = z
+  .object({
+    kind: z.literal("project.autoload.remove"),
+    target: z.string().min(1),
+    summary: z.string().min(1),
+    name: autoloadNameSchema,
+    previousScriptPath: scriptPathSchema,
+  })
+  .strict();
+
 const scenePropertyDiffBase = {
   kind: z.literal("scene.set_property"),
   target: z.string().min(1),
@@ -647,6 +690,8 @@ export const changeDiffSchema = z.union([
   inputActionDiffSchema,
   inputActionRemoveKeyDiffSchema,
   inputActionReplaceKeyDiffSchema,
+  autoloadAddDiffSchema,
+  autoloadRemoveDiffSchema,
   scriptChangeDiffSchema,
 ]);
 

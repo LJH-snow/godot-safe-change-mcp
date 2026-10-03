@@ -38,6 +38,9 @@ var last_resource_applied_revision := ""
 var last_input_action_name := ""
 var last_input_action_original_setting: Variant = null
 var last_input_action_applied_revision := ""
+var last_autoload_name := ""
+var last_autoload_original_setting: Variant = null
+var last_autoload_applied_revision := ""
 var diagnostics := {
     "output": [],
     "warnings": [],
@@ -98,6 +101,8 @@ func handle_bridge_request(method: String, path: String, body: Variant) -> Dicti
             return _read_resource(body)
         "/v1/input-actions/read":
             return _read_input_action(body)
+        "/v1/autoloads/read":
+            return _read_autoload(body)
         "/v1/signals/read":
             return _read_scene_signals()
         "/v1/run/current":
@@ -263,6 +268,34 @@ func _read_input_action(body: Variant) -> Dictionary:
         "exists": exists,
         "deadzone": deadzone,
         "events": events,
+    })
+
+func _is_safe_autoload_name(autoload_name: String) -> bool:
+    if autoload_name.length() < 1 or autoload_name.length() > 64:
+        return false
+    var name_regex := RegEx.new()
+    name_regex.compile("^[A-Za-z_][A-Za-z0-9_]*$")
+    return name_regex.search(autoload_name) != null
+
+func _read_autoload(body: Variant) -> Dictionary:
+    if typeof(body) != TYPE_DICTIONARY:
+        return _failure("VALIDATION_FAILED", "The autoload read request body must be a JSON object.")
+    var request_body: Dictionary = body
+    var autoload_name := String(request_body.get("name", ""))
+    if not _is_safe_autoload_name(autoload_name):
+        return _failure("UNSAFE_OPERATION", "Only bounded autoload names can be read.")
+
+    var setting_value: Variant = ProjectSettings.get_setting("autoload/" + autoload_name, null)
+    var exists := typeof(setting_value) == TYPE_STRING and String(setting_value) != ""
+    var script_path := ""
+    if exists:
+        script_path = String(setting_value).trim_prefix("*")
+
+    return _success("snapshot", {
+        "name": autoload_name,
+        "revision": _project_settings_revision(),
+        "exists": exists,
+        "scriptPath": script_path if script_path != "" else null,
     })
 
 func _read_scene_signals() -> Dictionary:
@@ -824,6 +857,18 @@ func _validate_change_request(request_body: Dictionary) -> Dictionary:
             return _failure("VALIDATION_FAILED", "The input action name or physical keycode is invalid.")
         if int(from_physical_keycode) == int(to_physical_keycode):
             return _failure("VALIDATION_FAILED", "The source and target physical keycodes must differ.")
+    elif kind == "project.autoload.add":
+        if not _has_exact_keys(operation, ["kind", "name", "scriptPath"]):
+            return _failure("VALIDATION_FAILED", "project.autoload.add contains unsupported or missing fields.")
+        if not _is_safe_autoload_name(String(operation["name"])):
+            return _failure("VALIDATION_FAILED", "name contains unsupported characters.")
+        if not _is_safe_script_path(String(operation["scriptPath"])):
+            return _failure("UNSAFE_OPERATION", "scriptPath must be a safe project GDScript path.")
+    elif kind == "project.autoload.remove":
+        if not _has_exact_keys(operation, ["kind", "name"]):
+            return _failure("VALIDATION_FAILED", "project.autoload.remove contains unsupported or missing fields.")
+        if not _is_safe_autoload_name(String(operation["name"])):
+            return _failure("VALIDATION_FAILED", "name contains unsupported characters.")
     elif kind == "script.replace_range":
         if not _has_exact_keys(operation, ["kind", "scriptPath", "startLine", "endLine", "replacement"]):
             return _failure("VALIDATION_FAILED", "script.replace_range contains unsupported or missing fields.")
@@ -939,6 +984,8 @@ func _apply_change(body: Variant) -> Dictionary:
         return _apply_resource_change(request_body, scene_root, scene_path)
     if String(operation.get("kind", "")) in ["project.input_action.add_key", "project.input_action.remove_key", "project.input_action.replace_key"]:
         return _apply_input_action_change(request_body, scene_root, scene_path)
+    if String(operation.get("kind", "")) in ["project.autoload.add", "project.autoload.remove"]:
+        return _apply_autoload_change(request_body, scene_root, scene_path)
     var operation_kind := String(operation.get("kind", ""))
     var action_label := ""
     if operation_kind == "scene.delete_node":
@@ -1250,6 +1297,81 @@ func _apply_input_action_change(request_body: Dictionary, scene_root: Node, scen
         "undoLabel": "Godot Safe Change: " + input_action_verb + " input action key",
     })
 
+func _apply_autoload_change(request_body: Dictionary, scene_root: Node, scene_path: String) -> Dictionary:
+    var operation: Dictionary = request_body["operations"][0]
+    var operation_kind := String(operation.get("kind", ""))
+    var adding_autoload := operation_kind == "project.autoload.add"
+    var autoload_name := String(operation.get("name", ""))
+    if not _is_safe_autoload_name(autoload_name):
+        return _failure("VALIDATION_FAILED", "The autoload name is invalid.")
+
+    var script_path := ""
+    if adding_autoload:
+        script_path = String(operation.get("scriptPath", ""))
+        if not _is_safe_script_path(script_path):
+            return _failure("UNSAFE_OPERATION", "scriptPath must be a safe project GDScript path.")
+
+    var expected_file_revision := String(request_body.get("expectedFileRevision", ""))
+    var actual_file_revision := _project_settings_revision()
+    if expected_file_revision == "" or expected_file_revision != actual_file_revision:
+        return _failure(
+            "REVISION_CONFLICT",
+            "The project settings changed after preview.",
+            409,
+            {"expectedFileRevision": expected_file_revision, "actualFileRevision": actual_file_revision},
+        )
+
+    var setting_key := "autoload/" + autoload_name
+    var raw_setting: Variant = ProjectSettings.get_setting(setting_key, null)
+    var original_setting: Variant = null
+    if typeof(raw_setting) == TYPE_STRING and String(raw_setting) != "":
+        original_setting = String(raw_setting)
+
+    var next_setting: Variant
+    if adding_autoload:
+        if original_setting != null:
+            return _failure("VALIDATION_FAILED", "An autoload with the requested name already exists.")
+        if not FileAccess.file_exists(script_path):
+            return _failure("VALIDATION_FAILED", "The requested autoload script does not exist in the project.")
+        next_setting = "*" + script_path
+    else:
+        if original_setting == null:
+            return _failure("VALIDATION_FAILED", "The requested autoload does not exist.")
+        next_setting = null
+
+    if next_setting == null:
+        ProjectSettings.set_setting(setting_key, null)
+    else:
+        ProjectSettings.set_setting(setting_key, next_setting)
+    var save_error := ProjectSettings.save()
+    if save_error != OK:
+        if original_setting == null:
+            ProjectSettings.set_setting(setting_key, null)
+        else:
+            ProjectSettings.set_setting(setting_key, original_setting)
+        return _failure("OPERATION_REJECTED", "Godot could not save the autoload change.", 409, {"error": save_error})
+
+    var plan_id := String(request_body.get("planId", ""))
+    var applied_revision := _current_revision(scene_root, scene_path)
+    var applied_file_revision := _project_settings_revision()
+    _clear_scene_action_state()
+    _clear_file_action_state()
+    last_applied_plan_id = plan_id
+    last_applied_revision = applied_revision
+    last_applied_kind = "autoload"
+    last_autoload_name = autoload_name
+    last_autoload_original_setting = original_setting
+    last_autoload_applied_revision = applied_file_revision
+    return _success("report", {
+        "schemaVersion": "0.2",
+        "planId": plan_id,
+        "status": "applied",
+        "revision": applied_revision,
+        "fileRevision": applied_file_revision,
+        "operationCount": 1,
+        "undoLabel": ("Godot Safe Change: Add autoload" if adding_autoload else "Godot Safe Change: Remove autoload"),
+    })
+
 func _read_resource_snapshot(resource_path: String) -> Dictionary:
     if not FileAccess.file_exists(resource_path):
         return _failure("PROJECT_NOT_FOUND", "The requested resource does not exist.", 404)
@@ -1332,6 +1454,9 @@ func _clear_file_action_state() -> void:
     last_input_action_name = ""
     last_input_action_original_setting = null
     last_input_action_applied_revision = ""
+    last_autoload_name = ""
+    last_autoload_original_setting = null
+    last_autoload_applied_revision = ""
 
 func _clear_applied_state() -> void:
     last_applied_plan_id = ""
@@ -1465,6 +1590,8 @@ func _rollback_change(body: Variant) -> Dictionary:
         return _rollback_resource_change(request_body, scene_root, scene_path, plan_id)
     if last_applied_kind == "input":
         return _rollback_input_action_change(request_body, scene_root, scene_path, plan_id)
+    if last_applied_kind == "autoload":
+        return _rollback_autoload_change(request_body, scene_root, scene_path, plan_id)
 
     if last_applied_scene_path != scene_path or last_applied_undo_history_id < 0 or last_applied_undo_version < 0:
         return _failure("REVISION_CONFLICT", "The applied scene history is no longer available for a safe rollback.", 409)
@@ -1594,6 +1721,37 @@ func _rollback_input_action_change(request_body: Dictionary, scene_root: Node, s
         "revision": rollback_revision,
         "fileRevision": restored_file_revision,
         "undoLabel": "Godot Safe Change: Restore input action",
+    })
+
+func _rollback_autoload_change(request_body: Dictionary, scene_root: Node, scene_path: String, plan_id: String) -> Dictionary:
+    var actual_file_revision := _project_settings_revision()
+    if actual_file_revision != last_autoload_applied_revision:
+        return _failure(
+            "REVISION_CONFLICT",
+            "The project settings changed after autoload apply; refusing to overwrite it.",
+            409,
+            {"expectedFileRevision": last_autoload_applied_revision, "actualFileRevision": actual_file_revision},
+        )
+
+    var setting_key := "autoload/" + last_autoload_name
+    if last_autoload_original_setting == null:
+        ProjectSettings.set_setting(setting_key, null)
+    else:
+        ProjectSettings.set_setting(setting_key, last_autoload_original_setting)
+    var save_error := ProjectSettings.save()
+    if save_error != OK:
+        return _failure("OPERATION_REJECTED", "Godot could not roll back the autoload change.", 409, {"error": save_error})
+
+    var rollback_revision := _current_revision(scene_root, scene_path)
+    var restored_file_revision := _project_settings_revision()
+    _clear_applied_state()
+    return _success("report", {
+        "schemaVersion": "0.2",
+        "planId": plan_id,
+        "status": "rolled_back",
+        "revision": rollback_revision,
+        "fileRevision": restored_file_revision,
+        "undoLabel": "Godot Safe Change: Restore autoload",
     })
 
 func _apply_create_node(scene_root: Node, operation: Dictionary) -> Dictionary:
