@@ -238,6 +238,7 @@ npm run release:check
 - [增长与社区采用计划](docs/GROWTH.md)
 - [Agent 示例](docs/EXAMPLES.md)
 - [客户端配置](docs/CLIENTS.md)
+- [验证证据索引](docs/SMOKE_EVIDENCE.md)
 - [常见问题](docs/FAQ.md)
 - [60 秒演示脚本](docs/DEMO.md)
 - [社区发布文案](docs/ANNOUNCEMENTS.md)

@@ -1,5 +1,10 @@
 # 进度记录
 
+## 2026-10-03 smoke evidence map
+
+- 新增 docs/SMOKE_EVIDENCE.md，把主要能力映射到可复制的测试、真实 Godot smoke、starter 多进程恢复和发布边界检查。
+- README 增加验证证据入口；外部社区发布仍按用户要求暂停。
+
 ## 2026-10-03 starter multi-process smoke
 
 - 新增 tests/starter-multiprocess-smoke.mjs，使用真实 starter 项目验证两个 MCP 进程的 PROJECT_BUSY、TTL 接管和恢复后的 verify_resource_state task。

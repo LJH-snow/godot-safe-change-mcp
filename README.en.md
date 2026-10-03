@@ -224,6 +224,7 @@ More detail:
 - [Growth and adoption plan](docs/GROWTH.md)
 - [Agent examples](docs/EXAMPLES.md)
 - [Client configuration](docs/CLIENTS.md)
+- [Verification evidence map](docs/SMOKE_EVIDENCE.md)
 - [FAQ](docs/FAQ.md)
 - [60-second demo storyboard](docs/DEMO.md)
 - [Community launch kit](docs/ANNOUNCEMENTS.md)

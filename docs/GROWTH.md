@@ -46,7 +46,7 @@
 - [x] 增加 docs/DEMO.md，固定 60 秒录制分镜、旁白和验收标准。
 - [x] 为 Claude Code、Codex、Cursor 和通用 Streamable HTTP 客户端各写一份最小连接示例。
 - [x] 发布 docs/FAQ.md，覆盖 EDITOR_UNAVAILABLE、PROJECT_BUSY、REVISION_CONFLICT、Inspector、确认门控和 npm 安装。
-- [ ] 为每个主要能力增加一条可链接的 smoke 输出或短演示。
+- [x] 为每个主要能力增加一条可链接的 smoke 输出或短演示。
 
 ### Phase C：形成外部反馈回路（1–2 个月）
 

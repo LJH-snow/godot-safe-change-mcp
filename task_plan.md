@@ -324,6 +324,13 @@
 - [x] 接入 Godot 4.5.1/4.7.2 runtime job，并保证临时 Godot、MCP 进程和目录在失败时清理。
 - [x] push run 37100629893 的四个 job 全部通过。
 
+## Phase 27 — 可链接验证证据索引
+
+状态：complete
+
+- [x] 增加 docs/SMOKE_EVIDENCE.md，把主要能力映射到单元测试、真实 Godot smoke、starter 并发 smoke 和发布边界检查。
+- [x] 将证据索引加入双语 README，并明确四项 CI job、日志 artifact 和安全边界解释。
+
 ## 完成定义
 
 只有在验收标准全部满足、自动化检查通过，并且真实或 fixture Godot 链路有可复现证据后，才将所有阶段标记为 `complete`。
