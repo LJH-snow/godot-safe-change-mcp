@@ -22,6 +22,8 @@ export function registerFindReferencesTool(
       annotations: {
         readOnlyHint: true,
         destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
       },
     },
     async (input: FindReferencesInput) => {

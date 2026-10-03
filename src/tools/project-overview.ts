@@ -22,6 +22,8 @@ export function registerProjectOverviewTool(
       annotations: {
         readOnlyHint: true,
         destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
       },
     },
     async (input: ProjectOverviewInput) => {

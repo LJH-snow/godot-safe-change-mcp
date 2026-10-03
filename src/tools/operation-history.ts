@@ -18,7 +18,7 @@ export function registerOperationHistoryTool(
       description: "Read recent preview, confirmation, apply, rollback and run operations with evidence.",
       inputSchema: operationHistoryInputSchema,
       outputSchema: operationHistoryReportSchema,
-      annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     },
     async (input: OperationHistoryInput) => {
       try {
