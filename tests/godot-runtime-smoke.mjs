@@ -596,8 +596,8 @@ try {
   }, /OPERATION_REJECTED/);
   await expectToolError("preview_scene_change", {
     projectRoot: fixtureRoot,
-    reason: "Reject an unsafe group name.",
-    operation: { kind: "scene.add_group", nodePath: "Canvas/Title", group: "bad/group" },
+    reason: "Reject a group operation on a missing node.",
+    operation: { kind: "scene.add_group", nodePath: "Canvas/Missing", group: "ci_group_probe" },
   }, /VALIDATION_FAILED/);
   stage("scene group membership complete");
   const initialCurrentSceneRun = structured(await request("tools/call", {
