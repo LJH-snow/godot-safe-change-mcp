@@ -335,13 +335,18 @@ func _is_valid_project_setting_value(setting_key: String, value: Variant) -> boo
         var scene_path := String(value)
         return _is_safe_scene_path(scene_path) and FileAccess.file_exists(scene_path)
     if setting_type == "integer":
-        return typeof(value) == TYPE_INT and int(value) >= 1 and int(value) <= 16384
+        return _is_valid_integer(value, 1.0, 16384.0)
     return false
 
 func _copy_project_setting_value(value: Variant) -> Variant:
     if typeof(value) == TYPE_ARRAY or typeof(value) == TYPE_DICTIONARY:
         return value.duplicate(true)
     return value
+
+func _normalize_project_setting_value(setting_key: String, value: Variant) -> Variant:
+    if String(ALLOWED_PROJECT_SETTINGS.get(setting_key, "")) == "integer":
+        return int(value)
+    return _copy_project_setting_value(value)
 
 func _project_setting_values_equal(left: Variant, right: Variant) -> bool:
     if typeof(left) != typeof(right):
@@ -373,7 +378,7 @@ func _project_setting_snapshot(setting_key: String) -> Dictionary:
                 409,
                 {"settingKey": setting_key},
             )
-        value = _copy_project_setting_value(value)
+        value = _normalize_project_setting_value(setting_key, value)
     return {
         "ok": true,
         "snapshot": {
@@ -1454,7 +1459,7 @@ func _apply_project_setting_change(request_body: Dictionary, scene_root: Node, s
         return validation_error
 
     var setting_key := String(operation["settingKey"])
-    var next_value: Variant = _copy_project_setting_value(operation["value"])
+    var next_value: Variant = _normalize_project_setting_value(setting_key, operation["value"])
     var expected_file_revision := String(request_body.get("expectedFileRevision", ""))
     var actual_file_revision := _project_settings_revision()
     if expected_file_revision == "" or expected_file_revision != actual_file_revision:
@@ -1476,7 +1481,7 @@ func _apply_project_setting_change(request_body: Dictionary, scene_root: Node, s
                 409,
                 {"settingKey": setting_key},
             )
-        original_value = _copy_project_setting_value(original_value)
+        original_value = _normalize_project_setting_value(setting_key, original_value)
     if original_exists and _project_setting_values_equal(original_value, next_value):
         return _failure("OPERATION_REJECTED", "The requested project setting already has that value.")
 
