@@ -57,6 +57,7 @@ The setting lifecycle in `tests/godot-runtime-smoke.mjs` proves the bounded cont
 - Direct forged requests reject unknown keys, out-of-range values, extra fields, and traversal without changing `project.godot`.
 - An external edit after apply makes rollback return `REVISION_CONFLICT` while preserving the edit; restoring the applied bytes permits a verified rollback to the original value.
 - `application/run/main_scene` rejects missing scenes, applies only an existing project-local `.tscn`, reads back the new path, and restores the original setting.
+- PR #30 CI run `37190573762` (with duplicate validation run `37190575982`) passed the complete required matrix: check, npm package boundary, Godot 4.5.1 runtime, and Godot 4.7.2 runtime. The runtime failure that preceded it was fixed in commit `9cc4018` by canonicalizing integral JSON numbers at the plugin boundary.
 
 ## Safety interpretation
 
