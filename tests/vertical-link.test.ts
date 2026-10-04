@@ -27,6 +27,40 @@ import { normalizeProjectRoot } from "../src/infrastructure/project-root.js";
 
 const projectRoot = "/tmp/example-godot-project";
 
+type PlannedProjectSettingKey =
+  | "application/run/main_scene"
+  | "display/window/size/viewport_width"
+  | "display/window/size/viewport_height";
+
+type PlannedProjectSettingValue = string | number;
+
+interface PlannedProjectSettingSnapshot {
+  settingKey: PlannedProjectSettingKey;
+  exists: boolean;
+  value: PlannedProjectSettingValue | null;
+  revision: string;
+}
+
+function createProjectSettingSnapshot(
+  settingKey: PlannedProjectSettingKey,
+  revision = "settings-revision-1",
+  value?: PlannedProjectSettingValue | null,
+): PlannedProjectSettingSnapshot {
+  return {
+    settingKey,
+    exists: value !== null,
+    value:
+      value === undefined
+        ? settingKey === "application/run/main_scene"
+          ? "res://main.tscn"
+          : settingKey.endsWith("viewport_width")
+            ? 640
+            : 360
+        : value,
+    revision,
+  };
+}
+
 function createContext(revision = "revision-1"): EditorContext {
   return {
     schemaVersion: "0.2",
@@ -88,6 +122,14 @@ class FakeGodotBridge implements GodotBridge {
     }>;
   } = { path: "res://main.tscn", revision: "revision-1", nodes: [] };
   inputActionBeforeApplySnapshot: InputActionSnapshot | null = null;
+  projectSettingSnapshots: Record<PlannedProjectSettingKey, PlannedProjectSettingSnapshot> = {
+    "application/run/main_scene": createProjectSettingSnapshot("application/run/main_scene"),
+    "display/window/size/viewport_width": createProjectSettingSnapshot("display/window/size/viewport_width"),
+    "display/window/size/viewport_height": createProjectSettingSnapshot("display/window/size/viewport_height"),
+  };
+  projectSettingBeforeApplySnapshot: PlannedProjectSettingSnapshot | null = null;
+  projectSettingReadCalls: PlannedProjectSettingKey[] = [];
+  missingResourcePaths = new Set<string>();
   runCalls = 0;
   runDiagnosticsResult: RunDiagnostics = {
     schemaVersion: "0.2",
@@ -107,10 +149,18 @@ class FakeGodotBridge implements GodotBridge {
     this.applied.push(request);
     this.context = createContext("revision-2");
     const inputOperation = request.operations[0];
+    const dynamicOperation = inputOperation as unknown as {
+      kind?: string;
+      settingKey?: PlannedProjectSettingKey;
+      value?: PlannedProjectSettingValue;
+    } | undefined;
     const isInputAction =
       inputOperation?.kind === "project.input_action.add_key" ||
       inputOperation?.kind === "project.input_action.remove_key" ||
       inputOperation?.kind === "project.input_action.replace_key";
+    const isProjectSetting =
+      dynamicOperation?.kind === "project.setting.set" &&
+      dynamicOperation.settingKey !== undefined;
     if (isInputAction && inputOperation !== undefined) {
       this.inputActionBeforeApplySnapshot = structuredClone(this.inputActionSnapshot);
       let events = [...this.inputActionSnapshot.events];
@@ -134,14 +184,26 @@ class FakeGodotBridge implements GodotBridge {
           : {}),
       };
     }
+    if (isProjectSetting) {
+      this.projectSettingBeforeApplySnapshot = structuredClone(
+        this.projectSettingSnapshots[dynamicOperation.settingKey!],
+      );
+      this.projectSettingSnapshots[dynamicOperation.settingKey!] = {
+        settingKey: dynamicOperation.settingKey!,
+        exists: true,
+        value: dynamicOperation.value ?? null,
+        revision: "settings-revision-2",
+      };
+    }
     return {
       schemaVersion: "0.2",
       planId: request.planId,
       status: "applied",
       revision: "revision-2",
       operationCount: request.operations.length,
-      undoLabel: "Godot Safe Change: Add node",
+      undoLabel: isProjectSetting ? "Godot Safe Change: Set project setting" : "Godot Safe Change: Add node",
       ...(isInputAction ? { fileRevision: "input-revision-2" } : {}),
+      ...(isProjectSetting ? { fileRevision: "settings-revision-2" } : {}),
     };
   }
 
@@ -165,10 +227,17 @@ class FakeGodotBridge implements GodotBridge {
     this.rolledBack.push(request);
     this.context = createContext("revision-3");
     const isInputAction = request.expectedFileRevision === "input-revision-2";
+    const isProjectSetting = request.expectedFileRevision === "settings-revision-2";
     if (isInputAction && this.inputActionBeforeApplySnapshot !== null) {
       this.inputActionSnapshot = {
         ...this.inputActionBeforeApplySnapshot,
         revision: "input-revision-3",
+      };
+    }
+    if (isProjectSetting && this.projectSettingBeforeApplySnapshot !== null) {
+      this.projectSettingSnapshots[this.projectSettingBeforeApplySnapshot.settingKey] = {
+        ...this.projectSettingBeforeApplySnapshot,
+        revision: "settings-revision-3",
       };
     }
     return {
@@ -176,8 +245,9 @@ class FakeGodotBridge implements GodotBridge {
       planId: request.planId,
       status: "rolled_back",
       revision: "revision-3",
-      undoLabel: "Godot Safe Change: Add node",
+      undoLabel: isProjectSetting ? "Godot Safe Change: Set project setting" : "Godot Safe Change: Add node",
       ...(isInputAction ? { fileRevision: "input-revision-3" } : {}),
+      ...(isProjectSetting ? { fileRevision: "settings-revision-3" } : {}),
     };
   }
 
@@ -209,7 +279,18 @@ class FakeGodotBridge implements GodotBridge {
   }
 
   async readResource(_projectRoot: string, resourcePath: string): Promise<ResourceSnapshot> {
+    if (this.missingResourcePaths.has(resourcePath)) {
+      throw new DomainError(ERROR_CODES.PROJECT_NOT_FOUND, "The requested resource does not exist.", { resourcePath });
+    }
     return { ...this.resourceSnapshot, path: resourcePath };
+  }
+
+  async readProjectSetting(
+    _projectRoot: string,
+    settingKey: PlannedProjectSettingKey,
+  ): Promise<PlannedProjectSettingSnapshot> {
+    this.projectSettingReadCalls.push(settingKey);
+    return structuredClone(this.projectSettingSnapshots[settingKey]);
   }
 
   async readInputAction(_projectRoot: string, actionName: string): Promise<InputActionSnapshot> {
@@ -2116,6 +2197,220 @@ describe("ChangeCoordinator", () => {
     ]);
     assert.equal(bridge.inputActionSnapshot.deadzone, 0.45);
   });
+
+  test("accepts only the three bounded project setting shapes", () => {
+    const validOperations = [
+      {
+        kind: "project.setting.set",
+        settingKey: "application/run/main_scene",
+        value: "res://main.tscn",
+      },
+      {
+        kind: "project.setting.set",
+        settingKey: "display/window/size/viewport_width",
+        value: 16384,
+      },
+      {
+        kind: "project.setting.set",
+        settingKey: "display/window/size/viewport_height",
+        value: 1,
+      },
+    ];
+    for (const operation of validOperations) {
+      assert.deepEqual(changeOperationSchema.parse(operation), operation);
+    }
+
+    const invalidOperations: unknown[] = [
+      { kind: "project.setting.set", settingKey: "editor/unsafe", value: true },
+      { kind: "project.setting.set", settingKey: "display/window/size/viewport_width", value: 0 },
+      { kind: "project.setting.set", settingKey: "display/window/size/viewport_width", value: 16385 },
+      { kind: "project.setting.set", settingKey: "display/window/size/viewport_width", value: 1.5 },
+      { kind: "project.setting.set", settingKey: "display/window/size/viewport_width", value: Number.NaN },
+      { kind: "project.setting.set", settingKey: "display/window/size/viewport_height", value: Number.POSITIVE_INFINITY },
+      { kind: "project.setting.set", settingKey: "application/run/main_scene", value: "res://main.gd" },
+      { kind: "project.setting.set", settingKey: "application/run/main_scene", value: "res://../outside.tscn" },
+      { kind: "project.setting.set", settingKey: "application/run/main_scene", value: "../outside.tscn" },
+      { kind: "project.setting.set", settingKey: "display/window/size/viewport_width", value: 800, extra: "reject" },
+    ];
+    for (const operation of invalidOperations) {
+      assert.throws(() => changeOperationSchema.parse(operation));
+    }
+  });
+
+  test("previews an allowlisted viewport setting with a project.godot revision guard", async () => {
+    const bridge = new FakeGodotBridge();
+    const coordinator = new ChangeCoordinator(bridge);
+    const plan = await coordinator.previewSceneChange({
+      projectRoot,
+      reason: "Resize the fixture viewport within the bounded display settings allowlist.",
+      operation: {
+        kind: "project.setting.set",
+        settingKey: "display/window/size/viewport_width",
+        value: 1280,
+      } as never,
+    });
+
+    assert.equal(plan.expectedFileRevision, "settings-revision-1");
+    assert.deepEqual(plan.operations[0], {
+      kind: "project.setting.set",
+      settingKey: "display/window/size/viewport_width",
+      value: 1280,
+    });
+    assert.equal(plan.diff[0]?.kind, "project.setting.set");
+    assert.deepEqual(plan.diff[0], {
+      kind: "project.setting.set",
+      target: "project.godot:display/window/size/viewport_width",
+      settingKey: "display/window/size/viewport_width",
+      before: 640,
+      after: 1280,
+      summary: (plan.diff[0] as { summary: string }).summary,
+    });
+    assert.match((plan.diff[0] as { summary: string }).summary, /viewport_width/);
+    assert.deepEqual(bridge.projectSettingReadCalls, ["display/window/size/viewport_width"]);
+    assert.equal(bridge.applied.length, 0);
+  });
+
+  test("requires confirmation, applies and rolls back a project setting", async () => {
+    const bridge = new FakeGodotBridge();
+    const coordinator = new ChangeCoordinator(bridge);
+    const plan = await coordinator.previewSceneChange({
+      projectRoot,
+      reason: "Persist a bounded viewport width change.",
+      operation: {
+        kind: "project.setting.set",
+        settingKey: "display/window/size/viewport_width",
+        value: 1280,
+      } as never,
+    });
+
+    await assert.rejects(
+      () => coordinator.applyChange({ projectRoot, planId: plan.planId }),
+      (error: unknown) => error instanceof DomainError && error.code === ERROR_CODES.CONFIRMATION_REQUIRED,
+    );
+    await coordinator.confirmChange({ projectRoot, planId: plan.planId, expectedRevision: plan.expectedRevision });
+    const applied = await coordinator.applyChange({ projectRoot, planId: plan.planId });
+    assert.equal(applied.status, "applied");
+    assert.equal(applied.fileRevision, "settings-revision-2");
+    assert.equal(bridge.projectSettingSnapshots["display/window/size/viewport_width"].value, 1280);
+
+    const rolledBack = await coordinator.rollbackChange({ projectRoot, planId: plan.planId });
+    assert.equal(rolledBack.status, "rolled_back");
+    assert.equal(rolledBack.fileRevision, "settings-revision-3");
+    assert.equal(bridge.projectSettingSnapshots["display/window/size/viewport_width"].value, 640);
+    assert.equal(bridge.rolledBack[0]?.expectedFileRevision, "settings-revision-2");
+  });
+
+  test("restores an originally absent project setting after rollback", async () => {
+    const bridge = new FakeGodotBridge();
+    bridge.projectSettingSnapshots["display/window/size/viewport_height"] = {
+      settingKey: "display/window/size/viewport_height",
+      exists: false,
+      value: null,
+      revision: "settings-revision-absent",
+    };
+    const coordinator = new ChangeCoordinator(bridge);
+    const plan = await coordinator.previewSceneChange({
+      projectRoot,
+      reason: "Add a bounded viewport height to the fixture settings.",
+      operation: {
+        kind: "project.setting.set",
+        settingKey: "display/window/size/viewport_height",
+        value: 720,
+      } as never,
+    });
+    assert.equal(plan.expectedFileRevision, "settings-revision-absent");
+    await coordinator.confirmChange({ projectRoot, planId: plan.planId, expectedRevision: plan.expectedRevision });
+    await coordinator.applyChange({ projectRoot, planId: plan.planId });
+    assert.deepEqual(bridge.projectSettingSnapshots["display/window/size/viewport_height"], {
+      settingKey: "display/window/size/viewport_height",
+      exists: true,
+      value: 720,
+      revision: "settings-revision-2",
+    });
+    await coordinator.rollbackChange({ projectRoot, planId: plan.planId });
+    assert.deepEqual(bridge.projectSettingSnapshots["display/window/size/viewport_height"], {
+      settingKey: "display/window/size/viewport_height",
+      exists: false,
+      value: null,
+      revision: "settings-revision-3",
+    });
+  });
+
+  test("validates main_scene targets, rejects no-ops and protects stale setting revisions", async () => {
+    const bridge = new FakeGodotBridge();
+    const coordinator = new ChangeCoordinator(bridge);
+    const noOp = {
+      projectRoot,
+      reason: "Reject a main scene setting no-op.",
+      operation: {
+        kind: "project.setting.set",
+        settingKey: "application/run/main_scene",
+        value: "res://main.tscn",
+      } as never,
+    };
+    await assert.rejects(
+      () => coordinator.previewSceneChange(noOp),
+      (error: unknown) => error instanceof DomainError && error.code === ERROR_CODES.OPERATION_REJECTED,
+    );
+
+    bridge.missingResourcePaths.add("res://missing.tscn");
+    await assert.rejects(
+      () => coordinator.previewSceneChange({
+        ...noOp,
+        reason: "Reject a main scene path that is not present in the project.",
+        operation: {
+          kind: "project.setting.set",
+          settingKey: "application/run/main_scene",
+          value: "res://missing.tscn",
+        } as never,
+      }),
+      (error: unknown) => error instanceof DomainError && error.code === ERROR_CODES.PROJECT_NOT_FOUND,
+    );
+
+    bridge.projectSettingSnapshots["application/run/main_scene"] = createProjectSettingSnapshot(
+      "application/run/main_scene",
+      "settings-revision-main-scene",
+    );
+    const plan = await coordinator.previewSceneChange({
+      ...noOp,
+      reason: "Guard a main scene change against an external project.godot edit.",
+      operation: {
+        kind: "project.setting.set",
+        settingKey: "application/run/main_scene",
+        value: "res://instance_source.tscn",
+      } as never,
+    });
+    bridge.projectSettingSnapshots["application/run/main_scene"].revision = "settings-revision-external";
+    await assert.rejects(
+      () => coordinator.confirmChange({ projectRoot, planId: plan.planId, expectedRevision: plan.expectedRevision }),
+      (error: unknown) => error instanceof DomainError && error.code === ERROR_CODES.REVISION_CONFLICT,
+    );
+    assert.equal(bridge.applied.length, 0);
+  });
+
+  test("rejects a project setting rollback after an external project.godot edit", async () => {
+    const bridge = new FakeGodotBridge();
+    const coordinator = new ChangeCoordinator(bridge);
+    const plan = await coordinator.previewSceneChange({
+      projectRoot,
+      reason: "Exercise project setting rollback revision protection.",
+      operation: {
+        kind: "project.setting.set",
+        settingKey: "display/window/size/viewport_height",
+        value: 720,
+      } as never,
+    });
+    await coordinator.confirmChange({ projectRoot, planId: plan.planId, expectedRevision: plan.expectedRevision });
+    await coordinator.applyChange({ projectRoot, planId: plan.planId });
+    bridge.projectSettingSnapshots["display/window/size/viewport_height"].revision = "settings-revision-user-edit";
+
+    await assert.rejects(
+      () => coordinator.rollbackChange({ projectRoot, planId: plan.planId }),
+      (error: unknown) => error instanceof DomainError && error.code === ERROR_CODES.REVISION_CONFLICT,
+    );
+    assert.equal(bridge.rolledBack.length, 0);
+    assert.equal(bridge.projectSettingSnapshots["display/window/size/viewport_height"].value, 720);
+  });
 });
 
 test("normalizes a symlinked project root before bridge requests", async () => {
@@ -2140,9 +2435,12 @@ test("searches the project through the read-only search service", async () => {
 describe("HttpGodotBridge", () => {
   let server: ReturnType<typeof createServer>;
   let bridge: HttpGodotBridge;
-  let runStatusCalls = 0;
-  let activeRunScenePath = "res://main.tscn";
-  let activeRunOutput: string[] = [];
+	let runStatusCalls = 0;
+	let activeRunScenePath = "res://main.tscn";
+	let activeRunOutput: string[] = [];
+	let malformedProjectSettingResponse = false;
+	const projectSettingRequests: Array<{ projectRoot: string; settingKey: string }> = [];
+
 
   before(async () => {
     server = createServer(async (request, response) => {
@@ -2244,6 +2542,29 @@ describe("HttpGodotBridge", () => {
         return;
       }
 
+      if (request.url === "/v1/project-settings/read" && request.method === "POST") {
+        projectSettingRequests.push({ projectRoot: body.projectRoot, settingKey: body.settingKey });
+        if (malformedProjectSettingResponse) {
+          response.end(JSON.stringify({ ok: true, snapshot: { settingKey: body.settingKey, value: 640 } }));
+          return;
+        }
+        const value = body.settingKey === "application/run/main_scene"
+          ? "res://main.tscn"
+          : body.settingKey.endsWith("viewport_width")
+            ? 640
+            : 360;
+        response.end(JSON.stringify({
+          ok: true,
+          snapshot: {
+            settingKey: body.settingKey,
+            exists: true,
+            value,
+            revision: "settings-revision-1",
+          },
+        }));
+        return;
+      }
+
       if (request.url === "/v1/run/current" && request.method === "POST") {
         activeRunScenePath = "res://main.tscn";
         activeRunOutput = ["scene requested"];
@@ -2338,7 +2659,41 @@ describe("HttpGodotBridge", () => {
     }
   });
 
-  test("uses the local bridge protocol for context and apply", async () => {    const context = await bridge.getContext(projectRoot);
+  test("reads an allowlisted project setting through the local bridge protocol", async () => {
+    const snapshot = await bridge.readProjectSetting(
+      projectRoot,
+      "display/window/size/viewport_width",
+    );
+
+    assert.deepEqual(snapshot, {
+      settingKey: "display/window/size/viewport_width",
+      exists: true,
+      value: 640,
+      revision: "settings-revision-1",
+    });
+    assert.deepEqual(projectSettingRequests.at(-1), {
+      projectRoot,
+      settingKey: "display/window/size/viewport_width",
+    });
+  });
+
+  test("rejects a malformed project setting snapshot with BRIDGE_PROTOCOL_ERROR", async () => {
+    malformedProjectSettingResponse = true;
+    try {
+      await assert.rejects(
+        () => bridge.readProjectSetting(projectRoot, "display/window/size/viewport_height"),
+        (error: unknown) =>
+          error instanceof DomainError &&
+          error.code === ERROR_CODES.BRIDGE_PROTOCOL_ERROR &&
+          /invalid project setting snapshot/i.test(error.message),
+      );
+    } finally {
+      malformedProjectSettingResponse = false;
+    }
+  });
+
+  test("uses the local bridge protocol for context and apply", async () => {
+    const context = await bridge.getContext(projectRoot);
     assert.equal(context.currentScene.path, "res://main.tscn");
 
     const report = await bridge.applyChange(projectRoot, {
@@ -2416,6 +2771,11 @@ test("the Godot plugin exposes only the bounded vertical-link routes", async () 
   assert.match(source, /\/v1\/search/);
   assert.match(source, /\/v1\/scripts\/read/);
   assert.match(source, /\/v1\/input-actions\/read/);
+  assert.match(source, /\/v1\/project-settings\/read/);
+  assert.match(source, /project\.setting\.set/);
+  assert.match(source, /viewport_width/);
+  assert.match(source, /viewport_height/);
+  assert.match(source, /application\/run\/main_scene/);
   assert.match(source, /FileAccess\.READ/);
   assert.match(source, /\/v1\/run\/current/);
   assert.match(source, /\/v1\/run\/scene/);

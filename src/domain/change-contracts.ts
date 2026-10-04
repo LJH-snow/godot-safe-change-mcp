@@ -400,6 +400,50 @@ export const autoloadRemoveSchema = z
   })
   .strict();
 
+export const projectSettingKeySchema = z.enum([
+  "application/run/main_scene",
+  "display/window/size/viewport_width",
+  "display/window/size/viewport_height",
+]);
+
+export type ProjectSettingKey = z.infer<typeof projectSettingKeySchema>;
+
+export const projectSettingIntegerValueSchema = z
+  .number()
+  .int()
+  .min(1)
+  .max(16384);
+
+export const projectSettingSetMainSceneSchema = z
+  .object({
+    kind: z.literal("project.setting.set"),
+    settingKey: z.literal("application/run/main_scene"),
+    value: scenePathSchema,
+  })
+  .strict();
+
+export const projectSettingSetViewportWidthSchema = z
+  .object({
+    kind: z.literal("project.setting.set"),
+    settingKey: z.literal("display/window/size/viewport_width"),
+    value: projectSettingIntegerValueSchema,
+  })
+  .strict();
+
+export const projectSettingSetViewportHeightSchema = z
+  .object({
+    kind: z.literal("project.setting.set"),
+    settingKey: z.literal("display/window/size/viewport_height"),
+    value: projectSettingIntegerValueSchema,
+  })
+  .strict();
+
+export const projectSettingSetSchema = z.discriminatedUnion("settingKey", [
+  projectSettingSetMainSceneSchema,
+  projectSettingSetViewportWidthSchema,
+  projectSettingSetViewportHeightSchema,
+]);
+
 export const changeOperationSchema = z.union([
   createNodeOperationSchema,
   sceneDeleteNodeSchema,
@@ -422,6 +466,7 @@ export const changeOperationSchema = z.union([
   inputActionReplaceKeySchema,
   autoloadAddSchema,
   autoloadRemoveSchema,
+  projectSettingSetSchema,
   scriptReplaceRangeSchema,
   scriptCreateFileSchema,
 ]);
@@ -666,6 +711,47 @@ export const autoloadRemoveDiffSchema = z
   })
   .strict();
 
+const projectSettingDiffBase = {
+  kind: z.literal("project.setting.set"),
+  target: z.string().min(1),
+  summary: z.string().min(1),
+};
+
+export const projectSettingMainSceneDiffSchema = z
+  .object({
+    ...projectSettingDiffBase,
+    settingKey: z.literal("application/run/main_scene"),
+    before: scenePathSchema.nullable(),
+    after: scenePathSchema,
+  })
+  .strict();
+
+export const projectSettingViewportWidthDiffSchema = z
+  .object({
+    ...projectSettingDiffBase,
+    settingKey: z.literal("display/window/size/viewport_width"),
+    before: projectSettingIntegerValueSchema.nullable(),
+    after: projectSettingIntegerValueSchema,
+  })
+  .strict();
+
+export const projectSettingViewportHeightDiffSchema = z
+  .object({
+    ...projectSettingDiffBase,
+    settingKey: z.literal("display/window/size/viewport_height"),
+    before: projectSettingIntegerValueSchema.nullable(),
+    after: projectSettingIntegerValueSchema,
+  })
+  .strict();
+
+export const projectSettingDiffSchema = z.discriminatedUnion("settingKey", [
+  projectSettingMainSceneDiffSchema,
+  projectSettingViewportWidthDiffSchema,
+  projectSettingViewportHeightDiffSchema,
+]);
+
+export type ProjectSettingDiff = z.infer<typeof projectSettingDiffSchema>;
+
 const scenePropertyDiffBase = {
   kind: z.literal("scene.set_property"),
   target: z.string().min(1),
@@ -762,6 +848,7 @@ export const changeDiffSchema = z.union([
   inputActionReplaceKeyDiffSchema,
   autoloadAddDiffSchema,
   autoloadRemoveDiffSchema,
+  projectSettingDiffSchema,
   scriptChangeDiffSchema,
   scriptCreateFileDiffSchema,
 ]);

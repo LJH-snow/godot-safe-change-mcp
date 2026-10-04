@@ -4,6 +4,7 @@ import {
   changePlanSchema,
   confirmChangeInputSchema,
   previewSceneChangeInputSchema,
+  projectSettingSetSchema,
   scriptPathSchema,
   sceneSetPropertySchema,
   type ApplyChangeInput,
@@ -26,7 +27,7 @@ import type {
   RunSceneInput,
   ScriptSnapshot,
 } from "../domain/contracts.js";
-import { previewRepairFromDiagnosticInputSchema } from "../domain/contracts.js";
+import { previewRepairFromDiagnosticInputSchema, projectSettingSnapshotSchema } from "../domain/contracts.js";
 import { operationHistoryInputSchema } from "../domain/contracts.js";
 import { runSceneInputSchema } from "../domain/contracts.js";
 import { DomainError, ERROR_CODES } from "../domain/errors.js";
@@ -103,7 +104,7 @@ export class ChangeCoordinator {
     if (scenePath === null) {
       throw new DomainError(
         ERROR_CODES.VALIDATION_FAILED,
-        "A current scene is required before previewing a scene change.",
+        "A current scene is required before previewing a scene or project-setting change.",
       );
     }
 
@@ -921,6 +922,39 @@ export class ChangeCoordinator {
         name: operation.name,
         previousScriptPath: snapshot.scriptPath,
       };
+    } else if (operation.kind === "project.setting.set") {
+      const parsedOperation = projectSettingSetSchema.parse(operation);
+      const snapshot = projectSettingSnapshotSchema.parse(
+        await this.bridge.readProjectSetting(projectRoot, parsedOperation.settingKey),
+      );
+      if (snapshot.settingKey !== parsedOperation.settingKey) {
+        throw new DomainError(
+          ERROR_CODES.BRIDGE_PROTOCOL_ERROR,
+          "The bridge returned a project setting snapshot for the wrong key.",
+          { expectedSettingKey: parsedOperation.settingKey, actualSettingKey: snapshot.settingKey },
+        );
+      }
+      if (snapshot.value === parsedOperation.value) {
+        throw new DomainError(
+          ERROR_CODES.OPERATION_REJECTED,
+          "The project setting already has the requested value.",
+          { settingKey: parsedOperation.settingKey, value: parsedOperation.value },
+        );
+      }
+      if (parsedOperation.settingKey === "application/run/main_scene") {
+        await this.bridge.readResource(projectRoot, parsedOperation.value);
+      }
+      expectedFileRevision = snapshot.revision;
+      diff = {
+        kind: "project.setting.set" as const,
+        target: "project.godot:" + parsedOperation.settingKey,
+        summary:
+          "Set project setting " + parsedOperation.settingKey + " from " +
+          JSON.stringify(snapshot.value) + " to " + JSON.stringify(parsedOperation.value),
+        settingKey: parsedOperation.settingKey,
+        before: snapshot.value,
+        after: parsedOperation.value,
+      };
     } else if (operation.kind === "script.create_file") {
       let fileExists = true;
       try {
@@ -1140,6 +1174,7 @@ export class ChangeCoordinator {
         operation.kind !== "project.input_action.replace_key" &&
         operation.kind !== "project.autoload.add" &&
         operation.kind !== "project.autoload.remove" &&
+        operation.kind !== "project.setting.set" &&
         operation.kind !== "scene.instantiate_scene"
       ) {
         throw new DomainError(
@@ -1156,7 +1191,9 @@ export class ChangeCoordinator {
               ? await this.bridge.readResource(storedPlan.plan.projectRoot, operation.scenePath)
               : operation.kind === "project.autoload.add" || operation.kind === "project.autoload.remove"
                 ? await this.bridge.readAutoload(storedPlan.plan.projectRoot, operation.name)
-                : await this.bridge.readInputAction(storedPlan.plan.projectRoot, operation.actionName);
+                : operation.kind === "project.setting.set"
+                  ? await this.bridge.readProjectSetting(storedPlan.plan.projectRoot, operation.settingKey)
+                  : await this.bridge.readInputAction(storedPlan.plan.projectRoot, operation.actionName);
       if (snapshot.revision !== storedPlan.appliedFileRevision) {
         throw new DomainError(
           ERROR_CODES.REVISION_CONFLICT,
@@ -1305,6 +1342,7 @@ export class ChangeCoordinator {
         operation.kind !== "project.input_action.replace_key" &&
         operation.kind !== "project.autoload.add" &&
         operation.kind !== "project.autoload.remove" &&
+        operation.kind !== "project.setting.set" &&
         operation.kind !== "scene.instantiate_scene"
       ) {
         throw new DomainError(
@@ -1321,7 +1359,9 @@ export class ChangeCoordinator {
               ? await this.bridge.readResource(plan.projectRoot, operation.scenePath)
               : operation.kind === "project.autoload.add" || operation.kind === "project.autoload.remove"
                 ? await this.bridge.readAutoload(plan.projectRoot, operation.name)
-                : await this.bridge.readInputAction(plan.projectRoot, operation.actionName);
+                : operation.kind === "project.setting.set"
+                  ? await this.bridge.readProjectSetting(plan.projectRoot, operation.settingKey)
+                  : await this.bridge.readInputAction(plan.projectRoot, operation.actionName);
       if (snapshot.revision !== plan.expectedFileRevision) {
         throw new DomainError(
           ERROR_CODES.REVISION_CONFLICT,

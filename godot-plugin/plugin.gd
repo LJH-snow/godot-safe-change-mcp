@@ -20,6 +20,11 @@ const ALLOWED_NODE_TYPES := {
     "Area2D": true,
     "CollisionShape2D": true,
 }
+const ALLOWED_PROJECT_SETTINGS := {
+    "application/run/main_scene": "scene_path",
+    "display/window/size/viewport_width": "integer",
+    "display/window/size/viewport_height": "integer",
+}
 
 var dock: PanelContainer
 var status_label: Label
@@ -51,6 +56,10 @@ var last_input_action_applied_revision := ""
 var last_autoload_name := ""
 var last_autoload_original_setting: Variant = null
 var last_autoload_applied_revision := ""
+var last_project_setting_key := ""
+var last_project_setting_original_exists := false
+var last_project_setting_original_value: Variant = null
+var last_project_setting_applied_revision := ""
 var diagnostics := {
     "output": [],
     "warnings": [],
@@ -116,6 +125,8 @@ func handle_bridge_request(method: String, path: String, body: Variant) -> Dicti
             return _read_input_action(body)
         "/v1/autoloads/read":
             return _read_autoload(body)
+        "/v1/project-settings/read":
+            return _read_project_setting(body)
         "/v1/signals/read":
             return _read_scene_signals()
         "/v1/run/current":
@@ -310,6 +321,84 @@ func _read_autoload(body: Variant) -> Dictionary:
         "exists": exists,
         "scriptPath": script_path if script_path != "" else null,
     })
+
+func _is_allowed_project_setting_key(setting_key: String) -> bool:
+    return ALLOWED_PROJECT_SETTINGS.has(setting_key)
+
+func _is_valid_project_setting_value(setting_key: String, value: Variant) -> bool:
+    if not _is_allowed_project_setting_key(setting_key):
+        return false
+    var setting_type := String(ALLOWED_PROJECT_SETTINGS[setting_key])
+    if setting_type == "scene_path":
+        if typeof(value) != TYPE_STRING:
+            return false
+        var scene_path := String(value)
+        return _is_safe_scene_path(scene_path) and FileAccess.file_exists(scene_path)
+    if setting_type == "integer":
+        return typeof(value) == TYPE_INT and int(value) >= 1 and int(value) <= 16384
+    return false
+
+func _copy_project_setting_value(value: Variant) -> Variant:
+    if typeof(value) == TYPE_ARRAY or typeof(value) == TYPE_DICTIONARY:
+        return value.duplicate(true)
+    return value
+
+func _project_setting_values_equal(left: Variant, right: Variant) -> bool:
+    if typeof(left) != typeof(right):
+        return false
+    return left == right
+
+func _restore_project_setting_in_memory(setting_key: String, original_exists: bool, original_value: Variant) -> void:
+    if original_exists:
+        ProjectSettings.set_setting(setting_key, _copy_project_setting_value(original_value))
+    else:
+        ProjectSettings.clear(setting_key)
+
+func _project_setting_snapshot(setting_key: String) -> Dictionary:
+    if not _is_allowed_project_setting_key(setting_key):
+        return _failure("UNSAFE_OPERATION", "The requested project setting is not allowlisted.")
+
+    var revision := _project_settings_revision()
+    if revision == "":
+        return _failure("OPERATION_REJECTED", "Godot could not read the project settings file revision.", 409)
+
+    var exists := ProjectSettings.has_setting(setting_key)
+    var value: Variant = null
+    if exists:
+        value = ProjectSettings.get_setting(setting_key, null)
+        if not _is_valid_project_setting_value(setting_key, value):
+            return _failure(
+                "OPERATION_REJECTED",
+                "The existing project setting does not match its bounded type.",
+                409,
+                {"settingKey": setting_key},
+            )
+        value = _copy_project_setting_value(value)
+    return {
+        "ok": true,
+        "snapshot": {
+            "settingKey": setting_key,
+            "exists": exists,
+            "value": value if exists else null,
+            "revision": revision,
+        },
+    }
+
+func _read_project_setting(body: Variant) -> Dictionary:
+    if typeof(body) != TYPE_DICTIONARY:
+        return _failure("VALIDATION_FAILED", "The project setting read request body must be a JSON object.")
+    var request_body: Dictionary = body
+    if not _has_exact_keys(request_body, ["projectRoot", "settingKey"]):
+        return _failure("VALIDATION_FAILED", "The project setting read request contains unsupported or missing fields.")
+    if typeof(request_body["projectRoot"]) != TYPE_STRING or String(request_body["projectRoot"]) == "":
+        return _failure("VALIDATION_FAILED", "projectRoot is required.")
+    if typeof(request_body["settingKey"]) != TYPE_STRING:
+        return _failure("VALIDATION_FAILED", "settingKey must be a string.")
+
+    var snapshot_result := _project_setting_snapshot(String(request_body["settingKey"]))
+    if not snapshot_result.get("ok", false):
+        return snapshot_result
+    return _success("snapshot", snapshot_result["snapshot"])
 
 func _read_scene_signals() -> Dictionary:
     var scene_root := EditorInterface.get_edited_scene_root()
@@ -681,6 +770,20 @@ func _is_safe_plan_id(plan_id: String) -> bool:
     plan_regex.compile("^[A-Za-z0-9_-]{1,128}$")
     return plan_regex.search(plan_id) != null
 
+func _validate_project_setting_operation(operation: Dictionary) -> Dictionary:
+    if not _has_exact_keys(operation, ["kind", "settingKey", "value"]):
+        return _failure("VALIDATION_FAILED", "project.setting.set contains unsupported or missing fields.")
+    if typeof(operation["settingKey"]) != TYPE_STRING:
+        return _failure("VALIDATION_FAILED", "settingKey must be a string.")
+    var setting_key := String(operation["settingKey"])
+    if not _is_allowed_project_setting_key(setting_key):
+        return _failure("UNSAFE_OPERATION", "The requested project setting is not allowlisted.")
+    if not _is_valid_project_setting_value(setting_key, operation["value"]):
+        if String(ALLOWED_PROJECT_SETTINGS[setting_key]) == "scene_path":
+            return _failure("VALIDATION_FAILED", "value must be an existing project-relative res:// .tscn scene path.")
+        return _failure("VALIDATION_FAILED", "value must be an integer from 1 through 16384.")
+    return {}
+
 func _validate_change_request(request_body: Dictionary) -> Dictionary:
     if not _has_exact_keys(request_body, ["projectRoot", "planId", "expectedRevision", "operations"], ["expectedFileRevision"]):
         return _failure("VALIDATION_FAILED", "The change request contains unsupported or missing fields.")
@@ -897,6 +1000,10 @@ func _validate_change_request(request_body: Dictionary) -> Dictionary:
             return _failure("VALIDATION_FAILED", "project.autoload.remove contains unsupported or missing fields.")
         if not _is_safe_autoload_name(String(operation["name"])):
             return _failure("VALIDATION_FAILED", "name contains unsupported characters.")
+    elif kind == "project.setting.set":
+        var project_setting_error := _validate_project_setting_operation(operation)
+        if not project_setting_error.is_empty():
+            return project_setting_error
     elif kind == "script.replace_range":
         if not _has_exact_keys(operation, ["kind", "scriptPath", "startLine", "endLine", "replacement"]):
             return _failure("VALIDATION_FAILED", "script.replace_range contains unsupported or missing fields.")
@@ -1027,6 +1134,8 @@ func _apply_change(body: Variant) -> Dictionary:
         return _apply_input_action_change(request_body, scene_root, scene_path)
     if String(operation.get("kind", "")) in ["project.autoload.add", "project.autoload.remove"]:
         return _apply_autoload_change(request_body, scene_root, scene_path)
+    if String(operation.get("kind", "")) == "project.setting.set":
+        return _apply_project_setting_change(request_body, scene_root, scene_path)
     var operation_kind := String(operation.get("kind", ""))
     var action_label := ""
     if operation_kind == "scene.delete_node":
@@ -1338,6 +1447,83 @@ func _apply_input_action_change(request_body: Dictionary, scene_root: Node, scen
         "undoLabel": "Godot Safe Change: " + input_action_verb + " input action key",
     })
 
+func _apply_project_setting_change(request_body: Dictionary, scene_root: Node, scene_path: String) -> Dictionary:
+    var operation: Dictionary = request_body["operations"][0]
+    var validation_error := _validate_project_setting_operation(operation)
+    if not validation_error.is_empty():
+        return validation_error
+
+    var setting_key := String(operation["settingKey"])
+    var next_value: Variant = _copy_project_setting_value(operation["value"])
+    var expected_file_revision := String(request_body.get("expectedFileRevision", ""))
+    var actual_file_revision := _project_settings_revision()
+    if expected_file_revision == "" or expected_file_revision != actual_file_revision:
+        return _failure(
+            "REVISION_CONFLICT",
+            "The project settings changed after preview.",
+            409,
+            {"expectedFileRevision": expected_file_revision, "actualFileRevision": actual_file_revision},
+        )
+
+    var original_exists := ProjectSettings.has_setting(setting_key)
+    var original_value: Variant = null
+    if original_exists:
+        original_value = ProjectSettings.get_setting(setting_key, null)
+        if not _is_valid_project_setting_value(setting_key, original_value):
+            return _failure(
+                "OPERATION_REJECTED",
+                "The existing project setting does not match its bounded type.",
+                409,
+                {"settingKey": setting_key},
+            )
+        original_value = _copy_project_setting_value(original_value)
+    if original_exists and _project_setting_values_equal(original_value, next_value):
+        return _failure("OPERATION_REJECTED", "The requested project setting already has that value.")
+
+    ProjectSettings.set_setting(setting_key, next_value)
+    var save_error := ProjectSettings.save()
+    if save_error != OK:
+        _restore_project_setting_in_memory(setting_key, original_exists, original_value)
+        return _failure("OPERATION_REJECTED", "Godot could not save the project setting change.", 409, {"error": save_error})
+
+    var readback_exists := ProjectSettings.has_setting(setting_key)
+    var readback_value: Variant = null
+    if readback_exists:
+        readback_value = ProjectSettings.get_setting(setting_key, null)
+    if not readback_exists or not _is_valid_project_setting_value(setting_key, readback_value) or not _project_setting_values_equal(readback_value, next_value):
+        _restore_project_setting_in_memory(setting_key, original_exists, original_value)
+        var restore_error := ProjectSettings.save()
+        if restore_error != OK:
+            return _failure(
+                "OPERATION_REJECTED",
+                "Godot could not verify the saved project setting or restore its original value.",
+                409,
+                {"error": restore_error},
+            )
+        return _failure("OPERATION_REJECTED", "Godot could not verify the saved project setting change.", 409)
+
+    var plan_id := String(request_body.get("planId", ""))
+    var applied_revision := _current_revision(scene_root, scene_path)
+    var applied_file_revision := _project_settings_revision()
+    _clear_scene_action_state()
+    _clear_file_action_state()
+    last_applied_plan_id = plan_id
+    last_applied_revision = applied_revision
+    last_applied_kind = "project_setting"
+    last_project_setting_key = setting_key
+    last_project_setting_original_exists = original_exists
+    last_project_setting_original_value = original_value
+    last_project_setting_applied_revision = applied_file_revision
+    return _success("report", {
+        "schemaVersion": "0.2",
+        "planId": plan_id,
+        "status": "applied",
+        "revision": applied_revision,
+        "fileRevision": applied_file_revision,
+        "operationCount": 1,
+        "undoLabel": "Godot Safe Change: Set project setting",
+    })
+
 func _apply_autoload_change(request_body: Dictionary, scene_root: Node, scene_path: String) -> Dictionary:
     var operation: Dictionary = request_body["operations"][0]
     var operation_kind := String(operation.get("kind", ""))
@@ -1499,6 +1685,10 @@ func _clear_file_action_state() -> void:
     last_autoload_name = ""
     last_autoload_original_setting = null
     last_autoload_applied_revision = ""
+    last_project_setting_key = ""
+    last_project_setting_original_exists = false
+    last_project_setting_original_value = null
+    last_project_setting_applied_revision = ""
 
 func _clear_applied_state() -> void:
     last_applied_plan_id = ""
@@ -1675,6 +1865,8 @@ func _rollback_change(body: Variant) -> Dictionary:
         return _rollback_input_action_change(request_body, scene_root, scene_path, plan_id)
     if last_applied_kind == "autoload":
         return _rollback_autoload_change(request_body, scene_root, scene_path, plan_id)
+    if last_applied_kind == "project_setting":
+        return _rollback_project_setting_change(request_body, scene_root, scene_path, plan_id)
 
     if last_applied_scene_path != scene_path or last_applied_undo_history_id < 0 or last_applied_undo_version < 0:
         return _failure("REVISION_CONFLICT", "The applied scene history is no longer available for a safe rollback.", 409)
@@ -1864,6 +2056,48 @@ func _rollback_autoload_change(request_body: Dictionary, scene_root: Node, scene
         "revision": rollback_revision,
         "fileRevision": restored_file_revision,
         "undoLabel": "Godot Safe Change: Restore autoload",
+    })
+
+func _rollback_project_setting_change(request_body: Dictionary, scene_root: Node, scene_path: String, plan_id: String) -> Dictionary:
+    var expected_file_revision := String(request_body.get("expectedFileRevision", ""))
+    var actual_file_revision := _project_settings_revision()
+    if expected_file_revision == "" or expected_file_revision != last_project_setting_applied_revision or actual_file_revision != last_project_setting_applied_revision:
+        return _failure(
+            "REVISION_CONFLICT",
+            "The project settings changed after project setting apply; refusing to overwrite it.",
+            409,
+            {
+                "expectedFileRevision": last_project_setting_applied_revision,
+                "actualFileRevision": actual_file_revision,
+            },
+        )
+
+    var setting_key := last_project_setting_key
+    _restore_project_setting_in_memory(setting_key, last_project_setting_original_exists, last_project_setting_original_value)
+    var save_error := ProjectSettings.save()
+    if save_error != OK:
+        return _failure("OPERATION_REJECTED", "Godot could not roll back the project setting change.", 409, {"error": save_error})
+
+    var restored_exists := ProjectSettings.has_setting(setting_key)
+    var restored_value: Variant = null
+    if restored_exists:
+        restored_value = ProjectSettings.get_setting(setting_key, null)
+    var restored_value_matches := restored_exists == last_project_setting_original_exists
+    if restored_value_matches and restored_exists:
+        restored_value_matches = _project_setting_values_equal(restored_value, last_project_setting_original_value)
+    if not restored_value_matches:
+        return _failure("OPERATION_REJECTED", "Godot could not verify the restored project setting.", 409, {"settingKey": setting_key})
+
+    var rollback_revision := _current_revision(scene_root, scene_path)
+    var restored_file_revision := _project_settings_revision()
+    _clear_applied_state()
+    return _success("report", {
+        "schemaVersion": "0.2",
+        "planId": plan_id,
+        "status": "rolled_back",
+        "revision": rollback_revision,
+        "fileRevision": restored_file_revision,
+        "undoLabel": "Godot Safe Change: Restore project setting",
     })
 
 func _apply_create_node(scene_root: Node, operation: Dictionary) -> Dictionary:

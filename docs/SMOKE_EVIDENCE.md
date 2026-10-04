@@ -30,7 +30,7 @@ The Linux CI wraps both commands in a virtual display and runs them once per sup
 | Read-only project intelligence | tests/project-search.test.ts and the search stage in tests/godot-runtime-smoke.mjs | Scene, node, script, resource, signal, input and reference results. |
 | Preview and confirmation | tests/vertical-link.test.ts | Diff-only preview, explicit confirmation, stale revision rejection and no pre-confirmation write. |
 | Scene apply and rollback | tests/vertical-link.test.ts and the scene stages in tests/godot-runtime-smoke.mjs | UndoRedo report, changed revision, rollback report and restored scene state including group membership, sibling order and unique name flags. |
-| Resource, script, input and project-setting changes | tests/vertical-link.test.ts and tests/godot-runtime-smoke.mjs | File/project revision guards, atomic apply, created-file rollback, user-edit conflict, autoload snapshot restore and rollback. |
+| Resource, script, input and project-setting changes | tests/vertical-link.test.ts and tests/godot-runtime-smoke.mjs | File/project revision guards, atomic apply, created-file rollback, user-edit conflict, autoload snapshot restore, and bounded project.setting.set persistence/readback/rollback for the main-scene and viewport allowlist. |
 | Diagnostics and bounded repair | tests/vertical-link.test.ts and task-orchestration.test.ts | Source/line/NodePath evidence, explicit repair hint, separate confirmation and rerun verification. |
 | Task verification | tests/task-orchestration.test.ts | Scene properties, resource/script revision/content assertions, diagnostics thresholds, operation IDs and mismatch timelines. |
 | Multi-process recovery | tests/project-lease-process.test.ts and tests/starter-multiprocess-smoke.mjs | Stable PROJECT_BUSY, TTL takeover, lease_reclaimed, recovered step and new operation ID. |
@@ -46,6 +46,17 @@ The required workflow is [CI](https://github.com/LJH-snow/godot-safe-change-mcp/
 - Godot 4.7.2 runtime
 
 Runtime jobs upload per-version smoke logs. Prefer the exact run linked from a release manifest or pull request over a badge from another branch.
+
+### Phase 37 project.setting.set evidence
+
+The setting lifecycle in `tests/godot-runtime-smoke.mjs` proves the bounded contract through the real loopback bridge:
+
+- `/v1/project-settings/read` returns typed snapshots and one shared full-file `project.godot` revision for viewport width and height, then reads the main-scene key.
+- Preview captures that revision and returns a key-specific before/after diff without changing the file; apply requires explicit confirmation and persists through `ProjectSettings.save()`.
+- Apply readback confirms the new viewport value and changed revision; an equal-value preview is rejected as a no-op.
+- Direct forged requests reject unknown keys, out-of-range values, extra fields, and traversal without changing `project.godot`.
+- An external edit after apply makes rollback return `REVISION_CONFLICT` while preserving the edit; restoring the applied bytes permits a verified rollback to the original value.
+- `application/run/main_scene` rejects missing scenes, applies only an existing project-local `.tscn`, reads back the new path, and restores the original setting.
 
 ## Safety interpretation
 

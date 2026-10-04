@@ -3,6 +3,7 @@ import {
   autoloadSnapshotSchema,
   changeReportSchema,
   editorContextSchema,
+  projectSettingSnapshotSchema,
   rollbackReportSchema,
   runDiagnosticsSchema,
   type ApplyChangeRequest,
@@ -11,6 +12,7 @@ import {
   type EditorContext,
   inputActionSnapshotSchema,
   type InputActionSnapshot,
+  type ProjectSettingSnapshot,
   type RollbackReport,
   type RollbackRequest,
   type RunDiagnostics,
@@ -24,6 +26,7 @@ import {
   scriptSnapshotSchema,
   type ScriptSnapshot,
 } from "../domain/contracts.js";
+import { projectSettingKeySchema, type ProjectSettingKey } from "../domain/change-contracts.js";
 import { ERROR_CODES, DomainError, type ErrorCode } from "../domain/errors.js";
 import type { GodotBridge } from "./godot-bridge.js";
 
@@ -141,6 +144,30 @@ export class HttpGodotBridge implements GodotBridge {
       .safeParse(payload);
     if (!parsed.success) {
       throw this.protocolError("The bridge returned an invalid autoload snapshot.", parsed.error);
+    }
+    return parsed.data.snapshot;
+  }
+
+  async readProjectSetting(
+    projectRoot: string,
+    settingKey: ProjectSettingKey,
+  ): Promise<ProjectSettingSnapshot> {
+    const parsedSettingKey = projectSettingKeySchema.parse(settingKey);
+    const payload = await this.post("/v1/project-settings/read", {
+      projectRoot,
+      settingKey: parsedSettingKey,
+    });
+    const parsed = z
+      .object({ ok: z.literal(true), snapshot: projectSettingSnapshotSchema })
+      .safeParse(payload);
+    if (!parsed.success) {
+      throw this.protocolError("The bridge returned an invalid project setting snapshot.", parsed.error);
+    }
+    if (parsed.data.snapshot.settingKey !== parsedSettingKey) {
+      throw this.protocolError("The bridge returned a project setting snapshot for the wrong key.", {
+        expectedSettingKey: parsedSettingKey,
+        actualSettingKey: parsed.data.snapshot.settingKey,
+      });
     }
     return parsed.data.snapshot;
   }

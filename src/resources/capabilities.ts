@@ -15,6 +15,7 @@ const capabilities = {
       "POST /v1/run/current",
       "POST /v1/run/scene",
       "POST /v1/run/status",
+      "POST /v1/project-settings/read",
     ],
   },
   tools: [
@@ -53,7 +54,7 @@ const capabilities = {
     "task_pause_resume_cancel",
   ],
   writePolicy:
-    "Bounded scene.create_node, scene.delete_node, scene.reparent_node, scene.rename_node, scene.duplicate_node, scene.reorder_node, scene.set_unique_name, scene.instantiate_scene, scene.connect_signal, scene.disconnect_signal, scene.add_group, scene.remove_group, scene.set_property, scene.attach_script, scene.detach_script, project.autoload.add, project.autoload.remove, script.create_file, and script.replace_range operations are supported. Preview, confirmation, expected scene and source-resource revisions, Godot UndoRedo, and revision-guarded rollback are required for the write lifecycle.",
+    "Bounded scene.create_node, scene.delete_node, scene.reparent_node, scene.rename_node, scene.duplicate_node, scene.reorder_node, scene.set_unique_name, scene.instantiate_scene, scene.connect_signal, scene.disconnect_signal, scene.add_group, scene.remove_group, scene.set_property, scene.attach_script, scene.detach_script, project.autoload.add, project.autoload.remove, project.setting.set, script.create_file, and script.replace_range operations are supported. project.setting.set is limited to application/run/main_scene (an existing project-local res:// .tscn), display/window/size/viewport_width, and display/window/size/viewport_height (integers from 1 through 16384); arbitrary ProjectSettings keys and Variants are not supported. Preview, confirmation, expected scene and source-resource or project.godot revisions, Godot UndoRedo where applicable, persistence/readback verification, and revision-guarded rollback are required for the write lifecycle.",
   forbidden: [
     "arbitrary GDScript execution",
     "shell execution",

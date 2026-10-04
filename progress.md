@@ -417,4 +417,11 @@
 
 - safeNodeTypeSchema 与插件 ALLOWED_NODE_TYPES 同步扩展九种游戏常用类型，未知类仍被 schema 拒绝。
 - TypeScript 回归逐类型断言创建预览；真实 Godot smoke 覆盖 Sprite2D/Timer 的创建→context 类型验证→rollback。
-- 本地 130 项测试、typecheck、build、package:check 通过，待双版本 CI 验证后收尾。
+- commit `ab4277e` 的 PR #29 通过 CI run `37139694855` 的 check、package boundary、Godot 4.5.1 和 Godot 4.7.2 四项 job，并以 merge commit `7b9fabe` 合入 main；Phase 36 按完成定义收尾。
+
+## 2026-10-04 bounded project.setting.set
+
+- 新增严格 `project.setting.set`：只允许 `application/run/main_scene`、`display/window/size/viewport_width`、`display/window/size/viewport_height`；禁止任意 ProjectSettings key、Variant、额外字段和 no-op。
+- main scene 必须是存在的项目内 `res://` `.tscn`；viewport 必须是 1..16384 的整数。TypeScript/Zod 和 Godot 插件分别校验 key、类型、路径和范围。
+- 新增 `/v1/project-settings/read` typed snapshot；preview、confirm、apply、rollback 使用完整 project.godot revision，ProjectSettings.save() 后读回验证，外部编辑时 rollback 保留用户内容并返回 `REVISION_CONFLICT`。
+- 本地 139 项测试、typecheck、build、package:check、`node --check tests/godot-runtime-smoke.mjs` 和 `git diff --check` 通过；runtime smoke 已覆盖 viewport/main-scene 生命周期和 forged direct requests，待双版本 CI 验证。

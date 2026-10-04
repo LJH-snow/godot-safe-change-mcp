@@ -74,6 +74,13 @@
 - Acceptance: 返回有限 observed/expected 证据，不回传脚本全文；TypeScript 回归与真实 Godot task smoke 已覆盖。
 - Labels: <code>enhancement</code>、<code>good first issue</code>。
 
+### Add bounded project.setting.set — implemented
+
+- Scope: 复用 preview → confirm → project lease/revision guard → apply → readback → rollback 生命周期，安全修改三个明确的 project.godot 设置：`application/run/main_scene`、`display/window/size/viewport_width` 和 `display/window/size/viewport_height`。
+- Guards: `main_scene` 只能是存在的项目内 `res://` `.tscn`；viewport 值只能是 1..16384 的整数；操作对象只允许 `kind`、`settingKey`、`value`；禁止任意 ProjectSettings key、Variant、遍历路径和 no-op。
+- Acceptance: TypeScript/Zod 与 Godot 插件分别校验；读取和写入使用完整 project.godot revision；`ProjectSettings.save()` 后读回验证；保存失败恢复内存状态；外部编辑使 rollback 返回 `REVISION_CONFLICT` 并保留用户内容；双版本 runtime smoke 覆盖所有路径。
+- Labels: <code>enhancement</code>、<code>godot-4.5.1</code>、<code>godot-4.7.2</code>、<code>security-boundary</code>。
+
 ## Advanced
 
 ### Add a second MCP-process starter smoke — implemented
