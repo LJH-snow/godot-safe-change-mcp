@@ -14,6 +14,7 @@ Automated coverage currently includes:
 - script and resource changes: bounded .gd/resource replacement, new script creation with path/content gates, temporary-file atomic apply, file revision guard, user-edit conflict and rollback;
 - scene changes: UndoRedo-backed create, property, signal connect/disconnect, group membership, sibling reorder, unique-name exposure and script-attachment operations with rollback history/version/action guards;
 - input actions: bounded ProjectSettings key addition/removal/replacement for physical keys, direct-plugin rejection of equal, logical, duplicate and occupied keys, settings revision guard and rollback after external edits;
+- project settings: bounded project.setting.set coverage for the three-key allowlist (main scene and viewport dimensions), integer/path bounds, strict payloads, persistence/readback, no-op rejection, full project.godot revision guards, and rollback conflict preservation after external edits;
 - autoload management: bounded project.godot singleton registration/removal with name and script-path gates, settings revision guard, save-failure restoration and rollback;
 - multi-step tasks: bounded task state machine with apply/rollback/run/scene/resource/diagnostics verification and diagnostic-repair preview+apply steps, pause/resume/cancel transitions, explicit lease acquire/renew/release, retry budget, project-directory persistence and restart recovery; repair apply is gated by a separate confirmation;
 - HTTP bridge: loopback protocol envelopes, context/search/apply requests, current-scene and specified-scene run status polling, and an actionable EDITOR_UNAVAILABLE error when the bridge endpoint answers with a non-protocol payload;
@@ -66,5 +67,6 @@ The real EditorPlugin check uses godot-fixture and requires a local Godot 4.x ed
 20. Restart the MCP server and call get_task; verify the task state is restored from `.godot-safe-change/tasks/` inside the project.
 21. Call create_task with a `verify_script_state` step on a project script and verify contains/matchCounts assertions pass with bounded evidence; change the script and verify the revision conflict, then verify a failed assertion records observed/expected in the timeline without returning the script body.
 22. Preview, confirm, and apply a project.autoload.add for an existing project script, verify the read snapshot reports the registration, then roll back and verify the autoload is gone; a duplicate registration must be rejected.
+23. For `project.setting.set`, read all three allowlisted keys, preview a bounded viewport change, confirm/apply it, verify `ProjectSettings.save()` persistence and changed revision, reject no-op and forged payloads, preserve an external edit during rollback conflict, then restore and complete rollback; also reject a missing main scene and round-trip an existing `.tscn` main scene.
 
 The first write-operation test must keep preview, confirmation, apply and rollback as separate states.

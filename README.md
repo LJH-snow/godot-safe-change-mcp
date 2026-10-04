@@ -161,7 +161,7 @@ flowchart LR
 | Editor context | <code>editor_context</code> | Full current scene tree with node groups, selected-node properties, open resources, run state, and diagnostics. |
 | Scene structure | create, delete, reparent, rename, duplicate, reorder, instantiate, connect/disconnect signal, add/remove group | Safe NodePaths, ownership, names, parent relationships, instance source paths, sibling indices, signal/method validation, and group membership checks; connections, disconnections, and group changes use Godot UndoRedo apply/rollback. |
 | Scene content | <code>scene.set_property</code>, <code>scene.attach_script</code>, <code>scene.detach_script</code>, <code>scene.set_unique_name</code> | Allowlisted visible, position, rotation_degrees, scale, size, text, and color properties, project-local GDScript attachment/detachment, and scene-unique %Name exposure. |
-| Files and settings | resource references, input actions, script creation and ranges, autoload registration | File or project-settings revision guards, atomic writes, and rollback. |
+| Files and settings | resource references, input actions, script creation and ranges, autoload registration, <code>project.setting.set</code> | File or project-settings revision guards, atomic writes, persistence/readback verification, and guarded rollback. |
 | Runtime evidence | <code>run_current_scene</code>, <code>run_scene</code> | Run IDs, terminal state, output, warnings, errors, source, line, and NodePath evidence. |
 | Multi-step work | create/get/advance/pause/resume/cancel | Scene/resource/script verification steps, diagnostics repair preview, and step-level operation IDs. |
 | Recovery | task leases, <code>task_status</code>, <code>task_timeline</code> | Heartbeats, TTL takeover, owner visibility, and auditable recovery events. |
@@ -173,6 +173,8 @@ preview → confirm → lease/revision check → apply → verify → rollback (
 ~~~
 
 The server never executes agent-generated GDScript, shell commands, Python workers, arbitrary Godot RPC, or unrestricted filesystem writes. The plugin independently validates the project root, safe paths, operation allowlists, active-plan identity, and UndoRedo history.
+
+`project.setting.set` is deliberately narrower than a general ProjectSettings setter. It accepts only `application/run/main_scene` (an existing project-local `res://` `.tscn`), `display/window/size/viewport_width`, and `display/window/size/viewport_height` (integers from 1 through 16384). The strict `settingKey`/`value` payload rejects unknown keys, extra fields, traversal, non-integers, non-finite values, and missing scenes. The full `project.godot` revision is checked at preview, confirmation, apply, and rollback; Godot persists the setting with `ProjectSettings.save()`, the bridge reads it back before reporting success, and an external edit blocks rollback with `REVISION_CONFLICT` rather than overwriting user content.
 
 Short apply/rollback leases and long-lived task leases live in the user state directory, not inside the Godot project. A live lease held by another MCP process returns PROJECT_BUSY; a crashed owner can be replaced only after TTL expiry.
 
@@ -202,7 +204,7 @@ Every push runs four GitHub Actions jobs:
 - <code>Godot 4.5.1 runtime</code>: real EditorPlugin fixture smoke
 - <code>Godot 4.7.2 runtime</code>: the same fixture on the second supported version
 
-The smoke covers search, context, scene/property/structure/instance/script apply-rollback, resources, input settings, diagnostics, task leases, two-process contention, and TTL takeover.
+The smoke covers search, context, scene/property/structure/instance/script apply-rollback, resources, input settings, bounded project.setting.set persistence/readback/rollback and external-edit conflict protection, diagnostics, task leases, two-process contention, and TTL takeover.
 
 ## Developer commands
 

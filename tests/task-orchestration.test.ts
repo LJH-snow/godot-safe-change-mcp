@@ -77,6 +77,8 @@ class FakeGodotBridge implements GodotBridge {
     content: "[gd_scene load_steps=1 format=3]\n[node name=\"Instance\" type=\"Node2D\"]\n[node name=\"Child\" type=\"Label\" parent=\".\"]\n",
   };
   applyError: Error | null = null;
+  projectSettingValue = 640;
+  projectSettingRevision = "settings-revision-1";
   runCalls = 0;
   runDiagnosticsResult: RunDiagnostics = {
     schemaVersion: "0.2",
@@ -105,13 +107,24 @@ class FakeGodotBridge implements GodotBridge {
     }
     this.applied.push(request);
     this.context = createContext(this.projectRoot, "revision-2");
+    const operation = request.operations[0] as unknown as {
+      kind?: string;
+      settingKey?: string;
+      value?: unknown;
+    } | undefined;
+    const isProjectSetting = operation?.kind === "project.setting.set";
+    if (isProjectSetting && operation.value !== undefined) {
+      this.projectSettingValue = operation.value as number;
+      this.projectSettingRevision = "settings-revision-2";
+    }
     return {
       schemaVersion: "0.2",
       planId: request.planId,
       status: "applied",
       revision: "revision-2",
       operationCount: request.operations.length,
-      undoLabel: "Godot Safe Change: Add node",
+      undoLabel: isProjectSetting ? "Godot Safe Change: Set project setting" : "Godot Safe Change: Add node",
+      ...(isProjectSetting ? { fileRevision: this.projectSettingRevision } : {}),
     };
   }
 
@@ -152,6 +165,27 @@ class FakeGodotBridge implements GodotBridge {
 
   async readResource(_projectRoot: string, resourcePath: string): Promise<ResourceSnapshot> {
     return { ...this.resourceSnapshot, path: resourcePath };
+  }
+
+  async readProjectSetting(
+    _projectRoot: string,
+    settingKey: "application/run/main_scene" | "display/window/size/viewport_width" | "display/window/size/viewport_height",
+  ): Promise<{
+    settingKey: "application/run/main_scene" | "display/window/size/viewport_width" | "display/window/size/viewport_height";
+    exists: boolean;
+    value: string | number | null;
+    revision: string;
+  }> {
+    return {
+      settingKey,
+      exists: true,
+      value: settingKey === "application/run/main_scene"
+        ? "res://main.tscn"
+        : settingKey.endsWith("viewport_width")
+          ? this.projectSettingValue
+          : 360,
+      revision: settingKey.endsWith("viewport_width") ? this.projectSettingRevision : "settings-revision-1",
+    };
   }
 
   async readInputAction(_projectRoot: string, actionName: string): Promise<InputActionSnapshot> {
@@ -256,6 +290,40 @@ describe("TaskCoordinator", () => {
       "stopped",
     );
     assert.equal(bridge.applied.length, 1);
+  });
+
+  test("applies an approved project setting plan as a task step", async () => {
+    const { projectRoot, changeCoordinator, taskCoordinator, bridge } = harness;
+    const plan = await changeCoordinator.previewSceneChange({
+      projectRoot,
+      reason: "Resize the viewport through task orchestration.",
+      operation: {
+        kind: "project.setting.set",
+        settingKey: "display/window/size/viewport_width",
+        value: 1280,
+      },
+    });
+    assert.equal(plan.expectedFileRevision, "settings-revision-1");
+
+    const task = await taskCoordinator.createTask({
+      projectRoot,
+      title: "Apply the bounded viewport setting",
+      steps: [{
+        kind: "apply_plan",
+        stepId: "apply-viewport",
+        planId: plan.planId,
+        expectedRevision: plan.expectedRevision,
+      }],
+    });
+
+    const completed = await taskCoordinator.advanceTask({ projectRoot, taskId: task.taskId });
+    assert.equal(completed.status, "completed");
+    assert.equal(completed.steps[0]?.status, "succeeded");
+    assert.equal((completed.steps[0]?.result as { status?: string } | undefined)?.status, "applied");
+    assert.equal((completed.steps[0]?.result as { fileRevision?: string } | undefined)?.fileRevision, "settings-revision-2");
+    assert.equal(bridge.projectSettingValue, 1280);
+    assert.equal(bridge.projectSettingRevision, "settings-revision-2");
+    assert.equal(bridge.applied[0]?.operations[0]?.kind, "project.setting.set");
   });
 
   test("fails the task and recovers by retrying the failed step", async () => {

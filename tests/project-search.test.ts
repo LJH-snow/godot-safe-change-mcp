@@ -56,6 +56,32 @@ const PROJECT_SETTINGS = [
   "}",
 ].join("\n");
 
+type PlannedProjectSettingKey =
+  | "application/run/main_scene"
+  | "display/window/size/viewport_width"
+  | "display/window/size/viewport_height";
+
+interface PlannedProjectSettingSnapshot {
+  settingKey: PlannedProjectSettingKey;
+  exists: boolean;
+  value: string | number | null;
+  revision: string;
+}
+
+function projectSettingSnapshot(settingKey: PlannedProjectSettingKey): PlannedProjectSettingSnapshot {
+  return {
+    settingKey,
+    exists: true,
+    value:
+      settingKey === "application/run/main_scene"
+        ? "res://scenes/main.tscn"
+        : settingKey.endsWith("viewport_width")
+          ? 640
+          : 360,
+    revision: "settings-revision-1",
+  };
+}
+
 let fixtureRoot = "";
 
 before(async () => {
@@ -189,6 +215,13 @@ class SearchBridgeStub implements GodotBridge {
     return { path: resourcePath, revision: "test", content: "" };
   }
 
+  async readProjectSetting(
+    _projectRoot: string,
+    settingKey: PlannedProjectSettingKey,
+  ): Promise<PlannedProjectSettingSnapshot> {
+    return projectSettingSnapshot(settingKey);
+  }
+
   async readInputAction(_projectRoot: string, actionName: string): Promise<InputActionSnapshot> {
     return { actionName, revision: "test", exists: false, deadzone: null, events: [] };
   }
@@ -289,6 +322,13 @@ class OverviewBridgeStub implements GodotBridge {
 
   async readResource(_projectRoot: string, resourcePath: string): Promise<ResourceSnapshot> {
     return { path: resourcePath, revision: "test", content: "" };
+  }
+
+  async readProjectSetting(
+    _projectRoot: string,
+    settingKey: PlannedProjectSettingKey,
+  ): Promise<PlannedProjectSettingSnapshot> {
+    return projectSettingSnapshot(settingKey);
   }
 
   async readInputAction(_projectRoot: string, actionName: string): Promise<InputActionSnapshot> {

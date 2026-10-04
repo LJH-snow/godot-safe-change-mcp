@@ -377,6 +377,11 @@ try {
     { operation: { kind: "resource.replace_reference", resourcePath: "res://../outside.tres", from: "res://old.tres", to: "res://new.tres" }, errorCode: "UNSAFE_OPERATION" },
     { operation: { kind: "script.replace_range", scriptPath: "res://../outside.gd", startLine: 1, endLine: 1, replacement: "safe" }, errorCode: "VALIDATION_FAILED" },
     { operation: { kind: "project.input_action.add_key", actionName: "bad/name", physicalKeycode: 70 }, errorCode: "VALIDATION_FAILED" },
+    { operation: { kind: "project.setting.set", settingKey: "editor/unsafe", value: true }, errorCode: "UNSAFE_OPERATION" },
+    { operation: { kind: "project.setting.set", settingKey: "display/window/size/viewport_width", value: 0 }, errorCode: "VALIDATION_FAILED" },
+    { operation: { kind: "project.setting.set", settingKey: "display/window/size/viewport_height", value: 16385 }, errorCode: "VALIDATION_FAILED" },
+    { operation: { kind: "project.setting.set", settingKey: "display/window/size/viewport_width", value: 640, extra: "reject" }, errorCode: "VALIDATION_FAILED" },
+    { operation: { kind: "project.setting.set", settingKey: "application/run/main_scene", value: "res://../outside.tscn" }, errorCode: "VALIDATION_FAILED" },
   ];
   for (const invalidOperation of directInvalidOperations) {
     await assertDirectChangeRejected(invalidOperation.operation, invalidOperation.errorCode);
@@ -1208,6 +1213,197 @@ try {
   stage("resource rollback complete");
 
   const projectSettingsFile = path.join(fixtureRoot, "project.godot");
+  const initialProjectSettings = await readFile(projectSettingsFile, "utf8");
+  const initialViewportWidth = await bridgeRequest("/v1/project-settings/read", {
+    projectRoot: context.projectRoot,
+    settingKey: "display/window/size/viewport_width",
+  });
+  const initialViewportHeight = await bridgeRequest("/v1/project-settings/read", {
+    projectRoot: context.projectRoot,
+    settingKey: "display/window/size/viewport_height",
+  });
+  assert.equal(initialViewportWidth.status, 200, JSON.stringify(initialViewportWidth.body));
+  assert.equal(initialViewportHeight.status, 200, JSON.stringify(initialViewportHeight.body));
+  assert.equal(initialViewportWidth.body.ok, true);
+  assert.equal(initialViewportHeight.body.ok, true);
+  assert.deepEqual(initialViewportWidth.body.snapshot, {
+    settingKey: "display/window/size/viewport_width",
+    exists: true,
+    value: 640,
+    revision: initialViewportWidth.body.snapshot.revision,
+  });
+  assert.deepEqual(initialViewportHeight.body.snapshot, {
+    settingKey: "display/window/size/viewport_height",
+    exists: true,
+    value: 360,
+    revision: initialViewportHeight.body.snapshot.revision,
+  });
+  assert.equal(initialViewportWidth.body.snapshot.revision, initialViewportHeight.body.snapshot.revision);
+
+  const viewportPlan = structured(await request("tools/call", {
+    name: "preview_scene_change",
+    arguments: {
+      projectRoot: fixtureRoot,
+      reason: "CI bounded viewport project setting preview, apply and rollback smoke test.",
+      operation: {
+        kind: "project.setting.set",
+        settingKey: "display/window/size/viewport_width",
+        value: 1280,
+      },
+    },
+  }));
+  assert.equal(viewportPlan.expectedFileRevision, initialViewportWidth.body.snapshot.revision);
+  assert.deepEqual(viewportPlan.diff[0], {
+    kind: "project.setting.set",
+    target: "project.godot:display/window/size/viewport_width",
+    settingKey: "display/window/size/viewport_width",
+    before: 640,
+    after: 1280,
+    summary: viewportPlan.diff[0].summary,
+  });
+  assert.equal(await readFile(projectSettingsFile, "utf8"), initialProjectSettings);
+  const viewportBeforeApply = await bridgeRequest("/v1/project-settings/read", {
+    projectRoot: context.projectRoot,
+    settingKey: "display/window/size/viewport_width",
+  });
+  assert.equal(viewportBeforeApply.body.snapshot.value, 640);
+
+  await expectToolError("apply_scene_change", {
+    projectRoot: fixtureRoot,
+    planId: viewportPlan.planId,
+  }, /CONFIRMATION_REQUIRED/);
+  const viewportConfirmation = structured(await request("tools/call", {
+    name: "confirm_scene_change",
+    arguments: {
+      projectRoot: fixtureRoot,
+      planId: viewportPlan.planId,
+      expectedRevision: viewportPlan.expectedRevision,
+    },
+  }));
+  assert.equal(viewportConfirmation.status, "confirmed");
+  const viewportApply = structured(await request("tools/call", {
+    name: "apply_scene_change",
+    arguments: { projectRoot: fixtureRoot, planId: viewportPlan.planId },
+  }));
+  assert.equal(viewportApply.status, "applied");
+  assert.ok(viewportApply.fileRevision);
+  const appliedViewportSettings = await readFile(projectSettingsFile, "utf8");
+  assert.notEqual(appliedViewportSettings, initialProjectSettings);
+  assert.match(appliedViewportSettings, /viewport_width=1280/);
+  const viewportAfterApply = await bridgeRequest("/v1/project-settings/read", {
+    projectRoot: context.projectRoot,
+    settingKey: "display/window/size/viewport_width",
+  });
+  assert.equal(viewportAfterApply.body.snapshot.value, 1280);
+  assert.equal(viewportAfterApply.body.snapshot.revision, viewportApply.fileRevision);
+  await expectToolError("preview_scene_change", {
+    projectRoot: fixtureRoot,
+    reason: "Reject a viewport setting no-op after readback.",
+    operation: {
+      kind: "project.setting.set",
+      settingKey: "display/window/size/viewport_width",
+      value: 1280,
+    },
+  }, /OPERATION_REJECTED/);
+
+  await writeFile(projectSettingsFile, appliedViewportSettings + "\n; external edit after viewport setting apply\n", "utf8");
+  const externallyEditedViewportSettings = await readFile(projectSettingsFile, "utf8");
+  assert.match(externallyEditedViewportSettings, /external edit after viewport setting apply/);
+  await expectToolError("rollback_scene_change", {
+    projectRoot: fixtureRoot,
+    planId: viewportPlan.planId,
+  }, /REVISION_CONFLICT/);
+  const afterConflictViewport = await bridgeRequest("/v1/project-settings/read", {
+    projectRoot: context.projectRoot,
+    settingKey: "display/window/size/viewport_width",
+  });
+  assert.equal(afterConflictViewport.body.snapshot.value, 1280);
+  assert.equal(await readFile(projectSettingsFile, "utf8"), externallyEditedViewportSettings);
+  await writeFile(projectSettingsFile, appliedViewportSettings, "utf8");
+  const viewportRollback = structured(await request("tools/call", {
+    name: "rollback_scene_change",
+    arguments: { projectRoot: fixtureRoot, planId: viewportPlan.planId },
+  }));
+  assert.equal(viewportRollback.status, "rolled_back");
+  assert.equal(viewportRollback.undoLabel, "Godot Safe Change: Restore project setting");
+  const restoredViewportSettings = await readFile(projectSettingsFile, "utf8");
+  assert.equal(restoredViewportSettings, initialProjectSettings);
+  const viewportAfterRollback = await bridgeRequest("/v1/project-settings/read", {
+    projectRoot: context.projectRoot,
+    settingKey: "display/window/size/viewport_width",
+  });
+  assert.equal(viewportAfterRollback.body.snapshot.value, 640);
+  assert.notEqual(viewportAfterRollback.body.snapshot.revision, viewportApply.fileRevision);
+  stage("viewport project setting preview, confirmation, apply, readback and rollback complete");
+
+  const mainSceneBefore = await bridgeRequest("/v1/project-settings/read", {
+    projectRoot: context.projectRoot,
+    settingKey: "application/run/main_scene",
+  });
+  assert.equal(mainSceneBefore.body.snapshot.value, "res://main.tscn");
+  await expectToolError("preview_scene_change", {
+    projectRoot: fixtureRoot,
+    reason: "Reject the existing main scene as a no-op.",
+    operation: {
+      kind: "project.setting.set",
+      settingKey: "application/run/main_scene",
+      value: "res://main.tscn",
+    },
+  }, /OPERATION_REJECTED/);
+  await expectToolError("preview_scene_change", {
+    projectRoot: fixtureRoot,
+    reason: "Reject a main scene path that does not exist in the project.",
+    operation: {
+      kind: "project.setting.set",
+      settingKey: "application/run/main_scene",
+      value: "res://missing-main-scene.tscn",
+    },
+  }, /PROJECT_NOT_FOUND/);
+  const mainScenePlan = structured(await request("tools/call", {
+    name: "preview_scene_change",
+    arguments: {
+      projectRoot: fixtureRoot,
+      reason: "Exercise an existing project-local main scene path.",
+      operation: {
+        kind: "project.setting.set",
+        settingKey: "application/run/main_scene",
+        value: "res://instance_source.tscn",
+      },
+    },
+  }));
+  assert.equal(mainScenePlan.expectedFileRevision, mainSceneBefore.body.snapshot.revision);
+  await request("tools/call", {
+    name: "confirm_scene_change",
+    arguments: {
+      projectRoot: fixtureRoot,
+      planId: mainScenePlan.planId,
+      expectedRevision: mainScenePlan.expectedRevision,
+    },
+  });
+  const mainSceneApply = structured(await request("tools/call", {
+    name: "apply_scene_change",
+    arguments: { projectRoot: fixtureRoot, planId: mainScenePlan.planId },
+  }));
+  assert.equal(mainSceneApply.status, "applied");
+  const mainSceneAfterApply = await bridgeRequest("/v1/project-settings/read", {
+    projectRoot: context.projectRoot,
+    settingKey: "application/run/main_scene",
+  });
+  assert.equal(mainSceneAfterApply.body.snapshot.value, "res://instance_source.tscn");
+  assert.match(await readFile(projectSettingsFile, "utf8"), /run\/main_scene=\"res:\/\/instance_source\.tscn\"/);
+  const mainSceneRollback = structured(await request("tools/call", {
+    name: "rollback_scene_change",
+    arguments: { projectRoot: fixtureRoot, planId: mainScenePlan.planId },
+  }));
+  assert.equal(mainSceneRollback.status, "rolled_back");
+  const mainSceneAfterRollback = await bridgeRequest("/v1/project-settings/read", {
+    projectRoot: context.projectRoot,
+    settingKey: "application/run/main_scene",
+  });
+  assert.equal(mainSceneAfterRollback.body.snapshot.value, "res://main.tscn");
+  assert.equal(await readFile(projectSettingsFile, "utf8"), initialProjectSettings);
+  stage("main scene project setting validation and rollback complete");
+
   const inputPlan = structured(await request("tools/call", {
     name: "preview_scene_change",
     arguments: {

@@ -57,8 +57,8 @@ export function registerPreviewSceneChangeTool(
   return server.tool(
     {
       name: "preview_scene_change",
-      title: "Preview a Godot scene change",
-      description: "Create a reviewable preview for one allowlisted scene node operation.",
+      title: "Preview a Godot change",
+      description: "Create a reviewable preview for one allowlisted scene or project-setting operation.",
       inputSchema: previewSceneChangeInputSchema,
       outputSchema: changePlanSchema,
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
@@ -111,8 +111,8 @@ export function registerConfirmChangeTool(
   return server.tool(
     {
       name: "confirm_scene_change",
-      title: "Confirm a Godot scene change",
-      description: "Confirm one preview after checking its diff and expected editor revision.",
+      title: "Confirm a Godot change",
+      description: "Confirm one preview after checking its diff and expected editor or project.godot revision.",
       inputSchema: confirmChangeInputSchema,
       outputSchema: confirmedChangeSchema,
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
@@ -138,8 +138,8 @@ export function registerApplyChangeTool(
   return server.tool(
     {
       name: "apply_scene_change",
-      title: "Apply a confirmed Godot scene change",
-      description: "Apply one confirmed scene node operation through Godot UndoRedo.",
+      title: "Apply a confirmed Godot change",
+      description: "Apply one confirmed allowlisted scene or project-setting operation through the guarded editor bridge.",
       inputSchema: applyChangeInputSchema,
       outputSchema: changeReportSchema,
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
@@ -220,8 +220,8 @@ export function registerRollbackChangeTool(
   return server.tool(
     {
       name: "rollback_scene_change",
-      title: "Rollback a Godot scene change",
-      description: "Undo the latest applied plan only when its revision is still current.",
+      title: "Rollback a Godot change",
+      description: "Undo the latest applied scene or project-setting plan only when its revisions are still current.",
       inputSchema: applyChangeInputSchema,
       outputSchema: rollbackReportSchema,
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },

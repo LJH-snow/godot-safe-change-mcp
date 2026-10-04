@@ -397,11 +397,22 @@
 
 ## Phase 36 — create_node 类型扩展
 
-状态：in_progress
+状态：complete
 
 - [x] safeNodeTypeSchema 与插件 ALLOWED_NODE_TYPES 同步扩展九种游戏常用类型：Sprite2D、Marker2D、Camera2D、Timer、AudioStreamPlayer、CharacterBody2D、StaticBody2D、Area2D、CollisionShape2D。
 - [x] TypeScript 回归覆盖逐类型创建预览与未知类拒绝；真实 Godot smoke 覆盖 Sprite2D/Timer 的创建→context 类型验证→rollback。
-- [ ] 待双版本 CI 验证后收尾。
+- [x] commit `ab4277e` 的 PR #29 通过 CI run `37139694855`：check、npm package boundary、Godot 4.5.1 runtime、Godot 4.7.2 runtime 全部成功，并以 merge commit `7b9fabe` 合入 main。
+
+## Phase 37 — 受限 project.setting.set
+
+状态：in_progress
+
+- [x] 定义严格的 `project.setting.set` 契约，只允许 `application/run/main_scene`、`display/window/size/viewport_width` 和 `display/window/size/viewport_height`；scene path 必须是存在的项目内 `res://` `.tscn`，viewport 必须是 1..16384 的整数。
+- [x] 增加 `/v1/project-settings/read`、typed snapshot、完整 `project.godot` revision guard、ProjectSettings.save() persistence/readback 和 guarded rollback；插件对 key、类型、范围、no-op、save failure 和外部编辑独立校验。
+- [x] TypeScript、HTTP、task、plugin-boundary 和 runtime smoke 覆盖已写入；本地 139 项测试、typecheck、build、package:check 和 smoke syntax 通过。
+- [x] 修正 Godot JSON integral number 的跨层类型边界：插件接受有限整数值并在保存、读回和 rollback 前统一为 Godot integer；commit `9cc4018`。
+- [x] PR #30 的 CI run `37190573762`（重复验证 run `37190575982`）中 check、npm package boundary、Godot 4.5.1 runtime 和 Godot 4.7.2 runtime 全部成功。
+- [ ] 待以 merge commit 合入最新 `main`，记录最终 merge commit 和远端分支状态后收尾。
 
 ## 完成定义
 

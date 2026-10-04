@@ -3,8 +3,10 @@ import {
   createNodeOperationSchema,
   methodNameSchema,
   nodePathSchema,
+  scenePathSchema,
   signalNameSchema,
   type ChangeOperation,
+  type ProjectSettingKey,
 } from "./change-contracts.js";
 
 export const projectSectionSchema = z.enum([
@@ -233,6 +235,60 @@ export const autoloadSnapshotSchema = z.object({
 });
 
 export type AutoloadSnapshot = z.infer<typeof autoloadSnapshotSchema>;
+
+const projectSettingSnapshotBase = {
+  revision: z.string().min(1),
+  exists: z.boolean(),
+};
+
+export const projectSettingMainSceneSnapshotSchema = z
+  .object({
+    ...projectSettingSnapshotBase,
+    settingKey: z.literal("application/run/main_scene"),
+    value: scenePathSchema.nullable(),
+  })
+  .strict()
+  .refine((snapshot) => snapshot.exists === (snapshot.value !== null));
+
+export const projectSettingViewportWidthSnapshotSchema = z
+  .object({
+    ...projectSettingSnapshotBase,
+    settingKey: z.literal("display/window/size/viewport_width"),
+    value: z.number().int().min(1).max(16384).nullable(),
+  })
+  .strict()
+  .refine((snapshot) => snapshot.exists === (snapshot.value !== null));
+
+export const projectSettingViewportHeightSnapshotSchema = z
+  .object({
+    ...projectSettingSnapshotBase,
+    settingKey: z.literal("display/window/size/viewport_height"),
+    value: z.number().int().min(1).max(16384).nullable(),
+  })
+  .strict()
+  .refine((snapshot) => snapshot.exists === (snapshot.value !== null));
+
+export const projectSettingSnapshotSchema = z.discriminatedUnion("settingKey", [
+  projectSettingMainSceneSnapshotSchema,
+  projectSettingViewportWidthSnapshotSchema,
+  projectSettingViewportHeightSnapshotSchema,
+]);
+
+export type ProjectSettingMainSceneSnapshot = z.infer<typeof projectSettingMainSceneSnapshotSchema>;
+export type ProjectSettingViewportWidthSnapshot = z.infer<
+  typeof projectSettingViewportWidthSnapshotSchema
+>;
+export type ProjectSettingViewportHeightSnapshot = z.infer<
+  typeof projectSettingViewportHeightSnapshotSchema
+>;
+export type ParsedProjectSettingSnapshot = z.infer<typeof projectSettingSnapshotSchema>;
+
+export interface ProjectSettingSnapshot {
+  revision: string;
+  exists: boolean;
+  settingKey: ProjectSettingKey;
+  value: string | number | null;
+}
 
 export const sceneSignalConnectionSchema = z.object({
   signalName: signalNameSchema,

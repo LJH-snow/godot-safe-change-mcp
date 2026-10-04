@@ -243,6 +243,8 @@ npm run build
 
 2026-10-03 已新增只读 verify_resource_state task step：仅允许 res:// 资源路径和有限 contains/matchCounts 断言，可选资源 revision guard；成功和失败结果都记录有限 observed/expected、operationId 与 timeline mismatch evidence，不回传资源全文。
 
+2026-10-04 已完成受限 `project.setting.set`：只允许三个 project.godot key。`application/run/main_scene` 必须指向存在的项目内 `res://` `.tscn`；两个 viewport key 只接受 1..16384 的整数。preview 通过 `/v1/project-settings/read` 获取 typed snapshot 和完整 project.godot revision，confirm/apply/rollback 重读该 revision；Godot 插件独立校验 exact payload、save/readback、no-op、保存失败恢复和外部编辑冲突。真实 smoke 还覆盖直接伪造请求不改变文件、viewport persistence/rollback 与 main-scene apply/rollback。
+
 ## 7. 待决定问题
 
 - 本地桥接使用 HTTP、WebSocket，还是两个都提供；
