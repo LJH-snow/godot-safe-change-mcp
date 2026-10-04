@@ -425,4 +425,5 @@
 - main scene 必须是存在的项目内 `res://` `.tscn`；viewport 必须是 1..16384 的整数。TypeScript/Zod 和 Godot 插件分别校验 key、类型、路径和范围。
 - 新增 `/v1/project-settings/read` typed snapshot；preview、confirm、apply、rollback 使用完整 project.godot revision，ProjectSettings.save() 后读回验证，外部编辑时 rollback 保留用户内容并返回 `REVISION_CONFLICT`。
 - 本地 139 项测试、typecheck、build、package:check、`node --check tests/godot-runtime-smoke.mjs` 和 `git diff --check` 通过；runtime smoke 已覆盖 viewport/main-scene 生命周期和 forged direct requests。
-- 首次 CI 失败定位为 Godot JSON integral number 在插件边界被误判为非 `TYPE_INT`；commit `9cc4018` 改为接受有限整数值并统一 canonical integer 后，PR #30 的 run `37190573762`（重复验证 `37190575982`）中 check、package boundary、Godot 4.5.1 和 4.7.2 全部通过；待 merge commit 完成阶段收尾。
+- 首次 CI 失败定位为 Godot JSON integral number 在插件边界被误判为非 `TYPE_INT`；commit `9cc4018` 改为接受有限整数值并统一 canonical integer 后，PR #30 的 run `37190573762`（重复验证 `37190575982`）中 check、package boundary、Godot 4.5.1 和 4.7.2 全部通过。
+- PR #30 已以 merge commit `c8fad0d993af5e288a11bb24d916ec107c173f4d` 合入 `main`；远端与本地 `main` 均指向该提交，Phase 37 按完成定义收尾。

@@ -405,14 +405,14 @@
 
 ## Phase 37 — 受限 project.setting.set
 
-状态：in_progress
+状态：complete
 
 - [x] 定义严格的 `project.setting.set` 契约，只允许 `application/run/main_scene`、`display/window/size/viewport_width` 和 `display/window/size/viewport_height`；scene path 必须是存在的项目内 `res://` `.tscn`，viewport 必须是 1..16384 的整数。
 - [x] 增加 `/v1/project-settings/read`、typed snapshot、完整 `project.godot` revision guard、ProjectSettings.save() persistence/readback 和 guarded rollback；插件对 key、类型、范围、no-op、save failure 和外部编辑独立校验。
 - [x] TypeScript、HTTP、task、plugin-boundary 和 runtime smoke 覆盖已写入；本地 139 项测试、typecheck、build、package:check 和 smoke syntax 通过。
 - [x] 修正 Godot JSON integral number 的跨层类型边界：插件接受有限整数值并在保存、读回和 rollback 前统一为 Godot integer；commit `9cc4018`。
 - [x] PR #30 的 CI run `37190573762`（重复验证 run `37190575982`）中 check、npm package boundary、Godot 4.5.1 runtime 和 Godot 4.7.2 runtime 全部成功。
-- [ ] 待以 merge commit 合入最新 `main`，记录最终 merge commit 和远端分支状态后收尾。
+- [x] PR #30 已以 merge commit `c8fad0d993af5e288a11bb24d916ec107c173f4d` 合入 `main`；本地 `main` 与 `origin/main` 一致且 working tree clean。
 
 ## 完成定义
 
