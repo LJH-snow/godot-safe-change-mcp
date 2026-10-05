@@ -430,6 +430,9 @@
 - [x] 本地验证：145 项测试通过；`npm run typecheck`、`npm run build`、`npm run package:check`、`npm run release:check`、smoke syntax 和 `git diff --check` 通过；本机 Godot 4.7.2 全量 smoke 通过。
 - [x] feature branch CI run `37274338265` 的 `check`、`npm package boundary`、Godot 4.5.1 runtime 和 Godot 4.7.2 runtime 全部成功；PR #34 已以 merge commit `076be0e3a12f8510bd6a8c82b8ad5e993e5c1eac` 合入 protected `main`。
 - [x] 补充 coordinator 对缺少 `currentRevision` 的 recoveryRequired 错误的兼容处理，并增加 apply recovery ownership/retry 回归测试；rollback retry 会先重新读取 project-setting revision。
+- [x] 保留插件侧外部编辑 `REVISION_CONFLICT`，避免把用户修改包装成可继续覆盖的 pending recovery；增加 recovery/restore conflict 分支回归覆盖。
+- [x] PR #35 证据收尾 CI run `37276309244` 通过并以 merge commit `826befbaeaf97a878c21ec89577b9e647f95a22e` 合入；PR #36 recovery-state 修复 CI run `37283430277` 四项 required jobs 全部通过，并以 merge commit `0efb95d476489eff94b9a48345443a2995877c1d` 合入 protected `main`。
+- [x] 最终同步核对：本地 `main` 与 `origin/main` 一致，当前 tip 为 `0efb95d`，working tree clean。
 - [x] 保留并在最终报告中说明未完全解决的边界：filesystem check-then-rename TOCTOU、跨进程 recovery journal、跨平台 rename durability，以及未注入生产故障开关的真实 save-failure runtime 路径。
 
 ## 完成定义

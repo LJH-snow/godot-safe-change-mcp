@@ -438,4 +438,7 @@
 - coordinator 现在即使 bridge 的 `recoveryRequired` 错误缺少 `currentRevision` 也会保留 applied-plan ownership；rollback retry 会重新读取 setting revision 后再发送 guarded recovery 请求，并有回归覆盖。
 - 本地 `typecheck`、`build`、`package:check`、`release:check`、smoke syntax、`git diff --check` 全通过；本机 Godot 4.7.2 全量 runtime smoke 通过。
 - feature branch CI run `37274338265` 的 `check`、`npm package boundary`、Godot 4.5.1 runtime 和 Godot 4.7.2 runtime 全部成功；PR #34 已以 merge commit `076be0e3a12f8510bd6a8c82b8ad5e993e5c1eac` 合入 protected `main`。
+- 证据收尾 PR #35 的 CI run `37276309244` 通过四项 required jobs，并以 merge commit `826befbaeaf97a878c21ec89577b9e647f95a22e` 合入 `main`。
+- recovery ownership 修复 commit `d89bd6791c1f88991bf311dd3bdc19ff9a8a8aea` 的 PR #36 通过 CI run `37283430277` 的四项 required jobs，并以 merge commit `0efb95d476489eff94b9a48345443a2995877c1d` 合入 protected `main`；该修复覆盖缺少 `currentRevision` 时保留 applied-plan ownership、rollback retry 刷新 revision，以及外部编辑 `REVISION_CONFLICT` 的原样传播。
+- 本地 `main` 已同步到 `origin/main` 的 `0efb95d`，working tree clean。
 - 本阶段仍是受限实现与验证记录，不表示完成了完整安全审计；filesystem TOCTOU、跨进程 recovery journal、跨平台 rename durability 和真实 save-failure injection 仍作为限制保留。
