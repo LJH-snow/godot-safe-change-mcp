@@ -25,6 +25,9 @@ const ALLOWED_PROJECT_SETTINGS := {
     "display/window/size/viewport_width": "integer",
     "display/window/size/viewport_height": "integer",
 }
+const RECOVERY_JOURNAL_DIR := "res://.godot/godot-safe-change"
+const RECOVERY_JOURNAL_PATH := "res://.godot/godot-safe-change/project-settings-recovery.json"
+const RECOVERY_JOURNAL_SCHEMA_VERSION := "0.1"
 
 var dock: PanelContainer
 var status_label: Label
@@ -86,9 +89,11 @@ func _enter_tree() -> void:
     diagnostics_debugger.configure(self)
     add_debugger_plugin(diagnostics_debugger)
     set_process(true)
+    _scan_persistent_project_setting_recovery()
     _refresh_status_label()
 
 func _exit_tree() -> void:
+    _write_project_setting_recovery_journal()
     set_process(false)
     if diagnostics_debugger != null:
         remove_debugger_plugin(diagnostics_debugger)
@@ -134,6 +139,8 @@ func handle_bridge_request(method: String, path: String, body: Variant) -> Dicti
             return _read_autoload(body)
         "/v1/project-settings/read":
             return _read_project_setting(body)
+        "/v1/project-settings/recovery":
+            return _read_project_setting_recovery(body)
         "/v1/signals/read":
             return _read_scene_signals()
         "/v1/run/current":
@@ -729,6 +736,166 @@ func _remember_project_setting_recovery(
     last_project_setting_applied_revision = last_applied_revision
     last_project_setting_pending_recovery = true
     last_project_setting_recovery_phase = phase
+    _write_project_setting_recovery_journal()
+
+func _project_setting_recovery_status() -> Dictionary:
+    return {
+        "pending": last_project_setting_pending_recovery,
+        "settingKey": last_project_setting_key if last_project_setting_key != "" else null,
+        "phase": last_project_setting_recovery_phase if last_project_setting_recovery_phase != "" else null,
+    }
+
+func _write_project_setting_recovery_journal() -> void:
+    if not last_project_setting_pending_recovery or last_project_setting_key == "":
+        return
+    var record := {
+        "schemaVersion": RECOVERY_JOURNAL_SCHEMA_VERSION,
+        "projectRoot": ProjectSettings.globalize_path("res://").simplify_path(),
+        "settingKey": last_project_setting_key,
+        "originalExists": last_project_setting_original_exists,
+        "originalValue": last_project_setting_original_value,
+        "originalEffectiveValue": last_project_setting_original_effective_value,
+        "originalRevision": last_project_setting_original_revision,
+        "originalBytes": Marshalls.raw_to_base64(last_project_setting_original_bytes),
+        "appliedValue": last_project_setting_applied_value,
+        "appliedRevision": last_project_setting_applied_revision,
+        "appliedBytes": Marshalls.raw_to_base64(last_project_setting_applied_bytes),
+        "phase": last_project_setting_recovery_phase,
+        "planId": last_applied_plan_id,
+        "savedAt": int(Time.get_unix_time_from_system()),
+    }
+    var directory_error := DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(RECOVERY_JOURNAL_DIR))
+    if directory_error != OK:
+        push_warning("Godot Safe Change: could not create the project setting recovery journal directory.")
+        return
+    var file := FileAccess.open(RECOVERY_JOURNAL_PATH, FileAccess.WRITE)
+    if file == null:
+        push_warning("Godot Safe Change: could not write the project setting recovery journal.")
+        return
+    file.store_string(JSON.stringify(record))
+    file.close()
+    var verification := _read_project_setting_recovery_journal()
+    if verification.is_empty() or String(verification["planId"]) != last_applied_plan_id:
+        push_warning("Godot Safe Change: the project setting recovery journal could not be verified after writing.")
+
+func _read_project_setting_recovery_journal() -> Dictionary:
+    if not FileAccess.file_exists(RECOVERY_JOURNAL_PATH):
+        return {}
+    var file := FileAccess.open(RECOVERY_JOURNAL_PATH, FileAccess.READ)
+    if file == null:
+        return {}
+    var content := file.get_as_text()
+    file.close()
+    var parsed: Variant = JSON.parse_string(content)
+    if typeof(parsed) != TYPE_DICTIONARY:
+        return {}
+    var record: Dictionary = parsed
+    if String(record.get("schemaVersion", "")) != RECOVERY_JOURNAL_SCHEMA_VERSION:
+        return {}
+    if String(record.get("projectRoot", "")) != ProjectSettings.globalize_path("res://").simplify_path():
+        return {}
+    var setting_key := String(record.get("settingKey", ""))
+    if not _is_allowed_project_setting_key(setting_key):
+        return {}
+    if String(record.get("originalRevision", "")) == "":
+        return {}
+    var original_bytes := Marshalls.base64_to_raw(String(record.get("originalBytes", "")))
+    if original_bytes.is_empty():
+        return {}
+    return {
+        "settingKey": setting_key,
+        "originalExists": bool(record.get("originalExists", false)),
+        "originalValue": record.get("originalValue", null),
+        "originalEffectiveValue": record.get("originalEffectiveValue", null),
+        "originalRevision": String(record.get("originalRevision", "")),
+        "originalBytes": original_bytes,
+        "appliedValue": record.get("appliedValue", null),
+        "appliedRevision": String(record.get("appliedRevision", "")),
+        "appliedBytes": Marshalls.base64_to_raw(String(record.get("appliedBytes", ""))),
+        "phase": String(record.get("phase", "")),
+        "planId": String(record.get("planId", "")),
+    }
+
+func _clear_project_setting_recovery_journal() -> void:
+    if not FileAccess.file_exists(RECOVERY_JOURNAL_PATH):
+        return
+    if DirAccess.remove_absolute(ProjectSettings.globalize_path(RECOVERY_JOURNAL_PATH)) != OK:
+        push_warning("Godot Safe Change: could not remove the project setting recovery journal.")
+
+func _adopt_project_setting_recovery_from_journal(journal: Dictionary) -> void:
+    var setting_key := String(journal.get("settingKey", ""))
+    _clear_scene_action_state()
+    _clear_file_action_state()
+    last_applied_plan_id = String(journal.get("planId", ""))
+    last_applied_revision = _project_settings_revision()
+    last_applied_kind = "project_setting"
+    last_project_setting_key = setting_key
+    last_project_setting_original_exists = bool(journal.get("originalExists", false))
+    last_project_setting_original_value = _normalize_project_setting_value(setting_key, journal.get("originalValue", null))
+    last_project_setting_original_effective_value = _normalize_project_setting_value(setting_key, journal.get("originalEffectiveValue", null))
+    last_project_setting_original_bytes = journal.get("originalBytes", PackedByteArray())
+    last_project_setting_original_revision = String(journal.get("originalRevision", ""))
+    last_project_setting_applied_value = _normalize_project_setting_value(setting_key, journal.get("appliedValue", null))
+    last_project_setting_applied_bytes = journal.get("appliedBytes", PackedByteArray())
+    last_project_setting_applied_revision = String(journal.get("appliedRevision", ""))
+    last_project_setting_pending_recovery = true
+    last_project_setting_recovery_phase = String(journal.get("phase", ""))
+
+func _scan_persistent_project_setting_recovery() -> void:
+    var journal := _read_project_setting_recovery_journal()
+    if journal.is_empty():
+        return
+    var setting_key := String(journal["settingKey"])
+    var original_bytes: PackedByteArray = journal["originalBytes"]
+    var applied_bytes: PackedByteArray = journal["appliedBytes"]
+    var original_value: Variant = _normalize_project_setting_value(setting_key, journal["originalValue"])
+    var original_exists := bool(journal["originalExists"])
+    var current_bytes := _read_project_settings_bytes()
+    if current_bytes == original_bytes:
+        _restore_project_setting_in_memory(setting_key, original_exists, original_value)
+        _clear_applied_state()
+        push_warning("Godot Safe Change: the journaled project setting recovery was already restored; the journal was cleared.")
+        return
+    _adopt_project_setting_recovery_from_journal(journal)
+    if current_bytes == applied_bytes:
+        var recovery := _recover_project_setting_bytes(
+            original_bytes,
+            String(journal["originalRevision"]),
+            applied_bytes,
+            setting_key,
+            _normalize_project_setting_value(setting_key, journal["appliedValue"]),
+            String(journal["planId"]) + "-startup",
+        )
+        if recovery.is_empty():
+            _restore_project_setting_in_memory(setting_key, original_exists, original_value)
+            _clear_applied_state()
+            push_warning("Godot Safe Change: restored the project settings file from the recovery journal.")
+            return
+        last_project_setting_recovery_phase = "startup"
+        _write_project_setting_recovery_journal()
+        push_warning("Godot Safe Change: project setting recovery is still pending after the startup scan.")
+        return
+    last_project_setting_recovery_phase = "external-edit"
+    _write_project_setting_recovery_journal()
+    push_warning("Godot Safe Change: external project.godot edits were detected; project setting recovery stays pending.")
+
+func _read_project_setting_recovery(body: Variant) -> Dictionary:
+    if typeof(body) != TYPE_DICTIONARY:
+        return _failure("VALIDATION_FAILED", "The project setting recovery request body must be a JSON object.")
+    var request_body: Dictionary = body
+    var action := String(request_body.get("action", ""))
+    if action != "" and action != "scan":
+        return _failure("VALIDATION_FAILED", "The requested recovery action is not supported.")
+    var required_keys := ["projectRoot"]
+    if action != "":
+        required_keys.append("action")
+    if not _has_exact_keys(request_body, required_keys):
+        return _failure("VALIDATION_FAILED", "The project setting recovery request contains unsupported or missing fields.")
+    if action == "scan":
+        _scan_persistent_project_setting_recovery()
+    var status := _project_setting_recovery_status()
+    status["journalPresent"] = FileAccess.file_exists(RECOVERY_JOURNAL_PATH)
+    return _success("recovery", status)
 
 func _create_dock() -> void:
     dock = PanelContainer.new()
@@ -801,6 +968,7 @@ func _editor_context() -> Dictionary:
         },
         "selection": selection,
         "openResources": open_resources,
+        "projectSettingRecovery": _project_setting_recovery_status(),
         "run": {
             "status": run_status,
             "scenePath": run_scene_path if run_scene_path != "" else null,
@@ -1799,6 +1967,7 @@ func _apply_project_setting_change(request_body: Dictionary) -> Dictionary:
 
     var plan_id := String(request_body.get("planId", ""))
     var applied_file_revision := String(readback_result["snapshot"]["revision"])
+    _clear_project_setting_recovery_journal()
     _clear_scene_action_state()
     _clear_file_action_state()
     last_applied_plan_id = plan_id
@@ -1999,6 +2168,7 @@ func _clear_project_setting_state() -> void:
     last_project_setting_applied_revision = ""
     last_project_setting_pending_recovery = false
     last_project_setting_recovery_phase = ""
+    _clear_project_setting_recovery_journal()
 
 func _clear_applied_state() -> void:
     last_applied_plan_id = ""
@@ -2385,6 +2555,7 @@ func _complete_project_setting_rollback(plan_id: String, setting_key: String) ->
     if not restored_ok:
         last_project_setting_pending_recovery = true
         last_project_setting_recovery_phase = "rollback-verify"
+        _write_project_setting_recovery_journal()
         return _failure(
             "OPERATION_REJECTED",
             "Godot could not verify the restored project setting and recovery is required.",
@@ -2459,6 +2630,7 @@ func _rollback_project_setting_change(request_body: Dictionary, plan_id: String)
             if _project_setting_recovery_error_code(recovery_result) == "REVISION_CONFLICT":
                 return recovery_result
             last_project_setting_recovery_phase = "rollback"
+            _write_project_setting_recovery_journal()
             return _failure(
                 "OPERATION_REJECTED",
                 "Godot could not complete project setting recovery; retry rollback without changing the file.",
@@ -2508,6 +2680,7 @@ func _rollback_project_setting_change(request_body: Dictionary, plan_id: String)
             return restore_error
         last_project_setting_pending_recovery = true
         last_project_setting_recovery_phase = "rollback"
+        _write_project_setting_recovery_journal()
         return _failure(
             "OPERATION_REJECTED",
             "Godot could not roll back the project setting and recovery is required.",

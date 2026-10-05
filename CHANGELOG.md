@@ -4,6 +4,7 @@ All notable changes to Godot Safe Change MCP will be documented here.
 
 ## Unreleased
 
+- Added a persistent project-setting recovery journal: pending project.setting.set recovery state is mirrored to res://.godot/godot-safe-change/project-settings-recovery.json, re-scanned on editor startup, exposed as a read-only projectSettingRecovery status in editor context and a /v1/project-settings/recovery bridge route, and restored only when the current bytes match the captured applied snapshot; externally edited files are adopted as pending recovery without being overwritten.
 - Continue the community adoption work tracked in docs/GROWTH.md.
 - Keep the preview, confirmation, lease, revision, verification, and rollback lifecycle stable.
 - Added bounded scene signal disconnection with exact-match validation and UndoRedo rollback coverage.
