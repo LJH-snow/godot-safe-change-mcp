@@ -693,6 +693,15 @@ func _recover_project_setting_bytes(
         )
     return {}
 
+func _project_setting_recovery_error_code(result: Dictionary) -> String:
+    var body: Variant = result.get("body", {})
+    if typeof(body) != TYPE_DICTIONARY:
+        return ""
+    var error: Variant = body.get("error", {})
+    if typeof(error) != TYPE_DICTIONARY:
+        return ""
+    return String(error.get("code", ""))
+
 func _remember_project_setting_recovery(
     request_body: Dictionary,
     setting_key: String,
@@ -2447,6 +2456,8 @@ func _rollback_project_setting_change(request_body: Dictionary, plan_id: String)
             plan_id + "-rollback-recovery",
         )
         if not recovery_result.is_empty():
+            if _project_setting_recovery_error_code(recovery_result) == "REVISION_CONFLICT":
+                return recovery_result
             last_project_setting_recovery_phase = "rollback"
             return _failure(
                 "OPERATION_REJECTED",
@@ -2493,6 +2504,8 @@ func _rollback_project_setting_change(request_body: Dictionary, plan_id: String)
         true,
     )
     if not restore_error.is_empty():
+        if _project_setting_recovery_error_code(restore_error) == "REVISION_CONFLICT":
+            return restore_error
         last_project_setting_pending_recovery = true
         last_project_setting_recovery_phase = "rollback"
         return _failure(

@@ -1239,11 +1239,24 @@ export class ChangeCoordinator {
       }
     }
 
+    let rollbackExpectedRevision = storedPlan.appliedRevision;
+    let rollbackExpectedFileRevision = storedPlan.appliedFileRevision;
+    if (isProjectSettingOperation && storedPlan.recoveryRequired) {
+      const recoverySnapshot = await this.bridge.readProjectSetting(
+        storedPlan.plan.projectRoot,
+        operation.settingKey,
+      );
+      rollbackExpectedRevision = recoverySnapshot.revision;
+      rollbackExpectedFileRevision = recoverySnapshot.revision;
+      storedPlan.appliedRevision = recoverySnapshot.revision;
+      storedPlan.appliedFileRevision = recoverySnapshot.revision;
+    }
+
     try {
       const report = await this.bridge.rollbackChange(storedPlan.plan.projectRoot, {
         planId: storedPlan.plan.planId,
-        expectedRevision: storedPlan.appliedRevision,
-        expectedFileRevision: storedPlan.appliedFileRevision,
+        expectedRevision: rollbackExpectedRevision,
+        expectedFileRevision: rollbackExpectedFileRevision,
       });
       storedPlan.state = "rolled_back";
       storedPlan.recoveryRequired = false;
@@ -1382,14 +1395,17 @@ export class ChangeCoordinator {
     }
 
     const currentRevision = details.currentRevision;
-    if (typeof currentRevision !== "string" || currentRevision.length === 0) {
-      return;
-    }
-
     storedPlan.state = "applied";
     storedPlan.recoveryRequired = true;
-    storedPlan.appliedRevision = currentRevision;
-    storedPlan.appliedFileRevision = currentRevision;
+    if (typeof currentRevision === "string" && currentRevision.length > 0) {
+      storedPlan.appliedRevision = currentRevision;
+      storedPlan.appliedFileRevision = currentRevision;
+    } else {
+      // Keep the plan owned and recoverable even when an older bridge omits the
+      // post-failure revision; rollback will refresh the setting snapshot first.
+      storedPlan.appliedRevision = storedPlan.appliedRevision ?? storedPlan.plan.expectedRevision;
+      storedPlan.appliedFileRevision = storedPlan.appliedFileRevision ?? storedPlan.plan.expectedFileRevision ?? undefined;
+    }
     this.appliedPlanByProject.set(storedPlan.plan.projectRoot, storedPlan.plan.planId);
   }
 
