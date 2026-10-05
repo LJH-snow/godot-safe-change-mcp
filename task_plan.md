@@ -427,8 +427,9 @@
 - [x] 增加受限 `ConfigFile` 磁盘读取层、完整 `project.godot` bytes/SHA-256 revision、保存后独立读回，以及原始/尝试 bytes 的 byte-preserving recovery path。
 - [x] 为保存、读回、补偿和 rollback recovery 保留结构化 `recoveryRequired`/`phase` 状态；pending recovery 保持 applied plan ownership，并阻止新的 project-setting mutation 覆盖待恢复状态。
 - [x] 增加缺省 viewport 内建默认值 no-op 测试、HTTP malformed/wrong-key 测试、外部编辑冲突、rollback retry、no-scene bytes/revision 和 absent-main-scene 真实 smoke 断言。
-- [x] 本地验证：144 项测试通过；`npm run typecheck`、`npm run build`、`npm run package:check`、`npm run release:check`、smoke syntax 和 `git diff --check` 通过；本机 Godot 4.7.2 全量 smoke 通过。
+- [x] 本地验证：145 项测试通过；`npm run typecheck`、`npm run build`、`npm run package:check`、`npm run release:check`、smoke syntax 和 `git diff --check` 通过；本机 Godot 4.7.2 全量 smoke 通过。
 - [x] feature branch CI run `37274338265` 的 `check`、`npm package boundary`、Godot 4.5.1 runtime 和 Godot 4.7.2 runtime 全部成功；PR #34 已以 merge commit `076be0e3a12f8510bd6a8c82b8ad5e993e5c1eac` 合入 protected `main`。
+- [x] 补充 coordinator 对缺少 `currentRevision` 的 recoveryRequired 错误的兼容处理，并增加 apply recovery ownership/retry 回归测试；rollback retry 会先重新读取 project-setting revision。
 - [x] 保留并在最终报告中说明未完全解决的边界：filesystem check-then-rename TOCTOU、跨进程 recovery journal、跨平台 rename durability，以及未注入生产故障开关的真实 save-failure runtime 路径。
 
 ## 完成定义

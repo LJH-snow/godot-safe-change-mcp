@@ -2422,6 +2422,48 @@ describe("ChangeCoordinator", () => {
     });
   });
 
+  test("keeps a project setting plan recoverable when apply omits the current revision", async () => {
+    const bridge = new FakeGodotBridge();
+    const coordinator = new ChangeCoordinator(bridge);
+    const plan = await coordinator.previewSceneChange({
+      projectRoot,
+      reason: "Exercise persistence recovery without a bridge revision detail.",
+      operation: {
+        kind: "project.setting.set",
+        settingKey: "display/window/size/viewport_width",
+        value: 1280,
+      } as never,
+    });
+    await coordinator.confirmChange({ projectRoot, planId: plan.planId, expectedRevision: plan.expectedRevision });
+    bridge.projectSettingApplyFailure = new DomainError(
+      ERROR_CODES.OPERATION_REJECTED,
+      "Persistence recovery is required without a current revision.",
+      {
+        recoveryRequired: true,
+        phase: "verify",
+      },
+    );
+
+    await assert.rejects(
+      () => coordinator.applyChange({ projectRoot, planId: plan.planId }),
+      (error: unknown) => error instanceof DomainError && error.code === ERROR_CODES.OPERATION_REJECTED,
+    );
+    await assert.rejects(
+      () => coordinator.applyChange({ projectRoot, planId: plan.planId }),
+      (error: unknown) => error instanceof DomainError && error.code === ERROR_CODES.PLAN_ALREADY_APPLIED,
+    );
+
+    const rolledBack = await coordinator.rollbackChange({ projectRoot, planId: plan.planId });
+    assert.equal(rolledBack.status, "rolled_back");
+    assert.equal(bridge.rolledBack.at(-1)?.expectedFileRevision, "settings-revision-2");
+    assert.deepEqual(bridge.projectSettingSnapshots["display/window/size/viewport_width"], {
+      settingKey: "display/window/size/viewport_width",
+      exists: true,
+      value: 640,
+      revision: "settings-revision-3",
+    });
+  });
+
   test("keeps a project setting plan recoverable when rollback reports persistence recovery", async () => {
     const bridge = new FakeGodotBridge();
     const coordinator = new ChangeCoordinator(bridge);
@@ -2442,7 +2484,6 @@ describe("ChangeCoordinator", () => {
       {
         recoveryRequired: true,
         phase: "rollback-verify",
-        currentRevision: "settings-revision-3",
       },
     );
 

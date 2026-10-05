@@ -434,7 +434,8 @@
 - project-level settings lifecycle 已与当前编辑场景解耦；无场景 fixture 现在真实执行 read → preview → confirmation → apply → independent bytes/revision readback → rollback。
 - no-scene fixture 移到主 fixture 的同级临时目录，并对 macOS `/var`/`/private/var` 路径差异统一使用 Godot 返回的 canonical project root；主 scene smoke 的 direct bridge 请求也使用 canonical root。
 - 未配置 `application/run/main_scene` 真实返回 `exists=false,value=null`，首次设置 `res://instance_source.tscn` 后回滚恢复原始 bytes 和 absent semantics；viewport bytes 与独立 Node SHA-256 revision 也已断言。
-- 增加缺省 viewport key 等于内建默认值的 coordinator no-op 回归测试；当前本地 `npm test` 为 144 项全通过。
+- 增加缺省 viewport key 等于内建默认值的 coordinator no-op 回归测试；当前本地 `npm test` 为 145 项全通过。
+- coordinator 现在即使 bridge 的 `recoveryRequired` 错误缺少 `currentRevision` 也会保留 applied-plan ownership；rollback retry 会重新读取 setting revision 后再发送 guarded recovery 请求，并有回归覆盖。
 - 本地 `typecheck`、`build`、`package:check`、`release:check`、smoke syntax、`git diff --check` 全通过；本机 Godot 4.7.2 全量 runtime smoke 通过。
 - feature branch CI run `37274338265` 的 `check`、`npm package boundary`、Godot 4.5.1 runtime 和 Godot 4.7.2 runtime 全部成功；PR #34 已以 merge commit `076be0e3a12f8510bd6a8c82b8ad5e993e5c1eac` 合入 protected `main`。
 - 本阶段仍是受限实现与验证记录，不表示完成了完整安全审计；filesystem TOCTOU、跨进程 recovery journal、跨平台 rename durability 和真实 save-failure injection 仍作为限制保留。
