@@ -77,7 +77,7 @@
 ### Add bounded project.setting.set — implemented
 
 - Scope: 复用 preview → confirm → project lease/revision guard → apply → readback → rollback 生命周期，安全修改三个明确的 project.godot 设置：`application/run/main_scene`、`display/window/size/viewport_width` 和 `display/window/size/viewport_height`。这是项目级生命周期，当前场景可以不存在；未配置 main scene 的 snapshot 是 `exists=false`、`value=null`。
-- Guards: `main_scene` 只能是存在的项目内 `res://` `.tscn`；viewport 值只能是 1..16384 的整数；操作对象只允许 `kind`、`settingKey`、`value`；禁止任意 ProjectSettings key、Variant、遍历路径和 no-op；revision 来自完整 project.godot 字节。
+- Guards: `main_scene` 只能是存在的项目内 `res://` `.tscn`，或由 Godot `ResourceUID` 解析到该场景的 `uid://` 引用；viewport 值只能是 1..16384 的整数；操作对象只允许 `kind`、`settingKey`、`value`；禁止任意 ProjectSettings key、Variant、遍历路径和 no-op；revision 来自完整 project.godot 字节。
 - Acceptance: TypeScript/Zod 与 Godot 插件分别校验；`ConfigFile` 独立从磁盘读取 typed snapshot，并在 `ProjectSettings.save()` 后验证读回；保存与 rollback 都保留原始/尝试字节，失败时通过临时文件和原子替换按字节恢复；结构化 `recoveryRequired`/`phase` 表示待恢复阶段，待恢复时阻止新的 apply；外部编辑使 rollback 返回 `REVISION_CONFLICT` 并保留用户内容。测试和 fixture 证据覆盖这些路径；该条目不是完整的安全审计声明。
 - Labels: <code>enhancement</code>、<code>godot-4.5.1</code>、<code>godot-4.7.2</code>、<code>security-boundary</code>。
 

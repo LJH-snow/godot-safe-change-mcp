@@ -545,6 +545,75 @@ try {
   assert.equal(fileRevision(await readFile(noSceneProjectSettingsFile)), fileRevision(noSceneInitialBytes));
   stage("no-scene project setting lifecycle complete");
 
+  stage("exercise uid:// main scene setting");
+  const noSceneUid = "uid://cl4wq1e801cq5";
+  const noSceneUidPlan = structured(await requestAt(noSceneEndpoint, "tools/call", {
+    name: "preview_scene_change",
+    arguments: {
+      projectRoot: noSceneRoot,
+      reason: "Set the main scene through a project scene UID reference.",
+      operation: {
+        kind: "project.setting.set",
+        settingKey: "application/run/main_scene",
+        value: noSceneUid,
+      },
+    },
+  }));
+  assert.equal(noSceneUidPlan.diff[0].after, noSceneUid);
+  await requestAt(noSceneEndpoint, "tools/call", {
+    name: "confirm_scene_change",
+    arguments: {
+      projectRoot: noSceneRoot,
+      planId: noSceneUidPlan.planId,
+      expectedRevision: noSceneUidPlan.expectedRevision,
+    },
+  });
+  const noSceneUidApply = structured(await requestAt(noSceneEndpoint, "tools/call", {
+    name: "apply_scene_change",
+    arguments: { projectRoot: noSceneRoot, planId: noSceneUidPlan.planId },
+  }));
+  assert.equal(noSceneUidApply.status, "applied");
+  assert.match(await readFile(noSceneProjectSettingsFile, "utf8"), /run\/main_scene="uid:\/\/cl4wq1e801cq5"/);
+  const noSceneUidSnapshot = await bridgeRequestAt(noSceneBridgeEndpoint, "/v1/project-settings/read", {
+    projectRoot: noSceneProjectRoot,
+    settingKey: "application/run/main_scene",
+  });
+  assert.equal(noSceneUidSnapshot.body.snapshot.exists, true);
+  assert.equal(noSceneUidSnapshot.body.snapshot.value, noSceneUid);
+  const noSceneUidRollback = structured(await requestAt(noSceneEndpoint, "tools/call", {
+    name: "rollback_scene_change",
+    arguments: { projectRoot: noSceneRoot, planId: noSceneUidPlan.planId },
+  }));
+  assert.equal(noSceneUidRollback.status, "rolled_back");
+  assert.deepEqual(await readFile(noSceneProjectSettingsFile), noSceneInitialBytes);
+
+  const noSceneUnknownUidPlan = structured(await requestAt(noSceneEndpoint, "tools/call", {
+    name: "preview_scene_change",
+    arguments: {
+      projectRoot: noSceneRoot,
+      reason: "Reject a uid reference the editor cannot resolve to a project scene.",
+      operation: {
+        kind: "project.setting.set",
+        settingKey: "application/run/main_scene",
+        value: "uid://zz9invalid000",
+      },
+    },
+  }));
+  await requestAt(noSceneEndpoint, "tools/call", {
+    name: "confirm_scene_change",
+    arguments: {
+      projectRoot: noSceneRoot,
+      planId: noSceneUnknownUidPlan.planId,
+      expectedRevision: noSceneUnknownUidPlan.expectedRevision,
+    },
+  });
+  await expectToolErrorAt(noSceneEndpoint, "apply_scene_change", {
+    projectRoot: noSceneRoot,
+    planId: noSceneUnknownUidPlan.planId,
+  }, /VALIDATION_FAILED/);
+  assert.deepEqual(await readFile(noSceneProjectSettingsFile), noSceneInitialBytes);
+  stage("uid main scene setting complete");
+
   stage("exercise persistent project setting recovery journal");
   const noSceneRecoveryJournalDirectory = path.join(noSceneRoot, ".godot", "godot-safe-change");
   const noSceneRecoveryJournalFile = path.join(noSceneRecoveryJournalDirectory, "project-settings-recovery.json");

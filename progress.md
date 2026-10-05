@@ -454,3 +454,11 @@
 - 仍保留的限制：filesystem check-then-rename TOCTOU、跨平台 rename durability、无生产 save-failure injection；journal 为进程崩溃恢复，非跨编辑器并发锁。
 - 持久化 recovery journal 的 PR #38 通过 CI run `37307739752` 的四项 required jobs（check、npm package boundary、Godot 4.5.1 runtime、Godot 4.7.2 runtime），并以 merge commit `4e5b02185bc09f3c1cfcac78e57501000bee239e` 合入 protected `main`；本地 `main` 已同步到该 tip，working tree clean。
 - v1.2.0 已正式发布：tag `v1.2.0` 指向 release commit `33a1bd68174e129cbd3514935c84299bff8577df`（CI run `37309602680` 四项 required jobs 全绿）；GitHub Release 已创建；npm registry `latest` 现为 `1.2.0`，tarball shasum `b0f0aebfaee952afb3fa938ac9e5d7207efa6354`，与发布前人工核验的包边界一致（16 个文件，无源码/测试/文档/CI 泄漏）。
+
+## 2026-10-05 uid:// main scene 支持
+
+- `project.setting.set` 的 `application/run/main_scene` 现在接受 `uid://` 场景引用：TypeScript 契约增加 path|uid 联合（uid 形如 `uid://<identifier>`），coordinator 对 uid 输入跳过本地 readResource 存在性检查（TS 侧无法解析），由插件用 `ResourceUID.text_to_id/has_id/get_id_path` 权威解析并要求解析结果是存在的项目内 `.tscn`。
+- 快照按原样回读 persisted path 或 uid；写入保持用户提供的原始形式；这同时修复了 Godot 4.4+ 项目把 main scene 存成 uid 时 typed snapshot 契约校验失败的问题。
+- fixture `instance_source.tscn` 固定 uid `uid://cl4wq1e801cq5`；新增 vertical-link 回归（uid 生命周期、persisted uid 快照 no-op、malformed uid 契约拒绝），本地 147 项测试通过。
+- runtime smoke 新增 uid 阶段：uid apply 持久化 `run/main_scene="uid://cl4wq1e801cq5"`、snapshot 原样回读、rollback 恢复原始 bytes；未注册 uid 在插件侧 apply 被稳定拒绝为 `VALIDATION_FAILED` 且文件不变。本机 Godot 4.7.2 全量 smoke 通过。
+- 其余键值约束、三键 allowlist、revision/lease/recovery 语义不变；本条目仍不构成完整安全审计。

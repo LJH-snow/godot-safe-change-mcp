@@ -962,7 +962,7 @@ export class ChangeCoordinator {
           { settingKey: parsedOperation.settingKey, value: parsedOperation.value },
         );
       }
-      if (parsedOperation.settingKey === "application/run/main_scene") {
+      if (parsedOperation.settingKey === "application/run/main_scene" && !parsedOperation.value.startsWith("uid://")) {
         await this.bridge.readResource(projectRoot, parsedOperation.value);
       }
       expectedFileRevision = snapshot.revision;

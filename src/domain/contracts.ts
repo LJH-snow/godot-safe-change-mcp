@@ -1,6 +1,7 @@
 import { z } from "zod";
 import {
   createNodeOperationSchema,
+  mainSceneSettingValueSchema,
   methodNameSchema,
   nodePathSchema,
   scenePathSchema,
@@ -252,7 +253,7 @@ export const projectSettingMainSceneSnapshotSchema = z
   .object({
     ...projectSettingSnapshotBase,
     settingKey: z.literal("application/run/main_scene"),
-    value: scenePathSchema.nullable(),
+    value: mainSceneSettingValueSchema.nullable(),
   })
   .strict()
   .refine((snapshot) => snapshot.exists === (snapshot.value !== null));

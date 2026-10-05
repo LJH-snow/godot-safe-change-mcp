@@ -414,11 +414,22 @@ export const projectSettingIntegerValueSchema = z
   .min(1)
   .max(16384);
 
+export const uidSceneValueSchema = z
+  .string()
+  .min(6)
+  .max(64)
+  .regex(/^uid:\/\/[0-9A-Za-z]+$/, "uid scene reference must look like uid://<identifier>.");
+
+export const mainSceneSettingValueSchema = z.union([
+  scenePathSchema,
+  uidSceneValueSchema,
+]);
+
 export const projectSettingSetMainSceneSchema = z
   .object({
     kind: z.literal("project.setting.set"),
     settingKey: z.literal("application/run/main_scene"),
-    value: scenePathSchema,
+    value: mainSceneSettingValueSchema,
   })
   .strict();
 
@@ -721,8 +732,8 @@ export const projectSettingMainSceneDiffSchema = z
   .object({
     ...projectSettingDiffBase,
     settingKey: z.literal("application/run/main_scene"),
-    before: scenePathSchema.nullable(),
-    after: scenePathSchema,
+    before: mainSceneSettingValueSchema.nullable(),
+    after: mainSceneSettingValueSchema,
   })
   .strict();
 

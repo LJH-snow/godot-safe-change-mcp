@@ -2619,6 +2619,74 @@ describe("ChangeCoordinator", () => {
     assert.equal(bridge.applied.length, 0);
   });
 
+  test("accepts a uid:// main scene value through the project setting lifecycle", async () => {
+    const bridge = new FakeGodotBridge();
+    const coordinator = new ChangeCoordinator(bridge);
+    bridge.projectSettingSnapshots["application/run/main_scene"] = createProjectSettingSnapshot(
+      "application/run/main_scene",
+      "settings-revision-uid",
+      null,
+    );
+
+    const plan = await coordinator.previewSceneChange({
+      projectRoot,
+      reason: "Set the main scene through a project scene UID reference.",
+      operation: {
+        kind: "project.setting.set",
+        settingKey: "application/run/main_scene",
+        value: "uid://cl4wq1e801cq5",
+      } as never,
+    });
+    const mainSceneDiff = plan.diff[0] as { after?: string };
+    assert.equal(mainSceneDiff.after, "uid://cl4wq1e801cq5");
+    await coordinator.confirmChange({ projectRoot, planId: plan.planId, expectedRevision: plan.expectedRevision });
+    await coordinator.applyChange({ projectRoot, planId: plan.planId });
+    assert.equal(
+      (bridge.applied.at(-1)?.operations[0] as { value?: string } | undefined)?.value,
+      "uid://cl4wq1e801cq5",
+    );
+    await coordinator.rollbackChange({ projectRoot, planId: plan.planId });
+  });
+
+  test("reads a persisted uid main scene snapshot and rejects malformed uid references", async () => {
+    const bridge = new FakeGodotBridge();
+    const coordinator = new ChangeCoordinator(bridge);
+    bridge.projectSettingSnapshots["application/run/main_scene"] = createProjectSettingSnapshot(
+      "application/run/main_scene",
+      "settings-revision-uid-persisted",
+      "uid://cl4wq1e801cq5",
+    );
+
+    await assert.rejects(
+      () => coordinator.previewSceneChange({
+        projectRoot,
+        reason: "Reject a no-op against a persisted uid main scene.",
+        operation: {
+          kind: "project.setting.set",
+          settingKey: "application/run/main_scene",
+          value: "uid://cl4wq1e801cq5",
+        } as never,
+      }),
+      (error: unknown) => error instanceof DomainError && error.code === ERROR_CODES.OPERATION_REJECTED,
+    );
+    const snapshot = await bridge.readProjectSetting(projectRoot, "application/run/main_scene");
+    assert.equal(snapshot.value, "uid://cl4wq1e801cq5");
+
+    await assert.rejects(
+      () => coordinator.previewSceneChange({
+        projectRoot,
+        reason: "Reject a malformed uid scene reference.",
+        operation: {
+          kind: "project.setting.set",
+          settingKey: "application/run/main_scene",
+          value: "uid://!!bad",
+        } as never,
+      }),
+      (error: unknown) => error instanceof Error && error.name === "ZodError",
+    );
+    assert.equal(bridge.applied.length, 0);
+  });
+
   test("rejects a project setting rollback after an external project.godot edit", async () => {
     const bridge = new FakeGodotBridge();
     const coordinator = new ChangeCoordinator(bridge);
