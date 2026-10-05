@@ -462,4 +462,12 @@
 - fixture `instance_source.tscn` 固定 uid `uid://cl4wq1e801cq5`；新增 vertical-link 回归（uid 生命周期、persisted uid 快照 no-op、malformed uid 契约拒绝），本地 147 项测试通过。
 - runtime smoke 新增 uid 阶段：uid apply 持久化 `run/main_scene="uid://cl4wq1e801cq5"`、snapshot 原样回读、rollback 恢复原始 bytes；未注册 uid 在插件侧 apply 被稳定拒绝为 `VALIDATION_FAILED` 且文件不变。本机 Godot 4.7.2 全量 smoke 通过。
 - 其余键值约束、三键 allowlist、revision/lease/recovery 语义不变；本条目仍不构成完整安全审计。
-- PR #43（head `c10d8c5532216d29219283345fceb0648abf2a98`）的 CI run `37317993227` 四项 required checks 全部通过，并以 merge commit `810229c1006bc02fbe494511e98a1a8b791f5868` 合入 protected `main`；本地 `main` 已同步且 working tree clean。uid 支持属于 Unreleased，未回写已发布 npm `1.2.0`。
+- PR #43（head `c10d8c5532216d29219283345fceb0648abf2a98`）的 CI run `37317993227` 四项 required checks 全部通过，并以 merge commit `810229c1006bc02fbe494511e98a1a8b791f5868` 合入 protected `main`；本地 `main` 已同步且 working tree clean。uid 支持后续随 v1.3.0 正式发布（见下条目）。
+
+## 2026-10-05 v1.3.0 发布
+
+- 发布 PR #45（head `ebe4fa74f4745c862ca682efb6ff844ae0b4c9fa`）CI run `37335844387` 四项 required checks 全绿，以 merge commit `b232e80` 合入 protected `main`；版本 bump 到 1.3.0、CHANGELOG 日期化、uid 条目从 Unreleased 移入 1.3.0，并附 provisional manifest 保证发布分支测试全绿。
+- tag `v1.3.0` 打在 release head `32f8c8633803799d87fe6852a4e6ed7909dc8e5d`；GitHub Release 已创建：https://github.com/LJH-snow/godot-safe-change-mcp/releases/tag/v1.3.0。
+- manifest 定稿 PR #46 以 merge commit `1d536b7` 合入：`docs/releases/v1.3.0.json` 指向发布 run `37335844387`；`npm run release:check` 通过。
+- npm 发布由用户完成交互式 OTP 认证后成功：`+ godot-safe-change-mcp@1.3.0`；registry 核验 `dist-tags.latest = 1.3.0`，tarball shasum `cc37668ff71304f20d7ab74eebc78187ce7f0dfb`，与发布终端输出一致；包边界仍为 16 个文件，无源码/测试/内部文档泄漏。
+- 发布前 Mimosa 深度扫描重跑完成（scan id `scan-2026-10-05T15-07-24.744Z-9c70ca31ca85`，seal `sha256:d05e7b7a8351c5f3427583b225e748f5ddab3df284ec29337670d97843429798`，0 findings、116 依赖包 0 告警）；static-only 边界不变，不宣称完整安全审计。
