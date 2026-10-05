@@ -461,6 +461,16 @@
 - [x] 仍保留边界：uid 解析依赖 Godot ResourceUID registry 已完成资源扫描；本阶段证据与 CI 不构成完整安全审计。
 - [x] uid 功能随 v1.3.0 正式发布：PR #45 CI run `37335844387` 四项 checks 全绿并合入（merge commit `b232e80`）；tag `v1.3.0` 指向 `32f8c8633803799d87fe6852a4e6ed7909dc8e5d`；manifest 定稿 PR #46（merge commit `1d536b7`）；用户完成 npm OTP 认证后发布成功，registry `latest = 1.3.0`，shasum `cc37668ff71304f20d7ab74eebc78187ce7f0dfb`。
 
+## Phase 41 — 真实权限驱动的 save/rollback 失败注入
+
+状态：in progress
+
+- [x] runtime smoke 新增目录权限注入阶段：apply 期间目录只读使 `ProjectSettings.save()` 真实失败，插件返回 `OPERATION_REJECTED` + `"phase": "save"` + `"recoveryRequired": false`，文件字节不变、无 pending recovery，权限恢复后同一 plan 重新 apply/rollback 成功。
+- [x] rollback 期间目录只读使临时文件恢复真实失败，插件返回 `"phase": "rollback"` + `"recoveryRequired": true`，pending recovery 镜像到 `.godot/godot-safe-change/` journal（子目录权限独立于项目根），applied 值仍可读；权限恢复后 rollback retry 完成并恢复原始 bytes、清除 recovery 状态与 journal。
+- [x] 实证发现：Godot 4.7.2 的 `ProjectSettings.save()` 以重建文件方式写入，只读文件不能阻止持久化，只读目录才能；注入因此走 POSIX 目录权限，win32 跳过该阶段。
+- [x] 保留边界：verify 阶段读回不匹配与部分写入状态仍只有状态机测试覆盖（无真实注入能令 save 成功而读回不匹配）；journal 持久化要求 `.godot` 子目录可写。
+- [ ] feature branch 四项 required checks 通过后以 merge commit 合入 protected `main`，再写回 PR/run/merge evidence。
+
 ## 完成定义
 
 只有在验收标准全部满足、自动化检查通过，并且真实或 fixture Godot 链路有可复现证据后，才将所有阶段标记为 `complete`。

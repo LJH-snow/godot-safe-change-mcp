@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
+import { chmodSync, statSync } from "node:fs";
 import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -613,6 +614,137 @@ try {
   }, /VALIDATION_FAILED/);
   assert.deepEqual(await readFile(noSceneProjectSettingsFile), noSceneInitialBytes);
   stage("uid main scene setting complete");
+
+  if (process.platform !== "win32") {
+    stage("exercise permission-driven project setting save failure");
+    const noSceneRootMode = statSync(noSceneRoot).mode & 0o777;
+    try {
+      chmodSync(noSceneRoot, 0o555);
+      const noSceneSaveFailurePlan = structured(await requestAt(noSceneEndpoint, "tools/call", {
+        name: "preview_scene_change",
+        arguments: {
+          projectRoot: noSceneRoot,
+          reason: "Inject a real ProjectSettings.save() failure through a read-only project directory.",
+          operation: {
+            kind: "project.setting.set",
+            settingKey: "display/window/size/viewport_width",
+            value: 800,
+          },
+        },
+      }));
+      await requestAt(noSceneEndpoint, "tools/call", {
+        name: "confirm_scene_change",
+        arguments: {
+          projectRoot: noSceneRoot,
+          planId: noSceneSaveFailurePlan.planId,
+          expectedRevision: noSceneSaveFailurePlan.expectedRevision,
+        },
+      });
+      await expectToolErrorAt(noSceneEndpoint, "apply_scene_change", {
+        projectRoot: noSceneRoot,
+        planId: noSceneSaveFailurePlan.planId,
+      }, /"phase": "save"/);
+      await expectToolErrorAt(noSceneEndpoint, "apply_scene_change", {
+        projectRoot: noSceneRoot,
+        planId: noSceneSaveFailurePlan.planId,
+      }, /"recoveryRequired": false/);
+      assert.deepEqual(await readFile(noSceneProjectSettingsFile), noSceneInitialBytes);
+      const noSceneSaveFailureRecovery = await bridgeRequestAt(noSceneBridgeEndpoint, "/v1/project-settings/recovery", {
+        projectRoot: noSceneProjectRoot,
+      });
+      assert.equal(noSceneSaveFailureRecovery.status, 200, JSON.stringify(noSceneSaveFailureRecovery.body));
+      assert.equal(noSceneSaveFailureRecovery.body.recovery.pending, false);
+      chmodSync(noSceneRoot, noSceneRootMode);
+      const noSceneSaveFailureRetry = structured(await requestAt(noSceneEndpoint, "tools/call", {
+        name: "apply_scene_change",
+        arguments: { projectRoot: noSceneRoot, planId: noSceneSaveFailurePlan.planId },
+      }));
+      assert.equal(noSceneSaveFailureRetry.status, "applied");
+      const noSceneSaveFailureRollback = structured(await requestAt(noSceneEndpoint, "tools/call", {
+        name: "rollback_scene_change",
+        arguments: { projectRoot: noSceneRoot, planId: noSceneSaveFailurePlan.planId },
+      }));
+      assert.equal(noSceneSaveFailureRollback.status, "rolled_back");
+      assert.deepEqual(await readFile(noSceneProjectSettingsFile), noSceneInitialBytes);
+      stage("save-failure injection complete");
+
+      stage("exercise permission-driven rollback restore failure");
+      const noSceneRollbackFailurePlan = structured(await requestAt(noSceneEndpoint, "tools/call", {
+        name: "preview_scene_change",
+        arguments: {
+          projectRoot: noSceneRoot,
+          reason: "Apply a viewport change before injecting a rollback restore failure.",
+          operation: {
+            kind: "project.setting.set",
+            settingKey: "display/window/size/viewport_width",
+            value: 832,
+          },
+        },
+      }));
+      await requestAt(noSceneEndpoint, "tools/call", {
+        name: "confirm_scene_change",
+        arguments: {
+          projectRoot: noSceneRoot,
+          planId: noSceneRollbackFailurePlan.planId,
+          expectedRevision: noSceneRollbackFailurePlan.expectedRevision,
+        },
+      });
+      const noSceneRollbackFailureApply = structured(await requestAt(noSceneEndpoint, "tools/call", {
+        name: "apply_scene_change",
+        arguments: { projectRoot: noSceneRoot, planId: noSceneRollbackFailurePlan.planId },
+      }));
+      assert.equal(noSceneRollbackFailureApply.status, "applied");
+      try {
+        chmodSync(noSceneRoot, 0o555);
+        await expectToolErrorAt(noSceneEndpoint, "rollback_scene_change", {
+          projectRoot: noSceneRoot,
+          planId: noSceneRollbackFailurePlan.planId,
+        }, /"phase": "rollback"/);
+        await expectToolErrorAt(noSceneEndpoint, "rollback_scene_change", {
+          projectRoot: noSceneRoot,
+          planId: noSceneRollbackFailurePlan.planId,
+        }, /"recoveryRequired": true/);
+        const noSceneRollbackFailureRecovery = await bridgeRequestAt(noSceneBridgeEndpoint, "/v1/project-settings/recovery", {
+          projectRoot: noSceneProjectRoot,
+        });
+        assert.equal(noSceneRollbackFailureRecovery.status, 200, JSON.stringify(noSceneRollbackFailureRecovery.body));
+        assert.deepEqual(noSceneRollbackFailureRecovery.body.recovery, {
+          pending: true,
+          settingKey: "display/window/size/viewport_width",
+          phase: "rollback",
+          journalPresent: true,
+        });
+        const noSceneRollbackFailureSnapshot = await bridgeRequestAt(noSceneBridgeEndpoint, "/v1/project-settings/read", {
+          projectRoot: noSceneProjectRoot,
+          settingKey: "display/window/size/viewport_width",
+        });
+        assert.equal(noSceneRollbackFailureSnapshot.body.snapshot.value, 832);
+      } finally {
+        chmodSync(noSceneRoot, noSceneRootMode);
+      }
+      const noSceneRollbackFailureRetry = structured(await requestAt(noSceneEndpoint, "tools/call", {
+        name: "rollback_scene_change",
+        arguments: { projectRoot: noSceneRoot, planId: noSceneRollbackFailurePlan.planId },
+      }));
+      assert.equal(noSceneRollbackFailureRetry.status, "rolled_back");
+      assert.deepEqual(await readFile(noSceneProjectSettingsFile), noSceneInitialBytes);
+      const noSceneRollbackFailureClean = await bridgeRequestAt(noSceneBridgeEndpoint, "/v1/project-settings/recovery", {
+        projectRoot: noSceneProjectRoot,
+      });
+      assert.equal(noSceneRollbackFailureClean.status, 200, JSON.stringify(noSceneRollbackFailureClean.body));
+      assert.deepEqual(noSceneRollbackFailureClean.body.recovery, {
+        pending: false,
+        settingKey: null,
+        phase: null,
+        journalPresent: false,
+      });
+      stage("rollback-failure injection complete");
+    } finally {
+      chmodSync(noSceneRoot, noSceneRootMode);
+    }
+  } else {
+    stage("permission-failure injection skipped on win32");
+  }
 
   stage("exercise persistent project setting recovery journal");
   const noSceneRecoveryJournalDirectory = path.join(noSceneRoot, ".godot", "godot-safe-change");
