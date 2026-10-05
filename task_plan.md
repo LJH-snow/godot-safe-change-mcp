@@ -463,13 +463,13 @@
 
 ## Phase 41 — 真实权限驱动的 save/rollback 失败注入
 
-状态：in progress
+状态：complete
 
 - [x] runtime smoke 新增目录权限注入阶段：apply 期间目录只读使 `ProjectSettings.save()` 真实失败，插件返回 `OPERATION_REJECTED` + `"phase": "save"` + `"recoveryRequired": false`，文件字节不变、无 pending recovery，权限恢复后同一 plan 重新 apply/rollback 成功。
 - [x] rollback 期间目录只读使临时文件恢复真实失败，插件返回 `"phase": "rollback"` + `"recoveryRequired": true`，pending recovery 镜像到 `.godot/godot-safe-change/` journal（子目录权限独立于项目根），applied 值仍可读；权限恢复后 rollback retry 完成并恢复原始 bytes、清除 recovery 状态与 journal。
 - [x] 实证发现：Godot 4.7.2 的 `ProjectSettings.save()` 以重建文件方式写入，只读文件不能阻止持久化，只读目录才能；注入因此走 POSIX 目录权限，win32 跳过该阶段。
 - [x] 保留边界：verify 阶段读回不匹配与部分写入状态仍只有状态机测试覆盖（无真实注入能令 save 成功而读回不匹配）；journal 持久化要求 `.godot` 子目录可写。
-- [ ] feature branch 四项 required checks 通过后以 merge commit 合入 protected `main`，再写回 PR/run/merge evidence。
+- [x] feature branch PR #48 CI run `37341355376` 四项 required checks（check、npm package boundary、Godot 4.5.1 runtime、Godot 4.7.2 runtime）全部通过，并以 merge commit `bfeee45d000153225586c12fb1ae67286d9ccf05` 合入 protected `main`；双版本 runtime 通过证明目录权限注入在 Godot 4.5.1 与 4.7.2 行为一致。
 
 ## 完成定义
 
