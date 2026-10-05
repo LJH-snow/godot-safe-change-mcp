@@ -61,7 +61,9 @@ The setting lifecycle in `tests/godot-runtime-smoke.mjs` proves the bounded cont
 - Latest local verification for this hardening pass: `npm test` (145 passed), `npm run typecheck`, `npm run build`, `npm run package:check`, `npm run release:check`, `node --check tests/godot-runtime-smoke.mjs`, and `git diff --check` all passed; the full smoke also passed with local Godot 4.7.2.
 - The coordinator recovery seam also preserves applied-plan ownership when a bridge reports `recoveryRequired` without `currentRevision`; a rollback retry refreshes the setting snapshot revision before sending the guarded request, covered by the vertical-link regression suite.
 - Feature branch PR #34 CI run `37274338265` passed all required jobs: `check`, `npm package boundary`, `Godot 4.5.1 runtime`, and `Godot 4.7.2 runtime`. PR #34 merged into protected `main` with merge commit `076be0e3a12f8510bd6a8c82b8ad5e993e5c1eac`.
-- The Phase 37/38 implementation evidence is limited to the focused tests, fixture assertions, and CI jobs named above; it is not a complete security audit. Do not infer additional audit coverage from the CI badge or from this page.
+- Evidence closeout PR #35 passed CI run `37276309244` and merged with commit `826befbaeaf97a878c21ec89577b9e647f95a22e`.
+- Recovery-state fix PR #36 passed CI run `37283430277` across all four required jobs and merged into protected `main` with commit `0efb95d476489eff94b9a48345443a2995877c1d`. The fix preserves applied-plan ownership when `recoveryRequired` omits `currentRevision`, refreshes the setting revision before a rollback retry, and propagates external-edit `REVISION_CONFLICT` without wrapping it as recoverable persistence failure.
+- The Phase 37/38 implementation evidence is limited to the focused tests, fixture assertions, and CI jobs named above; it is not a complete security audit. Do not infer additional audit coverage from the CI badge or from this page. Remaining limitations include filesystem check-then-rename TOCTOU, process-local recovery state, cross-platform rename durability, and the absence of production save-failure injection.
 
 ## Safety interpretation
 
