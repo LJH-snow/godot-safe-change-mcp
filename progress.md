@@ -471,3 +471,10 @@
 - manifest 定稿 PR #46 以 merge commit `1d536b7` 合入：`docs/releases/v1.3.0.json` 指向发布 run `37335844387`；`npm run release:check` 通过。
 - npm 发布由用户完成交互式 OTP 认证后成功：`+ godot-safe-change-mcp@1.3.0`；registry 核验 `dist-tags.latest = 1.3.0`，tarball shasum `cc37668ff71304f20d7ab74eebc78187ce7f0dfb`，与发布终端输出一致；包边界仍为 16 个文件，无源码/测试/内部文档泄漏。
 - 发布前 Mimosa 深度扫描重跑完成（scan id `scan-2026-10-05T15-07-24.744Z-9c70ca31ca85`，seal `sha256:d05e7b7a8351c5f3427583b225e748f5ddab3df284ec29337670d97843429798`，0 findings、116 依赖包 0 告警）；static-only 边界不变，不宣称完整安全审计。
+
+## 2026-10-06 真实权限驱动的 save/rollback 失败注入
+
+- runtime smoke 以目录权限真实注入两类此前只有状态机/fake 覆盖的失败：apply 期间项目目录只读使 `ProjectSettings.save()` 失败（`OPERATION_REJECTED` + `phase=save` + `recoveryRequired=false`，文件字节不变、无 pending recovery、权限恢复后同一 plan 重试成功）；rollback 期间目录只读使临时文件恢复失败（`phase=rollback` + `recoveryRequired=true`，pending recovery 镜像到 journal，applied 值可读，权限恢复后 retry 完成并恢复原始 bytes）。
+- 实证发现：Godot 4.7.2 的 `ProjectSettings.save()` 以重建文件方式写入——只读文件（0o444）拦不住持久化，只有只读目录（0o555）能阻断 save 与恢复写入；journal 位于 `.godot` 子目录，权限独立于项目根，真实 rollback 失败时仍能成功写入。win32 跳过注入阶段。
+- 本地验证：`npm test` 147 项通过、typecheck、build、package:check、release:check、smoke syntax、`git diff --check` 全部通过；本机 Godot 4.7.2 全量 runtime smoke（含两个注入阶段）通过。
+- 保留边界：verify 阶段读回不匹配与部分写入状态仍无真实注入；journal 持久化要求 `.godot` 子目录可写；本条目不构成完整安全审计。
