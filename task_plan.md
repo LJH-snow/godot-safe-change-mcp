@@ -445,6 +445,7 @@
 - [x] editor context contract 增加可选 `projectSettingRecovery` 字段；TypeScript 145 项测试通过。
 - [x] runtime smoke 新增 journal 阶段：启动自动恢复、外部编辑采纳（bytes 逐字节保持）、pending recovery 经 MCP 工具阻断新 apply；本机 Godot 4.7.2 全量 smoke 通过。
 - [x] Mimosa 深度扫描完成：0 findings、116 依赖包 0 告警（scan id `scan-2026-10-05T11-42-28.713Z-2ac030a7df9a`）；证据边界 static-only，不宣称完整安全审计。
+- [x] PR #38 CI run `37307739752` 四项 required jobs 全部通过，并以 merge commit `4e5b02185bc09f3c1cfcac78e57501000bee239e` 合入 protected `main`；本地 `main` 同步一致，working tree clean。
 - [x] 剩余边界如实保留：filesystem TOCTOU、跨平台 rename durability、无生产 save-failure injection；journal 为单项目崩溃恢复，非跨编辑器锁。
 
 ## 完成定义

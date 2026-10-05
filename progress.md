@@ -452,3 +452,4 @@
 - 本地验证：145 项测试、typecheck、build、package:check、release:check、smoke syntax、`git diff --check` 全通过；本机 Godot 4.7.2 全量 runtime smoke（含 journal 阶段）通过。
 - Mimosa 深度扫描完成：scan id `scan-2026-10-05T11-42-28.713Z-2ac030a7df9a`，seal `sha256:1780c3cf932d5b45820d72b993268e8fead51d1cc8145c043c56ef54c4e91ce1`，0 findings、116 个依赖包 0 告警；证据边界为 static-only，不替代 runtime smoke，也不等同于完整安全审计。
 - 仍保留的限制：filesystem check-then-rename TOCTOU、跨平台 rename durability、无生产 save-failure injection；journal 为进程崩溃恢复，非跨编辑器并发锁。
+- 持久化 recovery journal 的 PR #38 通过 CI run `37307739752` 的四项 required jobs（check、npm package boundary、Godot 4.5.1 runtime、Godot 4.7.2 runtime），并以 merge commit `4e5b02185bc09f3c1cfcac78e57501000bee239e` 合入 protected `main`；本地 `main` 已同步到该 tip，working tree clean。
