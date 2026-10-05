@@ -190,7 +190,7 @@ preview → confirm → lease/revision check → apply → verify → rollback (
 
 ### 项目设置边界
 
-`project.setting.set` 刻意不是通用 ProjectSettings setter，只允许三个 key：`application/run/main_scene`（必须是项目内已存在的 `res://` `.tscn`）、`display/window/size/viewport_width` 和 `display/window/size/viewport_height`（只能是 1..16384 的整数）。严格的 `settingKey`/`value` 对象会拒绝未知 key、额外字段、遍历路径、小数、非有限数值和不存在的场景。这是项目级生命周期：project.setting.set 的 preview、confirm、apply、rollback 不要求当前场景存在；`/v1/project-settings/read` 对未配置的 main scene 返回 `exists: false`、`value: null`。
+`project.setting.set` 刻意不是通用 ProjectSettings setter，只允许三个 key：`application/run/main_scene`（必须是项目内已存在的 `res://` `.tscn`，或由 Godot `ResourceUID` registry 解析到该场景的 `uid://` 引用）、`display/window/size/viewport_width` 和 `display/window/size/viewport_height`（只能是 1..16384 的整数）。用户提供的主场景 path 或 uid 会按原始形式持久化，snapshot 也会原样返回。严格的 `settingKey`/`value` 对象会拒绝未知 key、额外字段、遍历路径、小数、非有限数值和不存在的场景。这是项目级生命周期：project.setting.set 的 preview、confirm、apply、rollback 不要求当前场景存在；`/v1/project-settings/read` 对未配置的 main scene 返回 `exists: false`、`value: null`。
 
 revision 来自完整 `project.godot` 文件字节，并在 preview、confirm、apply、rollback 逐阶段检查。Godot 通过 `ProjectSettings.save()` 持久化，但桥接层另行从磁盘用 `ConfigFile` 读取并校验 typed value，内存中的 ProjectSettings 值不能单独视为成功读回。apply/rollback 都保存原始字节和尝试写入的字节；保存或读回失败时，通过临时文件加原子 rename 恢复原始字节，并再次核对字节和 revision。恢复失败会返回结构化的 `recoveryRequired: true` 和 `phase`（例如 `save`、`verify`、`rollback`、`rollback-verify`）；存在待恢复状态时，新的 project.setting.set apply 会被阻止，直到恢复完成。用户外部编辑会使 rollback 返回 <code>REVISION_CONFLICT</code>，保留当前文件，不覆盖用户内容。
 

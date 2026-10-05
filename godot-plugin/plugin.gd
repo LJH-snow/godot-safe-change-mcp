@@ -346,11 +346,24 @@ func _is_valid_project_setting_value(setting_key: String, value: Variant) -> boo
     if setting_type == "scene_path":
         if typeof(value) != TYPE_STRING:
             return false
-        var scene_path := String(value)
-        return _is_safe_scene_path(scene_path) and FileAccess.file_exists(scene_path)
+        var scene_value := String(value)
+        if scene_value.begins_with("uid://"):
+            return _resolve_main_scene_uid(scene_value) != ""
+        return _is_safe_scene_path(scene_value) and FileAccess.file_exists(scene_value)
     if setting_type == "integer":
         return _is_valid_integer(value, 1.0, 16384.0)
     return false
+
+func _resolve_main_scene_uid(uid_text: String) -> String:
+    if not uid_text.begins_with("uid://"):
+        return ""
+    var uid_id := ResourceUID.text_to_id(uid_text)
+    if uid_id == ResourceUID.INVALID_ID or not ResourceUID.has_id(uid_id):
+        return ""
+    var scene_path := ResourceUID.get_id_path(uid_id)
+    if scene_path == "" or not _is_safe_scene_path(scene_path):
+        return ""
+    return scene_path
 
 func _copy_project_setting_value(value: Variant) -> Variant:
     if typeof(value) == TYPE_ARRAY or typeof(value) == TYPE_DICTIONARY:
@@ -1184,7 +1197,7 @@ func _validate_project_setting_operation(operation: Dictionary) -> Dictionary:
         return _failure("UNSAFE_OPERATION", "The requested project setting is not allowlisted.")
     if not _is_valid_project_setting_value(setting_key, operation["value"]):
         if String(ALLOWED_PROJECT_SETTINGS[setting_key]) == "scene_path":
-            return _failure("VALIDATION_FAILED", "value must be an existing project-relative res:// .tscn scene path.")
+            return _failure("VALIDATION_FAILED", "value must be an existing project-relative res:// .tscn scene path or a uid:// reference that resolves to one.")
         return _failure("VALIDATION_FAILED", "value must be an integer from 1 through 16384.")
     return {}
 

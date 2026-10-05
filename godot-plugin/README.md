@@ -26,7 +26,7 @@ Enable Godot Safe Change Bridge in Project Settings > Plugins. The plugin starts
 - scene.instantiate_scene loads an existing project-local PackedScene, assigns the instance root to the edited scene owner, and records add/remove callbacks in UndoRedo; the source scene revision is checked before apply.
 - POST /v1/project-settings/read returns one typed snapshot from the allowlisted project.godot settings. It is a project-level route and does not require a current scene; an unconfigured application/run/main_scene is reported as exists=false and value=null.
 - POST /v1/project-settings/recovery reports the pending project-setting recovery status (pending, settingKey, phase, journalPresent) and optionally re-runs the startup journal scan with {"projectRoot": ..., "action": "scan"}. It is read-only plus scan; it never mutates settings directly.
-- project.setting.set accepts exactly application/run/main_scene, display/window/size/viewport_width, or display/window/size/viewport_height. Main-scene writes require an existing project-local res:// .tscn; viewport writes require integers from 1 through 16384.
+- project.setting.set accepts exactly application/run/main_scene, display/window/size/viewport_width, or display/window/size/viewport_height. Main-scene writes require an existing project-local res:// .tscn, or a uid:// reference that the editor's ResourceUID registry resolves to one; the persisted value keeps the exact form supplied (path or uid). Viewport writes require integers from 1 through 16384.
 - POST /v1/run/current starts the current saved scene and returns a run snapshot.
 - POST /v1/run/status returns the current snapshot for the requested run ID.
 

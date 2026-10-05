@@ -4,6 +4,7 @@ All notable changes to Godot Safe Change MCP will be documented here.
 
 ## Unreleased
 
+- Added uid:// support for project.setting.set main scene values: application/run/main_scene now accepts a project scene UID reference that the editor's ResourceUID registry resolves to an existing project-local .tscn; snapshots report persisted path or uid values verbatim and the supplied form is preserved on save. This also makes projects whose main scene is already stored as a uid readable through the typed snapshot contract.
 - Nothing yet.
 
 ## 1.2.0 - 2026-10-05
