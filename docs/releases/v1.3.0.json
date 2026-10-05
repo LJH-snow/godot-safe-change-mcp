@@ -2,7 +2,7 @@
   "version": "1.3.0",
   "tag": "v1.3.0",
   "commit": "32f8c8633803799d87fe6852a4e6ed7909dc8e5d",
-  "ciRunUrl": "https://github.com/LJH-snow/godot-safe-change-mcp/actions/runs/37320210786",
+  "ciRunUrl": "https://github.com/LJH-snow/godot-safe-change-mcp/actions/runs/37335844387",
   "ciJobs": [
     "check",
     "npm package boundary",
