@@ -420,7 +420,7 @@
 
 ## Phase 38 — project.setting.set 持久化与无场景生命周期加固
 
-状态：implementation complete; remote CI pending
+状态：complete
 
 - [x] 将 project-level preview、confirm、apply、rollback 与当前编辑场景解耦；scene operation 仍保留当前场景前置条件。
 - [x] 增加 no-scene runtime fixture 和未配置 main scene fixture；缺失或空 main scene 稳定返回 `exists=false`、`value=null`。
@@ -428,8 +428,8 @@
 - [x] 为保存、读回、补偿和 rollback recovery 保留结构化 `recoveryRequired`/`phase` 状态；pending recovery 保持 applied plan ownership，并阻止新的 project-setting mutation 覆盖待恢复状态。
 - [x] 增加缺省 viewport 内建默认值 no-op 测试、HTTP malformed/wrong-key 测试、外部编辑冲突、rollback retry、no-scene bytes/revision 和 absent-main-scene 真实 smoke 断言。
 - [x] 本地验证：144 项测试通过；`npm run typecheck`、`npm run build`、`npm run package:check`、`npm run release:check`、smoke syntax 和 `git diff --check` 通过；本机 Godot 4.7.2 全量 smoke 通过。
-- [ ] 运行 feature branch 的 Godot 4.5.1/4.7.2 required CI checks，并在全部通过后创建 merge-commit PR 合入 protected `main`。
-- [ ] 保留并在最终报告中说明未完全解决的边界：filesystem check-then-rename TOCTOU、跨进程 recovery journal、跨平台 rename durability，以及未注入生产故障开关的真实 save-failure runtime 路径。
+- [x] feature branch CI run `37274338265` 的 `check`、`npm package boundary`、Godot 4.5.1 runtime 和 Godot 4.7.2 runtime 全部成功；PR #34 已以 merge commit `076be0e3a12f8510bd6a8c82b8ad5e993e5c1eac` 合入 protected `main`。
+- [x] 保留并在最终报告中说明未完全解决的边界：filesystem check-then-rename TOCTOU、跨进程 recovery journal、跨平台 rename durability，以及未注入生产故障开关的真实 save-failure runtime 路径。
 
 ## 完成定义
 
