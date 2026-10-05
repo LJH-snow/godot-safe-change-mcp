@@ -1,0 +1,16 @@
+{
+  "version": "1.2.0",
+  "tag": "v1.2.0",
+  "commit": "ed85020bba600410ef4a4950f70e02d523a418cf",
+  "ciRunUrl": "https://github.com/LJH-snow/godot-safe-change-mcp/actions/runs/37308121001",
+  "ciJobs": [
+    "check",
+    "npm package boundary",
+    "Godot 4.5.1 runtime",
+    "Godot 4.7.2 runtime"
+  ],
+  "artifacts": {
+    "starter": "examples/starter/README.md",
+    "demo": "docs/assets/mcp-safe-change-demo.gif"
+  }
+}

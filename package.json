@@ -4,7 +4,7 @@
   "engines": {
     "node": ">=22.22.2"
   },
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "An MCP server for reviewable and verifiable Godot project changes",
   "author": "Project owner",
   "license": "MIT",
