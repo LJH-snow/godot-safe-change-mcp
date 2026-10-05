@@ -462,3 +462,4 @@
 - fixture `instance_source.tscn` 固定 uid `uid://cl4wq1e801cq5`；新增 vertical-link 回归（uid 生命周期、persisted uid 快照 no-op、malformed uid 契约拒绝），本地 147 项测试通过。
 - runtime smoke 新增 uid 阶段：uid apply 持久化 `run/main_scene="uid://cl4wq1e801cq5"`、snapshot 原样回读、rollback 恢复原始 bytes；未注册 uid 在插件侧 apply 被稳定拒绝为 `VALIDATION_FAILED` 且文件不变。本机 Godot 4.7.2 全量 smoke 通过。
 - 其余键值约束、三键 allowlist、revision/lease/recovery 语义不变；本条目仍不构成完整安全审计。
+- PR #43（head `c10d8c5532216d29219283345fceb0648abf2a98`）的 CI run `37317993227` 四项 required checks 全部通过，并以 merge commit `810229c1006bc02fbe494511e98a1a8b791f5868` 合入 protected `main`；本地 `main` 已同步且 working tree clean。uid 支持属于 Unreleased，未回写已发布 npm `1.2.0`。
