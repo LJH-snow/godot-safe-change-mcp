@@ -453,3 +453,4 @@
 - Mimosa 深度扫描完成：scan id `scan-2026-10-05T11-42-28.713Z-2ac030a7df9a`，seal `sha256:1780c3cf932d5b45820d72b993268e8fead51d1cc8145c043c56ef54c4e91ce1`，0 findings、116 个依赖包 0 告警；证据边界为 static-only，不替代 runtime smoke，也不等同于完整安全审计。
 - 仍保留的限制：filesystem check-then-rename TOCTOU、跨平台 rename durability、无生产 save-failure injection；journal 为进程崩溃恢复，非跨编辑器并发锁。
 - 持久化 recovery journal 的 PR #38 通过 CI run `37307739752` 的四项 required jobs（check、npm package boundary、Godot 4.5.1 runtime、Godot 4.7.2 runtime），并以 merge commit `4e5b02185bc09f3c1cfcac78e57501000bee239e` 合入 protected `main`；本地 `main` 已同步到该 tip，working tree clean。
+- v1.2.0 已正式发布：tag `v1.2.0` 指向 release commit `33a1bd68174e129cbd3514935c84299bff8577df`（CI run `37309602680` 四项 required jobs 全绿）；GitHub Release 已创建；npm registry `latest` 现为 `1.2.0`，tarball shasum `b0f0aebfaee952afb3fa938ac9e5d7207efa6354`，与发布前人工核验的包边界一致（16 个文件，无源码/测试/文档/CI 泄漏）。
