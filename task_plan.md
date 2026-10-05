@@ -435,6 +435,18 @@
 - [x] 最终同步核对：本地 `main` 与 `origin/main` 一致，当前 tip 为 `0efb95d`，working tree clean。
 - [x] 保留并在最终报告中说明未完全解决的边界：filesystem check-then-rename TOCTOU、跨进程 recovery journal、跨平台 rename durability，以及未注入生产故障开关的真实 save-failure runtime 路径。
 
+## Phase 39 — 持久化 recovery journal 与完整深度扫描
+
+状态：complete
+
+- [x] pending 的 project-setting recovery 镜像到 `res://.godot/godot-safe-change/project-settings-recovery.json`（original/applied bytes、revisions、phase、planId），clean 完成即删除。
+- [x] 插件启动扫描 journal：applied bytes 匹配时原子还原原始 bytes 并清 journal；已是原始 bytes 时仅清 journal；外部编辑以 `phase=external-edit` 采纳为 pending recovery，不覆盖用户字节。
+- [x] `/v1/context` 暴露只读 `projectSettingRecovery` 状态；新增 `POST /v1/project-settings/recovery`（只读 + `action=scan`）。
+- [x] editor context contract 增加可选 `projectSettingRecovery` 字段；TypeScript 145 项测试通过。
+- [x] runtime smoke 新增 journal 阶段：启动自动恢复、外部编辑采纳（bytes 逐字节保持）、pending recovery 经 MCP 工具阻断新 apply；本机 Godot 4.7.2 全量 smoke 通过。
+- [x] Mimosa 深度扫描完成：0 findings、116 依赖包 0 告警（scan id `scan-2026-10-05T11-42-28.713Z-2ac030a7df9a`）；证据边界 static-only，不宣称完整安全审计。
+- [x] 剩余边界如实保留：filesystem TOCTOU、跨平台 rename durability、无生产 save-failure injection；journal 为单项目崩溃恢复，非跨编辑器锁。
+
 ## 完成定义
 
 只有在验收标准全部满足、自动化检查通过，并且真实或 fixture Godot 链路有可复现证据后，才将所有阶段标记为 `complete`。

@@ -442,3 +442,13 @@
 - recovery ownership 修复 commit `d89bd6791c1f88991bf311dd3bdc19ff9a8a8aea` 的 PR #36 通过 CI run `37283430277` 的四项 required jobs，并以 merge commit `0efb95d476489eff94b9a48345443a2995877c1d` 合入 protected `main`；该修复覆盖缺少 `currentRevision` 时保留 applied-plan ownership、rollback retry 刷新 revision，以及外部编辑 `REVISION_CONFLICT` 的原样传播。
 - 本地 `main` 已同步到 `origin/main` 的 `0efb95d`，working tree clean。
 - 本阶段仍是受限实现与验证记录，不表示完成了完整安全审计；filesystem TOCTOU、跨进程 recovery journal、跨平台 rename durability 和真实 save-failure injection 仍作为限制保留。
+
+## 2026-10-05 persistent recovery journal 与完整深度扫描
+
+- pending 的 project.setting.set recovery 现在镜像到 `res://.godot/godot-safe-change/project-settings-recovery.json`；插件启动时扫描 journal：文件仍等于 captured applied bytes 时按原子的字节恢复路径还原原始 bytes 并清除 journal；文件已是原始 bytes 时仅清除 journal；文件与两者都不同（外部编辑）时以 `phase=external-edit` 采纳为 pending recovery，保留用户字节并继续阻断新的 project-setting apply。
+- `/v1/context` 暴露只读 `projectSettingRecovery` 状态（pending/settingKey/phase），新增 bridge 路由 `POST /v1/project-settings/recovery` 只读报告状态，`action=scan` 时重跑启动扫描；editor context contract 相应增加 optional 字段。
+- journal 恢复只在当前 bytes 与 captured applied snapshot 完全一致时写回 captured original bytes，不会覆盖任何外部编辑；journal 位于项目 `.godot` 缓存目录内，随项目隔离、clean 完成即删除；这是单项目内的崩溃恢复，不是跨编辑器锁。
+- runtime smoke 新增 journal 阶段：启动自动恢复（journal 清除、snapshot 回到 640）、外部编辑采纳（bytes 逐字节保持、context 报 pending、经 MCP 工具的新 apply 被 `OPERATION_REJECTED` 阻断）。
+- 本地验证：145 项测试、typecheck、build、package:check、release:check、smoke syntax、`git diff --check` 全通过；本机 Godot 4.7.2 全量 runtime smoke（含 journal 阶段）通过。
+- Mimosa 深度扫描完成：scan id `scan-2026-10-05T11-42-28.713Z-2ac030a7df9a`，seal `sha256:1780c3cf932d5b45820d72b993268e8fead51d1cc8145c043c56ef54c4e91ce1`，0 findings、116 个依赖包 0 告警；证据边界为 static-only，不替代 runtime smoke，也不等同于完整安全审计。
+- 仍保留的限制：filesystem check-then-rename TOCTOU、跨平台 rename durability、无生产 save-failure injection；journal 为进程崩溃恢复，非跨编辑器并发锁。

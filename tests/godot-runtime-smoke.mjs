@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { cp, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
@@ -544,6 +544,121 @@ try {
   assert.equal(noSceneMainSceneAfterRollback.body.snapshot.revision, noSceneMainScenePlan.expectedFileRevision);
   assert.equal(fileRevision(await readFile(noSceneProjectSettingsFile)), fileRevision(noSceneInitialBytes));
   stage("no-scene project setting lifecycle complete");
+
+  stage("exercise persistent project setting recovery journal");
+  const noSceneRecoveryJournalDirectory = path.join(noSceneRoot, ".godot", "godot-safe-change");
+  const noSceneRecoveryJournalFile = path.join(noSceneRecoveryJournalDirectory, "project-settings-recovery.json");
+  const noSceneRecoveryClean = await bridgeRequestAt(noSceneBridgeEndpoint, "/v1/project-settings/recovery", {
+    projectRoot: noSceneProjectRoot,
+  });
+  assert.equal(noSceneRecoveryClean.status, 200, JSON.stringify(noSceneRecoveryClean.body));
+  assert.deepEqual(noSceneRecoveryClean.body.recovery, {
+    pending: false,
+    settingKey: null,
+    phase: null,
+    journalPresent: false,
+  });
+
+  const writeNoSceneRecoveryJournal = async (originalBytes, appliedBytes, planId) => {
+    await mkdir(noSceneRecoveryJournalDirectory, { recursive: true });
+    await writeFile(noSceneRecoveryJournalFile, JSON.stringify({
+      schemaVersion: "0.1",
+      projectRoot: noSceneProjectRoot,
+      settingKey: "display/window/size/viewport_width",
+      originalExists: true,
+      originalValue: 640,
+      originalEffectiveValue: 640,
+      originalRevision: fileRevision(originalBytes),
+      originalBytes: originalBytes.toString("base64"),
+      appliedValue: 1280,
+      appliedRevision: fileRevision(appliedBytes),
+      appliedBytes: appliedBytes.toString("base64"),
+      phase: "save",
+      planId,
+      savedAt: Math.floor(Date.now() / 1000),
+    }));
+  };
+  const noSceneJournalAppliedBytes = Buffer.from(
+    noSceneInitialText.replace("viewport_width=640", "viewport_width=1280"),
+    "utf8",
+  );
+
+  await writeFile(noSceneProjectSettingsFile, noSceneJournalAppliedBytes);
+  await writeNoSceneRecoveryJournal(noSceneInitialBytes, noSceneJournalAppliedBytes, "smoke-journal-restore");
+  const noSceneJournalScan = await bridgeRequestAt(noSceneBridgeEndpoint, "/v1/project-settings/recovery", {
+    projectRoot: noSceneProjectRoot,
+    action: "scan",
+  });
+  assert.equal(noSceneJournalScan.status, 200, JSON.stringify(noSceneJournalScan.body));
+  assert.deepEqual(noSceneJournalScan.body.recovery, {
+    pending: false,
+    settingKey: null,
+    phase: null,
+    journalPresent: false,
+  });
+  assert.deepEqual(await readFile(noSceneProjectSettingsFile), noSceneInitialBytes);
+  const noSceneJournalRestored = await bridgeRequestAt(noSceneBridgeEndpoint, "/v1/project-settings/read", {
+    projectRoot: noSceneProjectRoot,
+    settingKey: "display/window/size/viewport_width",
+  });
+  assert.equal(noSceneJournalRestored.body.snapshot.value, 640);
+  assert.equal(noSceneJournalRestored.body.snapshot.revision, fileRevision(noSceneInitialBytes));
+
+  const noSceneExternallyEditedBytes = Buffer.concat([
+    noSceneJournalAppliedBytes,
+    Buffer.from("# external smoke edit\n", "utf8"),
+  ]);
+  await writeFile(noSceneProjectSettingsFile, noSceneExternallyEditedBytes);
+  await writeNoSceneRecoveryJournal(noSceneInitialBytes, noSceneJournalAppliedBytes, "smoke-journal-external");
+  const noSceneExternalScan = await bridgeRequestAt(noSceneBridgeEndpoint, "/v1/project-settings/recovery", {
+    projectRoot: noSceneProjectRoot,
+    action: "scan",
+  });
+  assert.equal(noSceneExternalScan.status, 200, JSON.stringify(noSceneExternalScan.body));
+  assert.deepEqual(noSceneExternalScan.body.recovery, {
+    pending: true,
+    settingKey: "display/window/size/viewport_width",
+    phase: "external-edit",
+    journalPresent: true,
+  });
+  assert.deepEqual(await readFile(noSceneProjectSettingsFile), noSceneExternallyEditedBytes);
+  const noSceneExternalContext = await bridgeRequestAt(noSceneBridgeEndpoint, "/v1/context", {
+    projectRoot: noSceneProjectRoot,
+  });
+  assert.deepEqual(noSceneExternalContext.body.context.projectSettingRecovery, {
+    pending: true,
+    settingKey: "display/window/size/viewport_width",
+    phase: "external-edit",
+  });
+  const noSceneBlockedPlan = structured(await requestAt(noSceneEndpoint, "tools/call", {
+    name: "preview_scene_change",
+    arguments: {
+      projectRoot: noSceneRoot,
+      reason: "A new apply must stay blocked while journal recovery is pending.",
+      operation: {
+        kind: "project.setting.set",
+        settingKey: "application/run/main_scene",
+        value: "res://instance_source.tscn",
+      },
+    },
+  }));
+  await requestAt(noSceneEndpoint, "tools/call", {
+    name: "confirm_scene_change",
+    arguments: {
+      projectRoot: noSceneRoot,
+      planId: noSceneBlockedPlan.planId,
+      expectedRevision: noSceneBlockedPlan.expectedRevision,
+    },
+  });
+  await expectToolErrorAt(noSceneEndpoint, "apply_scene_change", {
+    projectRoot: noSceneRoot,
+    planId: noSceneBlockedPlan.planId,
+  }, /OPERATION_REJECTED/);
+  await rm(noSceneRecoveryJournalFile, { force: true });
+  await writeFile(noSceneProjectSettingsFile, noSceneInitialBytes);
+  stage("persistent recovery journal complete");
+  await stopProcess(noSceneMcpProcess);
+  await stopProcess(noSceneGodotProcess);
   await stopProcess(noSceneMcpProcess);
   await stopProcess(noSceneGodotProcess);
   noSceneMcpProcess = undefined;

@@ -113,6 +113,13 @@ export const editorContextSchema = z.object({
   }),
   selection: z.array(sceneNodeSchema),
   openResources: z.array(z.string()),
+  projectSettingRecovery: z
+    .object({
+      pending: z.boolean(),
+      settingKey: z.string().nullable(),
+      phase: z.string().nullable(),
+    })
+    .optional(),
   run: editorRunStateSchema,
   diagnostics: diagnosticsSchema,
 });
