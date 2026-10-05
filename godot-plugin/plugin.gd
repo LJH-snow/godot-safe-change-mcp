@@ -59,7 +59,14 @@ var last_autoload_applied_revision := ""
 var last_project_setting_key := ""
 var last_project_setting_original_exists := false
 var last_project_setting_original_value: Variant = null
+var last_project_setting_original_effective_value: Variant = null
+var last_project_setting_original_bytes := PackedByteArray()
+var last_project_setting_original_revision := ""
+var last_project_setting_applied_value: Variant = null
+var last_project_setting_applied_bytes := PackedByteArray()
 var last_project_setting_applied_revision := ""
+var last_project_setting_pending_recovery := false
+var last_project_setting_recovery_phase := ""
 var diagnostics := {
     "output": [],
     "warnings": [],
@@ -353,41 +360,115 @@ func _project_setting_values_equal(left: Variant, right: Variant) -> bool:
         return false
     return left == right
 
-func _restore_project_setting_in_memory(setting_key: String, original_exists: bool, original_value: Variant) -> void:
-    if original_exists:
-        ProjectSettings.set_setting(setting_key, _copy_project_setting_value(original_value))
-    else:
-        ProjectSettings.clear(setting_key)
+func _project_setting_disk_key(setting_key: String) -> Dictionary:
+    match setting_key:
+        "application/run/main_scene":
+            return {"section": "application", "key": "run/main_scene"}
+        "display/window/size/viewport_width":
+            return {"section": "display", "key": "window/size/viewport_width"}
+        "display/window/size/viewport_height":
+            return {"section": "display", "key": "window/size/viewport_height"}
+        _:
+            return {}
 
-func _project_setting_snapshot(setting_key: String) -> Dictionary:
+func _project_setting_default_value(setting_key: String) -> Variant:
+    match setting_key:
+        "application/run/main_scene":
+            return ""
+        "display/window/size/viewport_width":
+            return 1152
+        "display/window/size/viewport_height":
+            return 648
+        _:
+            return null
+
+func _read_project_settings_bytes() -> PackedByteArray:
+    var project_path := ProjectSettings.globalize_path("res://project.godot")
+    if not FileAccess.file_exists(project_path):
+        return PackedByteArray()
+    var file := FileAccess.open(project_path, FileAccess.READ)
+    if file == null:
+        return PackedByteArray()
+    var bytes := file.get_buffer(file.get_length())
+    file.close()
+    return bytes
+
+func _project_settings_revision_from_bytes(bytes: PackedByteArray) -> String:
+    var hashing_context := HashingContext.new()
+    if hashing_context.start(HashingContext.HASH_SHA256) != OK:
+        return ""
+    if hashing_context.update(bytes) != OK:
+        return ""
+    return hashing_context.finish().hex_encode()
+
+func _project_setting_disk_snapshot(setting_key: String) -> Dictionary:
     if not _is_allowed_project_setting_key(setting_key):
         return _failure("UNSAFE_OPERATION", "The requested project setting is not allowlisted.")
 
-    var revision := _project_settings_revision()
+    var bytes := _read_project_settings_bytes()
+    var revision := _project_settings_revision_from_bytes(bytes)
     if revision == "":
         return _failure("OPERATION_REJECTED", "Godot could not read the project settings file revision.", 409)
 
-    var exists := ProjectSettings.has_setting(setting_key)
-    var value: Variant = null
-    if exists:
-        value = ProjectSettings.get_setting(setting_key, null)
-        if not _is_valid_project_setting_value(setting_key, value):
-            return _failure(
-                "OPERATION_REJECTED",
-                "The existing project setting does not match its bounded type.",
-                409,
-                {"settingKey": setting_key},
-            )
-        value = _normalize_project_setting_value(setting_key, value)
+    var config := ConfigFile.new()
+    var load_error := config.load("res://project.godot")
+    if load_error != OK:
+        return _failure("OPERATION_REJECTED", "Godot could not parse the project settings file.", 409, {"error": load_error})
+
+    var disk_key := _project_setting_disk_key(setting_key)
+    var persisted := config.has_section_key(String(disk_key["section"]), String(disk_key["key"]))
+    var raw_value: Variant = null
+    var effective_value: Variant = _project_setting_default_value(setting_key)
+    if persisted:
+        raw_value = config.get_value(String(disk_key["section"]), String(disk_key["key"]), null)
+        effective_value = raw_value
+
+    if String(ALLOWED_PROJECT_SETTINGS[setting_key]) == "scene_path":
+        if not persisted or String(effective_value) == "":
+            return {
+                "ok": true,
+                "snapshot": {"settingKey": setting_key, "exists": false, "value": null, "revision": revision},
+                "bytes": bytes,
+                "persisted": persisted,
+                "effectiveValue": "",
+            }
+    if not _is_valid_project_setting_value(setting_key, effective_value):
+        return _failure(
+            "OPERATION_REJECTED",
+            "The existing project setting does not match its bounded type.",
+            409,
+            {"settingKey": setting_key},
+        )
+
+    var normalized_value := _normalize_project_setting_value(setting_key, effective_value)
     return {
         "ok": true,
         "snapshot": {
             "settingKey": setting_key,
-            "exists": exists,
-            "value": value if exists else null,
+            "exists": persisted,
+            "value": normalized_value if persisted else null,
             "revision": revision,
         },
+        "bytes": bytes,
+        "persisted": persisted,
+        "effectiveValue": normalized_value,
     }
+
+func _restore_project_setting_in_memory(setting_key: String, original_exists: bool, original_value: Variant) -> void:
+    if not original_exists:
+        ProjectSettings.clear(setting_key)
+        return
+    var value := _copy_project_setting_value(original_value)
+    if value == null:
+        ProjectSettings.clear(setting_key)
+    else:
+        ProjectSettings.set_setting(setting_key, value)
+
+func _project_setting_snapshot(setting_key: String) -> Dictionary:
+    var disk_result := _project_setting_disk_snapshot(setting_key)
+    if not disk_result.get("ok", false):
+        return disk_result
+    return {"ok": true, "snapshot": disk_result["snapshot"]}
 
 func _read_project_setting(body: Variant) -> Dictionary:
     if typeof(body) != TYPE_DICTIONARY:
@@ -489,15 +570,156 @@ func _input_event_snapshot(event: Variant) -> Dictionary:
     }
 
 func _project_settings_revision() -> String:
+    return _project_settings_revision_from_bytes(_read_project_settings_bytes())
+
+func _atomic_replace_project_settings_bytes(
+    bytes: PackedByteArray,
+    operation_id: String,
+    expected_current_bytes: PackedByteArray = PackedByteArray(),
+    has_expected_current: bool = false
+) -> Dictionary:
+    if bytes.is_empty():
+        return _failure("OPERATION_REJECTED", "The original project settings file is empty or unreadable.", 409)
     var project_path := ProjectSettings.globalize_path("res://project.godot")
-    if not FileAccess.file_exists(project_path):
-        return ""
-    var file := FileAccess.open(project_path, FileAccess.READ)
-    if file == null:
-        return ""
-    var content := file.get_as_text()
-    file.close()
-    return str(content.hash())
+    var temporary_path := project_path + ".safe-change-" + operation_id + ".tmp"
+    if FileAccess.file_exists(temporary_path):
+        return _failure(
+            "OPERATION_REJECTED",
+            "A project settings recovery temporary file already exists.",
+            409,
+            {"phase": "restore", "temporaryPath": temporary_path},
+        )
+    if has_expected_current and _read_project_settings_bytes() != expected_current_bytes:
+        return _failure(
+            "REVISION_CONFLICT",
+            "The project settings changed before recovery could begin; refusing to overwrite external edits.",
+            409,
+            {"phase": "restore", "currentRevision": _project_settings_revision()},
+        )
+
+    var temporary_file := FileAccess.open(temporary_path, FileAccess.WRITE)
+    if temporary_file == null:
+        return _failure("OPERATION_REJECTED", "Godot could not create the project settings recovery file.", 409)
+    temporary_file.store_buffer(bytes)
+    var write_error := temporary_file.get_error()
+    temporary_file.close()
+    if write_error != OK:
+        DirAccess.remove_absolute(temporary_path)
+        return _failure(
+            "OPERATION_REJECTED",
+            "Godot could not write the project settings recovery file.",
+            409,
+            {"error": write_error, "phase": "restore"},
+        )
+
+    var temporary_read := FileAccess.open(temporary_path, FileAccess.READ)
+    if temporary_read == null:
+        DirAccess.remove_absolute(temporary_path)
+        return _failure("OPERATION_REJECTED", "Godot could not verify the project settings recovery file.", 409)
+    var temporary_bytes := temporary_read.get_buffer(temporary_read.get_length())
+    var temporary_read_error := temporary_read.get_error()
+    temporary_read.close()
+    if temporary_read_error != OK or temporary_bytes != bytes:
+        DirAccess.remove_absolute(temporary_path)
+        return _failure(
+            "OPERATION_REJECTED",
+            "Godot could not verify the project settings recovery bytes.",
+            409,
+            {"phase": "restore-verify", "error": temporary_read_error},
+        )
+    if has_expected_current and _read_project_settings_bytes() != expected_current_bytes:
+        DirAccess.remove_absolute(temporary_path)
+        return _failure(
+            "REVISION_CONFLICT",
+            "The project settings changed during recovery; refusing to overwrite external edits.",
+            409,
+            {"phase": "restore", "currentRevision": _project_settings_revision()},
+        )
+
+    var rename_error := DirAccess.rename_absolute(temporary_path, project_path)
+    if rename_error != OK:
+        DirAccess.remove_absolute(temporary_path)
+        return _failure(
+            "OPERATION_REJECTED",
+            "Godot could not atomically restore the project settings file.",
+            409,
+            {"error": rename_error, "phase": "restore"},
+        )
+    var restored_bytes := _read_project_settings_bytes()
+    if restored_bytes != bytes:
+        return _failure(
+            "OPERATION_REJECTED",
+            "Godot could not verify the restored project settings bytes.",
+            409,
+            {"recoveryRequired": true, "phase": "restore-verify"},
+        )
+    return {}
+
+func _recover_project_setting_bytes(
+    original_bytes: PackedByteArray,
+    original_revision: String,
+    attempted_bytes: PackedByteArray,
+    setting_key: String,
+    attempted_value: Variant,
+    operation_id: String
+) -> Dictionary:
+    if original_bytes.is_empty() or original_revision == "":
+        return _failure("OPERATION_REJECTED", "The original project settings state is unavailable.", 409)
+    var current_bytes := _read_project_settings_bytes()
+    var current_revision := _project_settings_revision_from_bytes(current_bytes)
+    if current_revision == original_revision and current_bytes == original_bytes:
+        return {}
+    if current_bytes != attempted_bytes:
+        return _failure(
+            "REVISION_CONFLICT",
+            "The project settings changed during recovery; refusing to overwrite external edits.",
+            409,
+            {"originalRevision": original_revision, "currentRevision": current_revision},
+        )
+    var restore_result := _atomic_replace_project_settings_bytes(
+        original_bytes,
+        operation_id,
+        attempted_bytes,
+        true,
+    )
+    if not restore_result.is_empty():
+        return restore_result
+    if _project_settings_revision() != original_revision or _read_project_settings_bytes() != original_bytes:
+        return _failure(
+            "OPERATION_REJECTED",
+            "The project settings recovery could not be verified.",
+            409,
+            {"recoveryRequired": true, "phase": "restore-verify", "originalRevision": original_revision, "currentRevision": _project_settings_revision()},
+        )
+    return {}
+
+func _remember_project_setting_recovery(
+    request_body: Dictionary,
+    setting_key: String,
+    original_exists: bool,
+    original_value: Variant,
+    original_bytes: PackedByteArray,
+    original_revision: String,
+    attempted_bytes: PackedByteArray,
+    attempted_value: Variant,
+    phase: String
+) -> void:
+    _clear_scene_action_state()
+    _clear_file_action_state()
+    last_applied_plan_id = String(request_body.get("planId", ""))
+    last_applied_revision = _project_settings_revision()
+    last_applied_kind = "project_setting"
+    last_project_setting_key = setting_key
+    last_project_setting_original_exists = original_exists
+    last_project_setting_original_value = _copy_project_setting_value(original_value)
+    last_project_setting_original_effective_value = _copy_project_setting_value(original_value)
+    last_project_setting_original_bytes = original_bytes
+    last_project_setting_original_revision = original_revision
+    last_project_setting_applied_value = _copy_project_setting_value(attempted_value)
+    last_project_setting_applied_bytes = attempted_bytes
+    last_project_setting_applied_revision = last_applied_revision
+    last_project_setting_pending_recovery = true
+    last_project_setting_recovery_phase = phase
 
 func _create_dock() -> void:
     dock = PanelContainer.new()
@@ -1030,6 +1252,48 @@ func _apply_change(body: Variant) -> Dictionary:
     var request_error := _validate_change_request(request_body)
     if not request_error.is_empty():
         return request_error
+
+    var operations: Variant = request_body.get("operations", [])
+    if typeof(operations) != TYPE_ARRAY or operations.size() != 1:
+        return _failure("UNSAFE_OPERATION", "Exactly one bounded operation is supported.")
+    var operation: Variant = operations[0]
+    if typeof(operation) != TYPE_DICTIONARY:
+        return _failure("UNSAFE_OPERATION", "The operation must be a bounded object.")
+
+    if last_project_setting_pending_recovery and String(operation.get("kind", "")) != "project.setting.set":
+        return _failure(
+            "OPERATION_REJECTED",
+            "A previous project setting persistence operation still requires recovery.",
+            409,
+            {"recoveryRequired": true, "phase": last_project_setting_recovery_phase},
+        )
+
+    if String(operation.get("kind", "")) == "project.setting.set":
+        var expected_project_revision := String(request_body.get("expectedRevision", ""))
+        var actual_project_revision := _project_settings_revision()
+        if expected_project_revision == "" or expected_project_revision != actual_project_revision:
+            return _failure(
+                "REVISION_CONFLICT",
+                "The project settings revision does not match the requested revision.",
+                409,
+                {"expectedRevision": expected_project_revision, "actualRevision": actual_project_revision},
+            )
+        if last_project_setting_pending_recovery:
+            return _failure(
+                "OPERATION_REJECTED",
+                "A previous project setting persistence operation still requires recovery.",
+                409,
+                {"recoveryRequired": true, "phase": last_project_setting_recovery_phase},
+            )
+        if last_applied_plan_id != "":
+            return _failure(
+                "PLAN_ALREADY_APPLIED",
+                "Rollback the latest applied plan before applying another plan through this editor bridge.",
+                409,
+                {"planId": last_applied_plan_id},
+            )
+        return _apply_project_setting_change(request_body)
+
     var scene_root := EditorInterface.get_edited_scene_root()
     if scene_root == null:
         return _failure("VALIDATION_FAILED", "A current scene is required before applying a change.")
@@ -1052,13 +1316,8 @@ func _apply_change(body: Variant) -> Dictionary:
             {"planId": last_applied_plan_id},
         )
 
-    var operations: Variant = request_body.get("operations", [])
-    if typeof(operations) != TYPE_ARRAY or operations.size() != 1:
-        return _failure("UNSAFE_OPERATION", "Exactly one bounded scene operation is supported.")
-    var operation: Variant = operations[0]
-    if typeof(operation) != TYPE_DICTIONARY:
-        return _failure("UNSAFE_OPERATION", "The operation must be a bounded object.")
     if String(operation.get("kind", "")) == "script.replace_range":
+
         return _apply_script_change(request_body, scene_root, scene_path)
     if String(operation.get("kind", "")) == "script.create_file":
         return _apply_script_create(request_body, scene_root, scene_path)
@@ -1139,8 +1398,6 @@ func _apply_change(body: Variant) -> Dictionary:
         return _apply_input_action_change(request_body, scene_root, scene_path)
     if String(operation.get("kind", "")) in ["project.autoload.add", "project.autoload.remove"]:
         return _apply_autoload_change(request_body, scene_root, scene_path)
-    if String(operation.get("kind", "")) == "project.setting.set":
-        return _apply_project_setting_change(request_body, scene_root, scene_path)
     var operation_kind := String(operation.get("kind", ""))
     var action_label := ""
     if operation_kind == "scene.delete_node":
@@ -1452,7 +1709,7 @@ func _apply_input_action_change(request_body: Dictionary, scene_root: Node, scen
         "undoLabel": "Godot Safe Change: " + input_action_verb + " input action key",
     })
 
-func _apply_project_setting_change(request_body: Dictionary, scene_root: Node, scene_path: String) -> Dictionary:
+func _apply_project_setting_change(request_body: Dictionary) -> Dictionary:
     var operation: Dictionary = request_body["operations"][0]
     var validation_error := _validate_project_setting_operation(operation)
     if not validation_error.is_empty():
@@ -1461,7 +1718,11 @@ func _apply_project_setting_change(request_body: Dictionary, scene_root: Node, s
     var setting_key := String(operation["settingKey"])
     var next_value: Variant = _normalize_project_setting_value(setting_key, operation["value"])
     var expected_file_revision := String(request_body.get("expectedFileRevision", ""))
-    var actual_file_revision := _project_settings_revision()
+    var original_result := _project_setting_disk_snapshot(setting_key)
+    if not original_result.get("ok", false):
+        return original_result
+    var original_snapshot: Dictionary = original_result["snapshot"]
+    var actual_file_revision := String(original_snapshot["revision"])
     if expected_file_revision == "" or expected_file_revision != actual_file_revision:
         return _failure(
             "REVISION_CONFLICT",
@@ -1469,61 +1730,87 @@ func _apply_project_setting_change(request_body: Dictionary, scene_root: Node, s
             409,
             {"expectedFileRevision": expected_file_revision, "actualFileRevision": actual_file_revision},
         )
+    if last_project_setting_pending_recovery:
+        return _failure(
+            "OPERATION_REJECTED",
+            "A previous project setting persistence operation still requires recovery.",
+            409,
+            {"recoveryRequired": true, "phase": last_project_setting_recovery_phase},
+        )
 
-    var original_exists := ProjectSettings.has_setting(setting_key)
-    var original_value: Variant = null
-    if original_exists:
-        original_value = ProjectSettings.get_setting(setting_key, null)
-        if not _is_valid_project_setting_value(setting_key, original_value):
-            return _failure(
-                "OPERATION_REJECTED",
-                "The existing project setting does not match its bounded type.",
-                409,
-                {"settingKey": setting_key},
-            )
-        original_value = _normalize_project_setting_value(setting_key, original_value)
-    if original_exists and _project_setting_values_equal(original_value, next_value):
-        return _failure("OPERATION_REJECTED", "The requested project setting already has that value.")
+    var original_exists := bool(original_snapshot.get("exists", false))
+    var original_value: Variant = _copy_project_setting_value(original_result.get("effectiveValue", null))
+    if _project_setting_values_equal(original_value, next_value):
+        return _failure("OPERATION_REJECTED", "The requested project setting already has that effective value.")
 
+    var original_bytes: PackedByteArray = original_result.get("bytes", PackedByteArray())
     ProjectSettings.set_setting(setting_key, next_value)
     var save_error := ProjectSettings.save()
+    var attempted_bytes := _read_project_settings_bytes()
     if save_error != OK:
         _restore_project_setting_in_memory(setting_key, original_exists, original_value)
-        return _failure("OPERATION_REJECTED", "Godot could not save the project setting change.", 409, {"error": save_error})
-
-    var readback_exists := ProjectSettings.has_setting(setting_key)
-    var readback_value: Variant = null
-    if readback_exists:
-        readback_value = ProjectSettings.get_setting(setting_key, null)
-    if not readback_exists or not _is_valid_project_setting_value(setting_key, readback_value) or not _project_setting_values_equal(readback_value, next_value):
-        _restore_project_setting_in_memory(setting_key, original_exists, original_value)
-        var restore_error := ProjectSettings.save()
-        if restore_error != OK:
+        var recovery := _recover_project_setting_bytes(original_bytes, actual_file_revision, attempted_bytes, setting_key, next_value, String(request_body.get("planId", "")) + "-save")
+        if not recovery.is_empty():
+            _remember_project_setting_recovery(request_body, setting_key, original_exists, original_value, original_bytes, actual_file_revision, attempted_bytes, next_value, "save")
             return _failure(
                 "OPERATION_REJECTED",
-                "Godot could not verify the saved project setting or restore its original value.",
+                "Godot could not save the project setting and recovery is required.",
                 409,
-                {"error": restore_error},
+                {"error": save_error, "phase": "save", "recoveryRequired": true, "originalRevision": actual_file_revision, "currentRevision": _project_settings_revision()},
             )
-        return _failure("OPERATION_REJECTED", "Godot could not verify the saved project setting change.", 409)
+        return _failure(
+            "OPERATION_REJECTED",
+            "Godot could not save the project setting change; the original file was restored.",
+            409,
+            {"error": save_error, "phase": "save", "recoveryRequired": false, "originalRevision": actual_file_revision},
+        )
+
+    var readback_result := _project_setting_disk_snapshot(setting_key)
+    var readback_ok := readback_result.get("ok", false)
+    if readback_ok:
+        var readback_effective: Variant = readback_result.get("effectiveValue", null)
+        readback_ok = _project_setting_values_equal(readback_effective, next_value)
+    if not readback_ok:
+        _restore_project_setting_in_memory(setting_key, original_exists, original_value)
+        var recovery_error := _recover_project_setting_bytes(original_bytes, actual_file_revision, attempted_bytes, setting_key, next_value, String(request_body.get("planId", "")) + "-verify")
+        if not recovery_error.is_empty():
+            _remember_project_setting_recovery(request_body, setting_key, original_exists, original_value, original_bytes, actual_file_revision, attempted_bytes, next_value, "verify")
+            return _failure(
+                "OPERATION_REJECTED",
+                "Godot could not verify the saved project setting and recovery is required.",
+                409,
+                {"phase": "verify", "recoveryRequired": true, "originalRevision": actual_file_revision, "currentRevision": _project_settings_revision()},
+            )
+        return _failure(
+            "OPERATION_REJECTED",
+            "Godot could not verify the saved project setting; the original file was restored.",
+            409,
+            {"phase": "verify", "recoveryRequired": false, "originalRevision": actual_file_revision},
+        )
 
     var plan_id := String(request_body.get("planId", ""))
-    var applied_revision := _current_revision(scene_root, scene_path)
-    var applied_file_revision := _project_settings_revision()
+    var applied_file_revision := String(readback_result["snapshot"]["revision"])
     _clear_scene_action_state()
     _clear_file_action_state()
     last_applied_plan_id = plan_id
-    last_applied_revision = applied_revision
+    last_applied_revision = applied_file_revision
     last_applied_kind = "project_setting"
     last_project_setting_key = setting_key
     last_project_setting_original_exists = original_exists
     last_project_setting_original_value = original_value
+    last_project_setting_original_effective_value = original_value
+    last_project_setting_original_bytes = original_bytes
+    last_project_setting_original_revision = actual_file_revision
+    last_project_setting_applied_value = next_value
+    last_project_setting_applied_bytes = _read_project_settings_bytes()
     last_project_setting_applied_revision = applied_file_revision
+    last_project_setting_pending_recovery = false
+    last_project_setting_recovery_phase = ""
     return _success("report", {
         "schemaVersion": "0.2",
         "planId": plan_id,
         "status": "applied",
-        "revision": applied_revision,
+        "revision": applied_file_revision,
         "fileRevision": applied_file_revision,
         "operationCount": 1,
         "undoLabel": "Godot Safe Change: Set project setting",
@@ -1690,10 +1977,19 @@ func _clear_file_action_state() -> void:
     last_autoload_name = ""
     last_autoload_original_setting = null
     last_autoload_applied_revision = ""
+
+func _clear_project_setting_state() -> void:
     last_project_setting_key = ""
     last_project_setting_original_exists = false
     last_project_setting_original_value = null
+    last_project_setting_original_effective_value = null
+    last_project_setting_original_bytes = PackedByteArray()
+    last_project_setting_original_revision = ""
+    last_project_setting_applied_value = null
+    last_project_setting_applied_bytes = PackedByteArray()
     last_project_setting_applied_revision = ""
+    last_project_setting_pending_recovery = false
+    last_project_setting_recovery_phase = ""
 
 func _clear_applied_state() -> void:
     last_applied_plan_id = ""
@@ -1701,6 +1997,7 @@ func _clear_applied_state() -> void:
     last_applied_kind = ""
     _clear_scene_action_state()
     _clear_file_action_state()
+    _clear_project_setting_state()
 
 func _apply_script_create(request_body: Dictionary, scene_root: Node, scene_path: String) -> Dictionary:
     var operation: Dictionary = request_body["operations"][0]
@@ -1844,12 +2141,18 @@ func _rollback_change(body: Variant) -> Dictionary:
     var request_error := _validate_rollback_request(request_body)
     if not request_error.is_empty():
         return request_error
+
+    var plan_id := String(request_body.get("planId", ""))
+    var expected_revision := String(request_body.get("expectedRevision", ""))
+    if last_applied_kind == "project_setting":
+        if plan_id == "" or plan_id != last_applied_plan_id:
+            return _failure("PLAN_NOT_APPLIED", "The requested plan is not the latest applied plan.")
+        return _rollback_project_setting_change(request_body, plan_id)
+
     var scene_root := EditorInterface.get_edited_scene_root()
     if scene_root == null:
         return _failure("VALIDATION_FAILED", "A current scene is required before rollback.")
 
-    var plan_id := String(request_body.get("planId", ""))
-    var expected_revision := String(request_body.get("expectedRevision", ""))
     var scene_path := String(scene_root.scene_file_path)
     var actual_revision := _current_revision(scene_root, scene_path)
     if plan_id == "" or plan_id != last_applied_plan_id:
@@ -1870,9 +2173,6 @@ func _rollback_change(body: Variant) -> Dictionary:
         return _rollback_input_action_change(request_body, scene_root, scene_path, plan_id)
     if last_applied_kind == "autoload":
         return _rollback_autoload_change(request_body, scene_root, scene_path, plan_id)
-    if last_applied_kind == "project_setting":
-        return _rollback_project_setting_change(request_body, scene_root, scene_path, plan_id)
-
     if last_applied_scene_path != scene_path or last_applied_undo_history_id < 0 or last_applied_undo_version < 0:
         return _failure("REVISION_CONFLICT", "The applied scene history is no longer available for a safe rollback.", 409)
 
@@ -2063,47 +2363,151 @@ func _rollback_autoload_change(request_body: Dictionary, scene_root: Node, scene
         "undoLabel": "Godot Safe Change: Restore autoload",
     })
 
-func _rollback_project_setting_change(request_body: Dictionary, scene_root: Node, scene_path: String, plan_id: String) -> Dictionary:
-    var expected_file_revision := String(request_body.get("expectedFileRevision", ""))
-    var actual_file_revision := _project_settings_revision()
-    if expected_file_revision == "" or expected_file_revision != last_project_setting_applied_revision or actual_file_revision != last_project_setting_applied_revision:
+func _complete_project_setting_rollback(plan_id: String, setting_key: String) -> Dictionary:
+    var restored_snapshot := _project_setting_disk_snapshot(setting_key)
+    var restored_ok := restored_snapshot.get("ok", false)
+    if restored_ok:
+        restored_ok = _read_project_settings_bytes() == last_project_setting_original_bytes
+        restored_ok = restored_ok and String(restored_snapshot["snapshot"]["revision"]) == last_project_setting_original_revision
+        restored_ok = restored_ok and _project_setting_values_equal(
+            restored_snapshot.get("effectiveValue", null),
+            last_project_setting_original_effective_value,
+        )
+    if not restored_ok:
+        last_project_setting_pending_recovery = true
+        last_project_setting_recovery_phase = "rollback-verify"
         return _failure(
-            "REVISION_CONFLICT",
-            "The project settings changed after project setting apply; refusing to overwrite it.",
+            "OPERATION_REJECTED",
+            "Godot could not verify the restored project setting and recovery is required.",
             409,
             {
-                "expectedFileRevision": last_project_setting_applied_revision,
-                "actualFileRevision": actual_file_revision,
+                "phase": "rollback-verify",
+                "recoveryRequired": true,
+                "originalRevision": last_project_setting_original_revision,
+                "currentRevision": _project_settings_revision(),
             },
         )
 
-    var setting_key := last_project_setting_key
-    _restore_project_setting_in_memory(setting_key, last_project_setting_original_exists, last_project_setting_original_value)
-    var save_error := ProjectSettings.save()
-    if save_error != OK:
-        return _failure("OPERATION_REJECTED", "Godot could not roll back the project setting change.", 409, {"error": save_error})
-
-    var restored_exists := ProjectSettings.has_setting(setting_key)
-    var restored_value: Variant = null
-    if restored_exists:
-        restored_value = ProjectSettings.get_setting(setting_key, null)
-    var restored_value_matches := restored_exists == last_project_setting_original_exists
-    if restored_value_matches and restored_exists:
-        restored_value_matches = _project_setting_values_equal(restored_value, last_project_setting_original_value)
-    if not restored_value_matches:
-        return _failure("OPERATION_REJECTED", "Godot could not verify the restored project setting.", 409, {"settingKey": setting_key})
-
-    var rollback_revision := _current_revision(scene_root, scene_path)
-    var restored_file_revision := _project_settings_revision()
+    var restored_file_revision := String(restored_snapshot["snapshot"]["revision"])
     _clear_applied_state()
     return _success("report", {
         "schemaVersion": "0.2",
         "planId": plan_id,
         "status": "rolled_back",
-        "revision": rollback_revision,
+        "revision": restored_file_revision,
         "fileRevision": restored_file_revision,
         "undoLabel": "Godot Safe Change: Restore project setting",
     })
+
+func _rollback_project_setting_change(request_body: Dictionary, plan_id: String) -> Dictionary:
+    var expected_revision := String(request_body.get("expectedRevision", ""))
+    var expected_file_revision := String(request_body.get("expectedFileRevision", ""))
+    var actual_file_revision := _project_settings_revision()
+    var current_bytes := _read_project_settings_bytes()
+    var setting_key := last_project_setting_key
+
+    if last_project_setting_pending_recovery:
+        if current_bytes == last_project_setting_original_bytes:
+            _restore_project_setting_in_memory(
+                setting_key,
+                last_project_setting_original_exists,
+                last_project_setting_original_value,
+            )
+            return _complete_project_setting_rollback(plan_id, setting_key)
+        if current_bytes != last_project_setting_applied_bytes:
+            return _failure(
+                "REVISION_CONFLICT",
+                "The project settings changed during recovery; refusing to overwrite external edits.",
+                409,
+                {
+                    "originalRevision": last_project_setting_original_revision,
+                    "currentRevision": actual_file_revision,
+                },
+            )
+        if expected_revision == "" or expected_file_revision == "" \
+            or actual_file_revision != last_project_setting_applied_revision \
+            or expected_revision != actual_file_revision \
+            or expected_file_revision != actual_file_revision:
+            return _failure(
+                "REVISION_CONFLICT",
+                "The project settings changed during recovery; refusing to overwrite external edits.",
+                409,
+                {
+                    "expectedRevision": last_project_setting_applied_revision,
+                    "expectedFileRevision": last_project_setting_applied_revision,
+                    "actualRevision": actual_file_revision,
+                },
+            )
+        var recovery_result := _recover_project_setting_bytes(
+            last_project_setting_original_bytes,
+            last_project_setting_original_revision,
+            last_project_setting_applied_bytes,
+            setting_key,
+            last_project_setting_applied_value,
+            plan_id + "-rollback-recovery",
+        )
+        if not recovery_result.is_empty():
+            last_project_setting_recovery_phase = "rollback"
+            return _failure(
+                "OPERATION_REJECTED",
+                "Godot could not complete project setting recovery; retry rollback without changing the file.",
+                409,
+                {
+                    "phase": "rollback",
+                    "recoveryRequired": true,
+                    "originalRevision": last_project_setting_original_revision,
+                    "currentRevision": _project_settings_revision(),
+                },
+            )
+        _restore_project_setting_in_memory(
+            setting_key,
+            last_project_setting_original_exists,
+            last_project_setting_original_value,
+        )
+        return _complete_project_setting_rollback(plan_id, setting_key)
+
+    if expected_revision == "" or expected_revision != actual_file_revision \
+        or expected_file_revision == "" or expected_file_revision != actual_file_revision:
+        return _failure(
+            "REVISION_CONFLICT",
+            "The project settings changed after project setting apply; refusing to overwrite it.",
+            409,
+            {
+                "expectedRevision": last_project_setting_applied_revision,
+                "expectedFileRevision": last_project_setting_applied_revision,
+                "actualRevision": actual_file_revision,
+            },
+        )
+    if actual_file_revision != last_project_setting_applied_revision \
+        or current_bytes != last_project_setting_applied_bytes:
+        return _failure(
+            "REVISION_CONFLICT",
+            "The project settings bytes changed after apply; refusing to overwrite external edits.",
+            409,
+            {"expectedFileRevision": last_project_setting_applied_revision, "actualFileRevision": actual_file_revision},
+        )
+    var restore_error := _atomic_replace_project_settings_bytes(
+        last_project_setting_original_bytes,
+        plan_id + "-rollback",
+        last_project_setting_applied_bytes,
+        true,
+    )
+    if not restore_error.is_empty():
+        last_project_setting_pending_recovery = true
+        last_project_setting_recovery_phase = "rollback"
+        return _failure(
+            "OPERATION_REJECTED",
+            "Godot could not roll back the project setting and recovery is required.",
+            409,
+            {
+                "phase": "rollback",
+                "recoveryRequired": true,
+                "originalRevision": last_project_setting_original_revision,
+                "currentRevision": _project_settings_revision(),
+            },
+        )
+    _restore_project_setting_in_memory(setting_key, last_project_setting_original_exists, last_project_setting_original_value)
+    return _complete_project_setting_rollback(plan_id, setting_key)
 
 func _apply_create_node(scene_root: Node, operation: Dictionary) -> Dictionary:
     var parent_path := String(operation.get("parentPath", ""))

@@ -24,10 +24,20 @@ Enable Godot Safe Change Bridge in Project Settings > Plugins. The plugin starts
 - POST /v1/changes/rollback undoes only the latest applied plan when its plan ID and revision still match.
 - scene.detach_script clears only a node's existing project-local GDScript and records the original Script resource in UndoRedo for revision-guarded rollback.
 - scene.instantiate_scene loads an existing project-local PackedScene, assigns the instance root to the edited scene owner, and records add/remove callbacks in UndoRedo; the source scene revision is checked before apply.
+- POST /v1/project-settings/read returns one typed snapshot from the allowlisted project.godot settings. It is a project-level route and does not require a current scene; an unconfigured application/run/main_scene is reported as exists=false and value=null.
+- project.setting.set accepts exactly application/run/main_scene, display/window/size/viewport_width, or display/window/size/viewport_height. Main-scene writes require an existing project-local res:// .tscn; viewport writes require integers from 1 through 16384.
 - POST /v1/run/current starts the current saved scene and returns a run snapshot.
 - POST /v1/run/status returns the current snapshot for the requested run ID.
 
-The server validates that projectRoot is the project currently open in the editor. It does not expose arbitrary GDScript, shell commands, file writes, method names or Godot object RPC.
+### Project-setting hardening
+
+For project.setting.set, the bridge derives the revision from the complete project.godot byte content at preview, confirmation, apply, and rollback. It separately reads the file from disk with ConfigFile to produce the typed key snapshot and to verify the persisted value after ProjectSettings.save(); an in-memory ProjectSettings value alone is not treated as sufficient readback.
+
+Apply and rollback capture the original and attempted project.godot bytes. If persistence or verification cannot be completed, recovery writes the captured bytes through a temporary file and atomic rename, then compares the resulting bytes and revision. Recovery failures return structured error details with recoveryRequired and phase (for example save, verify, rollback, or rollback-verify); a pending recovery blocks another project-setting apply until recovery can be completed.
+
+Rollback never overwrites an external project.godot edit. It restores bytes only when the file still matches the applied byte snapshot (or is already the original snapshot); otherwise it returns REVISION_CONFLICT and preserves the current file, including during a pending recovery.
+
+The server validates that projectRoot is the project currently open in the editor. It does not expose arbitrary GDScript, shell commands, file writes, method names or Godot object RPC. These statements describe the bounded implementation and its evidence scope; they are not a complete security audit.
 
 ## Diagnostics
 

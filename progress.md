@@ -422,8 +422,18 @@
 ## 2026-10-04 bounded project.setting.set
 
 - 新增严格 `project.setting.set`：只允许 `application/run/main_scene`、`display/window/size/viewport_width`、`display/window/size/viewport_height`；禁止任意 ProjectSettings key、Variant、额外字段和 no-op。
-- main scene 必须是存在的项目内 `res://` `.tscn`；viewport 必须是 1..16384 的整数。TypeScript/Zod 和 Godot 插件分别校验 key、类型、路径和范围。
-- 新增 `/v1/project-settings/read` typed snapshot；preview、confirm、apply、rollback 使用完整 project.godot revision，ProjectSettings.save() 后读回验证，外部编辑时 rollback 保留用户内容并返回 `REVISION_CONFLICT`。
-- 本地 139 项测试、typecheck、build、package:check、`node --check tests/godot-runtime-smoke.mjs` 和 `git diff --check` 通过；runtime smoke 已覆盖 viewport/main-scene 生命周期和 forged direct requests。
-- 首次 CI 失败定位为 Godot JSON integral number 在插件边界被误判为非 `TYPE_INT`；commit `9cc4018` 改为接受有限整数值并统一 canonical integer 后，PR #30 的 run `37190573762`（重复验证 `37190575982`）中 check、package boundary、Godot 4.5.1 和 4.7.2 全部通过。
+- 这是项目级 lifecycle，当前场景可以不存在；未配置 main scene 的 `/v1/project-settings/read` snapshot 固定为 `exists=false`、`value=null`。main scene 写入必须指向存在的项目内 `res://` `.tscn`；viewport 必须是 1..16384 的整数。TypeScript/Zod 和 Godot 插件分别校验 key、类型、路径和范围。
+- `/v1/project-settings/read` typed snapshot 的 revision 来自完整 project.godot 字节；插件另用 `ConfigFile` 从磁盘读取 typed value，在 `ProjectSettings.save()` 后独立验证读回。apply/rollback 保存原始和尝试字节，失败时用临时文件和原子替换按字节恢复。
+- 保存、读回或 rollback 恢复无法验证时，结构化错误返回 `recoveryRequired` 和 `phase`；待恢复状态会阻止新的 project-setting apply。外部编辑会使 rollback 返回 `REVISION_CONFLICT`，并保留用户当前字节，不覆盖外部内容。
+- 本节记录受限实现和已有证据范围，不表示完成了完整安全审计。
+- 本地和远程检查结果沿用本节原有记录；本次文档更新不新增或推断任何 CI 结果。
 - PR #30 已以 merge commit `c8fad0d993af5e288a11bb24d916ec107c173f4d` 合入 `main`，随后 PR #31 以 merge commit `e3524220656dfd612fbc2726937b9768322d7936` 合入最终收尾记录；PR #32 修正了该记录的最终 tip 表述，Phase 37 按完成定义收尾。
+
+## 2026-10-04 project.setting.set persistence hardening
+
+- project-level settings lifecycle 已与当前编辑场景解耦；无场景 fixture 现在真实执行 read → preview → confirmation → apply → independent bytes/revision readback → rollback。
+- no-scene fixture 移到主 fixture 的同级临时目录，并对 macOS `/var`/`/private/var` 路径差异统一使用 Godot 返回的 canonical project root；主 scene smoke 的 direct bridge 请求也使用 canonical root。
+- 未配置 `application/run/main_scene` 真实返回 `exists=false,value=null`，首次设置 `res://instance_source.tscn` 后回滚恢复原始 bytes 和 absent semantics；viewport bytes 与独立 Node SHA-256 revision 也已断言。
+- 增加缺省 viewport key 等于内建默认值的 coordinator no-op 回归测试；当前本地 `npm test` 为 144 项全通过。
+- 本地 `typecheck`、`build`、`package:check`、`release:check`、smoke syntax、`git diff --check` 全通过；本机 Godot 4.7.2 全量 runtime smoke 通过。Godot 4.5.1 与 feature branch required CI 尚待运行。
+- 本阶段仍是受限实现与验证记录，不表示完成了完整安全审计；filesystem TOCTOU、跨进程 recovery journal、跨平台 rename durability 和真实 save-failure injection 仍作为限制保留。

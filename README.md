@@ -161,7 +161,7 @@ flowchart LR
 | Editor context | <code>editor_context</code> | Full current scene tree with node groups, selected-node properties, open resources, run state, and diagnostics. |
 | Scene structure | create, delete, reparent, rename, duplicate, reorder, instantiate, connect/disconnect signal, add/remove group | Safe NodePaths, ownership, names, parent relationships, instance source paths, sibling indices, signal/method validation, and group membership checks; connections, disconnections, and group changes use Godot UndoRedo apply/rollback. |
 | Scene content | <code>scene.set_property</code>, <code>scene.attach_script</code>, <code>scene.detach_script</code>, <code>scene.set_unique_name</code> | Allowlisted visible, position, rotation_degrees, scale, size, text, and color properties, project-local GDScript attachment/detachment, and scene-unique %Name exposure. |
-| Files and settings | resource references, input actions, script creation and ranges, autoload registration, <code>project.setting.set</code> | File or project-settings revision guards, atomic writes, persistence/readback verification, and guarded rollback. |
+| Files and settings | resource references, input actions, script creation and ranges, autoload registration, <code>project.setting.set</code> | File or project-settings revision guards, full-byte revisions, independent disk readback, atomic writes, byte-preserving recovery, and guarded rollback. |
 | Runtime evidence | <code>run_current_scene</code>, <code>run_scene</code> | Run IDs, terminal state, output, warnings, errors, source, line, and NodePath evidence. |
 | Multi-step work | create/get/advance/pause/resume/cancel | Scene/resource/script verification steps, diagnostics repair preview, and step-level operation IDs. |
 | Recovery | task leases, <code>task_status</code>, <code>task_timeline</code> | Heartbeats, TTL takeover, owner visibility, and auditable recovery events. |
@@ -172,9 +172,11 @@ flowchart LR
 preview → confirm → lease/revision check → apply → verify → rollback (when needed)
 ~~~
 
-The server never executes agent-generated GDScript, shell commands, Python workers, arbitrary Godot RPC, or unrestricted filesystem writes. The plugin independently validates the project root, safe paths, operation allowlists, active-plan identity, and UndoRedo history.
+The server never executes agent-generated GDScript, shell commands, Python workers, arbitrary Godot RPC, or unrestricted filesystem writes. The plugin independently validates the project root, safe paths, operation allowlists, active-plan identity, and UndoRedo history. The documented checks are a bounded implementation/evidence description, not a claim of a complete security audit.
 
-`project.setting.set` is deliberately narrower than a general ProjectSettings setter. It accepts only `application/run/main_scene` (an existing project-local `res://` `.tscn`), `display/window/size/viewport_width`, and `display/window/size/viewport_height` (integers from 1 through 16384). The strict `settingKey`/`value` payload rejects unknown keys, extra fields, traversal, non-integers, non-finite values, and missing scenes. The full `project.godot` revision is checked at preview, confirmation, apply, and rollback; Godot persists the setting with `ProjectSettings.save()`, the bridge reads it back before reporting success, and an external edit blocks rollback with `REVISION_CONFLICT` rather than overwriting user content.
+`project.setting.set` is deliberately narrower than a general ProjectSettings setter. It accepts exactly three keys: `application/run/main_scene` (an existing project-local `res://` `.tscn`), `display/window/size/viewport_width`, and `display/window/size/viewport_height` (the viewport values must be integers from 1 through 16384). The strict `settingKey`/`value` payload rejects unknown keys, extra fields, traversal, non-integers, non-finite values, and missing scenes. This is a project-level lifecycle: preview, confirmation, apply, and rollback can run without a current scene. The `/v1/project-settings/read` snapshot reports an unconfigured main scene as `exists: false` and `value: null`.
+
+The revision is derived from the complete `project.godot` bytes and is checked at preview, confirmation, apply, and rollback. Godot persists the setting with `ProjectSettings.save()`, while the bridge independently reads `project.godot` from disk with `ConfigFile` and verifies the typed persisted value before reporting success. Recovery captures both original and attempted bytes; if save or readback fails, it uses a temporary file plus atomic rename to restore the original bytes and verifies the bytes and revision. Structured failures expose `recoveryRequired: true` with a `phase` such as `save`, `verify`, `rollback`, or `rollback-verify`; pending recovery blocks a new project-setting apply until it is resolved. Rollback refuses to overwrite an external edit and returns `REVISION_CONFLICT`, preserving the edited file.
 
 Short apply/rollback leases and long-lived task leases live in the user state directory, not inside the Godot project. A live lease held by another MCP process returns PROJECT_BUSY; a crashed owner can be replaced only after TTL expiry.
 
@@ -204,7 +206,7 @@ Every push runs four GitHub Actions jobs:
 - <code>Godot 4.5.1 runtime</code>: real EditorPlugin fixture smoke
 - <code>Godot 4.7.2 runtime</code>: the same fixture on the second supported version
 
-The smoke covers search, context, scene/property/structure/instance/script apply-rollback, resources, input settings, bounded project.setting.set persistence/readback/rollback and external-edit conflict protection, diagnostics, task leases, two-process contention, and TTL takeover.
+The smoke covers search, context, scene/property/structure/instance/script apply-rollback, resources, input settings, bounded project.setting.set persistence/readback/rollback and external-edit conflict protection, diagnostics, task leases, two-process contention, and TTL takeover. The project-setting evidence covers the three-key allowlist, project-level operation without a current scene, unconfigured main-scene snapshots, full-file revisions, and recovery behavior; it is not a complete security audit.
 
 ## Developer commands
 

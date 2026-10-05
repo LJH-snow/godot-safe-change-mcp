@@ -61,28 +61,30 @@ function createProjectSettingSnapshot(
   };
 }
 
-function createContext(revision = "revision-1"): EditorContext {
+function createContext(revision = "revision-1", withScene = true): EditorContext {
   return {
     schemaVersion: "0.2",
     projectRoot,
     connection: "connected",
     revision,
     project: { name: "Example", path: projectRoot },
-    currentScene: {
-      path: "res://main.tscn",
-      rootName: "Main",
-      rootType: "Node2D",
-      nodes: [
-        {
-          path: ".",
-          name: "Main",
-          type: "Node2D",
-          properties: { visible: true, position: { x: 0, y: 0 } },
-        },
-      ],
-    },
+    currentScene: withScene
+      ? {
+          path: "res://main.tscn",
+          rootName: "Main",
+          rootType: "Node2D",
+          nodes: [
+            {
+              path: ".",
+              name: "Main",
+              type: "Node2D",
+              properties: { visible: true, position: { x: 0, y: 0 } },
+            },
+          ],
+        }
+      : { path: null, rootName: null, rootType: null, nodes: [] },
     selection: [],
-    openResources: ["res://main.tscn"],
+    openResources: withScene ? ["res://main.tscn"] : [],
     run: { status: "stopped", scenePath: "res://main.tscn", runId: null },
     diagnostics: { output: [], warnings: [], errors: [] },
   };
@@ -128,6 +130,8 @@ class FakeGodotBridge implements GodotBridge {
     "display/window/size/viewport_height": createProjectSettingSnapshot("display/window/size/viewport_height"),
   };
   projectSettingBeforeApplySnapshot: PlannedProjectSettingSnapshot | null = null;
+  projectSettingApplyFailure: DomainError | null = null;
+  projectSettingRollbackFailure: DomainError | null = null;
   projectSettingReadCalls: PlannedProjectSettingKey[] = [];
   missingResourcePaths = new Set<string>();
   runCalls = 0;
@@ -194,12 +198,17 @@ class FakeGodotBridge implements GodotBridge {
         value: dynamicOperation.value ?? null,
         revision: "settings-revision-2",
       };
+      if (this.projectSettingApplyFailure !== null) {
+        const failure = this.projectSettingApplyFailure;
+        this.projectSettingApplyFailure = null;
+        throw failure;
+      }
     }
     return {
       schemaVersion: "0.2",
       planId: request.planId,
       status: "applied",
-      revision: "revision-2",
+      revision: isProjectSetting ? "settings-revision-2" : "revision-2",
       operationCount: request.operations.length,
       undoLabel: isProjectSetting ? "Godot Safe Change: Set project setting" : "Godot Safe Change: Add node",
       ...(isInputAction ? { fileRevision: "input-revision-2" } : {}),
@@ -227,7 +236,7 @@ class FakeGodotBridge implements GodotBridge {
     this.rolledBack.push(request);
     this.context = createContext("revision-3");
     const isInputAction = request.expectedFileRevision === "input-revision-2";
-    const isProjectSetting = request.expectedFileRevision === "settings-revision-2";
+    const isProjectSetting = request.expectedFileRevision?.startsWith("settings-revision") === true;
     if (isInputAction && this.inputActionBeforeApplySnapshot !== null) {
       this.inputActionSnapshot = {
         ...this.inputActionBeforeApplySnapshot,
@@ -239,12 +248,17 @@ class FakeGodotBridge implements GodotBridge {
         ...this.projectSettingBeforeApplySnapshot,
         revision: "settings-revision-3",
       };
+      if (this.projectSettingRollbackFailure !== null) {
+        const failure = this.projectSettingRollbackFailure;
+        this.projectSettingRollbackFailure = null;
+        throw failure;
+      }
     }
     return {
       schemaVersion: "0.2",
       planId: request.planId,
       status: "rolled_back",
-      revision: "revision-3",
+      revision: isProjectSetting ? "settings-revision-3" : "revision-3",
       undoLabel: isProjectSetting ? "Godot Safe Change: Set project setting" : "Godot Safe Change: Add node",
       ...(isInputAction ? { fileRevision: "input-revision-3" } : {}),
       ...(isProjectSetting ? { fileRevision: "settings-revision-3" } : {}),
@@ -2268,6 +2282,182 @@ describe("ChangeCoordinator", () => {
     assert.match((plan.diff[0] as { summary: string }).summary, /viewport_width/);
     assert.deepEqual(bridge.projectSettingReadCalls, ["display/window/size/viewport_width"]);
     assert.equal(bridge.applied.length, 0);
+  });
+
+  test("previews, applies and rolls back a project setting without a current scene", async () => {
+    const bridge = new FakeGodotBridge();
+    bridge.context = createContext("revision-1", false);
+    const coordinator = new ChangeCoordinator(bridge);
+    const plan = await coordinator.previewSceneChange({
+      projectRoot,
+      reason: "Persist a project setting while no scene is open.",
+      operation: {
+        kind: "project.setting.set",
+        settingKey: "display/window/size/viewport_width",
+        value: 1280,
+      } as never,
+    });
+
+    assert.equal(plan.expectedRevision, "settings-revision-1");
+    await coordinator.confirmChange({ projectRoot, planId: plan.planId, expectedRevision: plan.expectedRevision });
+    const applied = await coordinator.applyChange({ projectRoot, planId: plan.planId });
+    assert.equal(applied.revision, "settings-revision-2");
+    const rolledBack = await coordinator.rollbackChange({ projectRoot, planId: plan.planId });
+    assert.equal(rolledBack.revision, "settings-revision-3");
+    assert.equal(bridge.rolledBack.length, 1);
+  });
+
+  test("normalizes an unconfigured main scene as absent and restores it on rollback", async () => {
+    const bridge = new FakeGodotBridge();
+    bridge.projectSettingSnapshots["application/run/main_scene"] = {
+      settingKey: "application/run/main_scene",
+      exists: false,
+      value: null,
+      revision: "settings-revision-main-absent",
+    };
+    const coordinator = new ChangeCoordinator(bridge);
+
+    const plan = await coordinator.previewSceneChange({
+      projectRoot,
+      reason: "Configure a main scene from an unconfigured project state.",
+      operation: {
+        kind: "project.setting.set",
+        settingKey: "application/run/main_scene",
+        value: "res://instance_source.tscn",
+      } as never,
+    });
+
+    assert.deepEqual(plan.diff[0], {
+      kind: "project.setting.set",
+      target: "project.godot:application/run/main_scene",
+      settingKey: "application/run/main_scene",
+      before: null,
+      after: "res://instance_source.tscn",
+      summary: (plan.diff[0] as { summary: string }).summary,
+    });
+    await coordinator.confirmChange({ projectRoot, planId: plan.planId, expectedRevision: plan.expectedRevision });
+    await coordinator.applyChange({ projectRoot, planId: plan.planId });
+    assert.deepEqual(bridge.projectSettingSnapshots["application/run/main_scene"], {
+      settingKey: "application/run/main_scene",
+      exists: true,
+      value: "res://instance_source.tscn",
+      revision: "settings-revision-2",
+    });
+
+    await coordinator.rollbackChange({ projectRoot, planId: plan.planId });
+    assert.deepEqual(bridge.projectSettingSnapshots["application/run/main_scene"], {
+      settingKey: "application/run/main_scene",
+      exists: false,
+      value: null,
+      revision: "settings-revision-3",
+    });
+  });
+
+  test("rejects an absent viewport setting when the requested value is its built-in default", async () => {
+    const bridge = new FakeGodotBridge();
+    bridge.projectSettingSnapshots["display/window/size/viewport_width"] = {
+      settingKey: "display/window/size/viewport_width",
+      exists: false,
+      value: null,
+      revision: "settings-revision-width-default",
+    };
+    const coordinator = new ChangeCoordinator(bridge);
+
+    await assert.rejects(
+      () =>
+        coordinator.previewSceneChange({
+          projectRoot,
+          reason: "Reject a viewport no-op represented by an absent persisted key.",
+          operation: {
+            kind: "project.setting.set",
+            settingKey: "display/window/size/viewport_width",
+            value: 1152,
+          } as never,
+        }),
+      (error: unknown) => error instanceof DomainError && error.code === ERROR_CODES.OPERATION_REJECTED,
+    );
+    assert.deepEqual(bridge.projectSettingReadCalls, ["display/window/size/viewport_width"]);
+    assert.equal(bridge.applied.length, 0);
+  });
+
+  test("keeps a project setting plan recoverable when apply reports persistence recovery", async () => {
+    const bridge = new FakeGodotBridge();
+    const coordinator = new ChangeCoordinator(bridge);
+    const plan = await coordinator.previewSceneChange({
+      projectRoot,
+      reason: "Exercise recoverable project setting persistence failure.",
+      operation: {
+        kind: "project.setting.set",
+        settingKey: "display/window/size/viewport_width",
+        value: 1280,
+      } as never,
+    });
+    await coordinator.confirmChange({ projectRoot, planId: plan.planId, expectedRevision: plan.expectedRevision });
+    bridge.projectSettingApplyFailure = new DomainError(
+      ERROR_CODES.OPERATION_REJECTED,
+      "Persistence recovery is required.",
+      {
+        recoveryRequired: true,
+        phase: "verify",
+        currentRevision: "settings-revision-2",
+      },
+    );
+
+    await assert.rejects(
+      () => coordinator.applyChange({ projectRoot, planId: plan.planId }),
+      (error: unknown) => error instanceof DomainError && error.code === ERROR_CODES.OPERATION_REJECTED,
+    );
+    await assert.rejects(
+      () => coordinator.applyChange({ projectRoot, planId: plan.planId }),
+      (error: unknown) => error instanceof DomainError && error.code === ERROR_CODES.PLAN_ALREADY_APPLIED,
+    );
+
+    const rolledBack = await coordinator.rollbackChange({ projectRoot, planId: plan.planId });
+    assert.equal(rolledBack.status, "rolled_back");
+    assert.deepEqual(bridge.projectSettingSnapshots["display/window/size/viewport_width"], {
+      settingKey: "display/window/size/viewport_width",
+      exists: true,
+      value: 640,
+      revision: "settings-revision-3",
+    });
+  });
+
+  test("keeps a project setting plan recoverable when rollback reports persistence recovery", async () => {
+    const bridge = new FakeGodotBridge();
+    const coordinator = new ChangeCoordinator(bridge);
+    const plan = await coordinator.previewSceneChange({
+      projectRoot,
+      reason: "Exercise recoverable project setting rollback failure.",
+      operation: {
+        kind: "project.setting.set",
+        settingKey: "display/window/size/viewport_height",
+        value: 720,
+      } as never,
+    });
+    await coordinator.confirmChange({ projectRoot, planId: plan.planId, expectedRevision: plan.expectedRevision });
+    await coordinator.applyChange({ projectRoot, planId: plan.planId });
+    bridge.projectSettingRollbackFailure = new DomainError(
+      ERROR_CODES.OPERATION_REJECTED,
+      "Rollback recovery is required.",
+      {
+        recoveryRequired: true,
+        phase: "rollback-verify",
+        currentRevision: "settings-revision-3",
+      },
+    );
+
+    await assert.rejects(
+      () => coordinator.rollbackChange({ projectRoot, planId: plan.planId }),
+      (error: unknown) => error instanceof DomainError && error.code === ERROR_CODES.OPERATION_REJECTED,
+    );
+    const rolledBack = await coordinator.rollbackChange({ projectRoot, planId: plan.planId });
+    assert.equal(rolledBack.status, "rolled_back");
+    assert.deepEqual(bridge.projectSettingSnapshots["display/window/size/viewport_height"], {
+      settingKey: "display/window/size/viewport_height",
+      exists: true,
+      value: 360,
+      revision: "settings-revision-3",
+    });
   });
 
   test("requires confirmation, applies and rolls back a project setting", async () => {

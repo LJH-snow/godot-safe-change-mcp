@@ -44,11 +44,25 @@ import {
 
 type PlanState = "preview" | "confirmed" | "applied" | "rolled_back";
 
+function projectSettingDefaultValue(settingKey: string): string | number | null {
+  if (settingKey === "application/run/main_scene") {
+    return "";
+  }
+  if (settingKey === "display/window/size/viewport_width") {
+    return 1152;
+  }
+  if (settingKey === "display/window/size/viewport_height") {
+    return 648;
+  }
+  return null;
+}
+
 interface StoredPlan {
   plan: ChangePlan;
   state: PlanState;
   appliedRevision?: string;
   appliedFileRevision?: string;
+  recoveryRequired?: boolean;
 }
 
 export interface ConfirmedChange {
@@ -98,17 +112,20 @@ export class ChangeCoordinator {
   private async previewSceneChangeInternal(input: PreviewSceneChangeInput): Promise<ChangePlan> {
     const parsedInput = previewSceneChangeInputSchema.parse(input);
     const projectRoot = await normalizeProjectRoot(parsedInput.projectRoot);
-    const context = await this.requireConnectedContext(projectRoot);
-    const scenePath = context.currentScene.path;
+    const operation = parsedInput.operation;
+    const isProjectSettingOperation = operation.kind === "project.setting.set";
+    const context = isProjectSettingOperation
+      ? await this.requireConnectedBridge(projectRoot)
+      : await this.requireConnectedContext(projectRoot);
+    const scenePath = context.currentScene.path ?? "";
 
-    if (scenePath === null) {
+    if (scenePath === "" && !isProjectSettingOperation) {
       throw new DomainError(
         ERROR_CODES.VALIDATION_FAILED,
-        "A current scene is required before previewing a scene or project-setting change.",
+        "A current scene is required before previewing a scene change.",
       );
     }
-
-    const operation = parsedInput.operation;
+    let planExpectedRevision = context.revision;
     const fingerprint = JSON.stringify({
       projectRoot,
       expectedRevision: context.revision,
@@ -934,7 +951,11 @@ export class ChangeCoordinator {
           { expectedSettingKey: parsedOperation.settingKey, actualSettingKey: snapshot.settingKey },
         );
       }
-      if (snapshot.value === parsedOperation.value) {
+      const effectiveSnapshotValue =
+        snapshot.value === null
+          ? projectSettingDefaultValue(parsedOperation.settingKey)
+          : snapshot.value;
+      if (effectiveSnapshotValue === parsedOperation.value) {
         throw new DomainError(
           ERROR_CODES.OPERATION_REJECTED,
           "The project setting already has the requested value.",
@@ -945,6 +966,7 @@ export class ChangeCoordinator {
         await this.bridge.readResource(projectRoot, parsedOperation.value);
       }
       expectedFileRevision = snapshot.revision;
+      planExpectedRevision = snapshot.revision;
       diff = {
         kind: "project.setting.set" as const,
         target: "project.godot:" + parsedOperation.settingKey,
@@ -1006,7 +1028,7 @@ export class ChangeCoordinator {
       schemaVersion: "0.2",
       planId,
       projectRoot,
-      expectedRevision: context.revision,
+      expectedRevision: planExpectedRevision,
       expectedFileRevision,
       mode: "preview",
       reason: parsedInput.reason,
@@ -1106,17 +1128,25 @@ export class ChangeCoordinator {
     }
 
     await this.assertPlanRevision(storedPlan.plan);
-    const report = await this.bridge.applyChange(storedPlan.plan.projectRoot, {
-      planId: storedPlan.plan.planId,
-      expectedRevision: storedPlan.plan.expectedRevision,
-      expectedFileRevision: storedPlan.plan.expectedFileRevision ?? undefined,
-      operations: storedPlan.plan.operations,
-    });
-    storedPlan.state = "applied";
-    storedPlan.appliedRevision = report.revision;
-    storedPlan.appliedFileRevision = report.fileRevision;
-    this.appliedPlanByProject.set(storedPlan.plan.projectRoot, storedPlan.plan.planId);
-    return report;
+    try {
+      const report = await this.bridge.applyChange(storedPlan.plan.projectRoot, {
+        planId: storedPlan.plan.planId,
+        expectedRevision: storedPlan.plan.expectedRevision,
+        expectedFileRevision: storedPlan.plan.expectedFileRevision ?? undefined,
+        operations: storedPlan.plan.operations,
+      });
+      storedPlan.state = "applied";
+      storedPlan.recoveryRequired = false;
+      storedPlan.appliedRevision = report.revision;
+      storedPlan.appliedFileRevision = report.fileRevision;
+      this.appliedPlanByProject.set(storedPlan.plan.projectRoot, storedPlan.plan.planId);
+      return report;
+    } catch (error) {
+      if (storedPlan.plan.operations[0]?.kind === "project.setting.set") {
+        this.rememberProjectSettingRecovery(storedPlan, error);
+      }
+      throw error;
+    }
   }
 
   async rollbackChange(input: ApplyChangeInput): Promise<RollbackReport> {
@@ -1151,8 +1181,12 @@ export class ChangeCoordinator {
       );
     }
 
-    const context = await this.requireConnectedContext(storedPlan.plan.projectRoot);
-    if (context.revision !== storedPlan.appliedRevision) {
+    const operation = storedPlan.plan.operations[0];
+    const isProjectSettingOperation = operation.kind === "project.setting.set";
+    const context = isProjectSettingOperation
+      ? await this.requireConnectedBridge(storedPlan.plan.projectRoot)
+      : await this.requireConnectedContext(storedPlan.plan.projectRoot);
+    if (!isProjectSettingOperation && context.revision !== storedPlan.appliedRevision) {
       throw new DomainError(
         ERROR_CODES.REVISION_CONFLICT,
         "The editor changed after the plan was applied; refusing to undo another change.",
@@ -1163,8 +1197,7 @@ export class ChangeCoordinator {
       );
     }
 
-    if (storedPlan.appliedFileRevision !== undefined) {
-      const operation = storedPlan.plan.operations[0];
+    if (storedPlan.appliedFileRevision !== undefined && !storedPlan.recoveryRequired) {
       if (
         operation.kind !== "script.replace_range" &&
         operation.kind !== "script.create_file" &&
@@ -1206,16 +1239,24 @@ export class ChangeCoordinator {
       }
     }
 
-    const report = await this.bridge.rollbackChange(storedPlan.plan.projectRoot, {
-      planId: storedPlan.plan.planId,
-      expectedRevision: storedPlan.appliedRevision,
-      expectedFileRevision: storedPlan.appliedFileRevision,
-    });
-    storedPlan.state = "rolled_back";
-    if (this.appliedPlanByProject.get(storedPlan.plan.projectRoot) === storedPlan.plan.planId) {
-      this.appliedPlanByProject.delete(storedPlan.plan.projectRoot);
+    try {
+      const report = await this.bridge.rollbackChange(storedPlan.plan.projectRoot, {
+        planId: storedPlan.plan.planId,
+        expectedRevision: storedPlan.appliedRevision,
+        expectedFileRevision: storedPlan.appliedFileRevision,
+      });
+      storedPlan.state = "rolled_back";
+      storedPlan.recoveryRequired = false;
+      if (this.appliedPlanByProject.get(storedPlan.plan.projectRoot) === storedPlan.plan.planId) {
+        this.appliedPlanByProject.delete(storedPlan.plan.projectRoot);
+      }
+      return report;
+    } catch (error) {
+      if (operation.kind === "project.setting.set") {
+        this.rememberProjectSettingRecovery(storedPlan, error);
+      }
+      throw error;
     }
-    return report;
   }
 
   async runCurrentScene(input: RunCurrentSceneInput): Promise<RunDiagnostics> {
@@ -1299,6 +1340,18 @@ export class ChangeCoordinator {
     return context;
   }
 
+  private async requireConnectedBridge(projectRoot: string): Promise<EditorContext> {
+    const context = await this.bridge.getContext(projectRoot);
+    if (context.connection !== "connected") {
+      throw new DomainError(
+        ERROR_CODES.EDITOR_UNAVAILABLE,
+        "The Godot EditorPlugin bridge is unavailable.",
+        { projectRoot },
+      );
+    }
+    return context;
+  }
+
   private async requirePlan(planId: string, projectRootInput: string): Promise<StoredPlan> {
     const storedPlan = this.plans.get(planId);
     if (storedPlan === undefined) {
@@ -1318,9 +1371,35 @@ export class ChangeCoordinator {
     return storedPlan;
   }
 
+  private rememberProjectSettingRecovery(storedPlan: StoredPlan, error: unknown): void {
+    if (!(error instanceof DomainError) || typeof error.details !== "object" || error.details === null) {
+      return;
+    }
+
+    const details = error.details as Record<string, unknown>;
+    if (details.recoveryRequired !== true) {
+      return;
+    }
+
+    const currentRevision = details.currentRevision;
+    if (typeof currentRevision !== "string" || currentRevision.length === 0) {
+      return;
+    }
+
+    storedPlan.state = "applied";
+    storedPlan.recoveryRequired = true;
+    storedPlan.appliedRevision = currentRevision;
+    storedPlan.appliedFileRevision = currentRevision;
+    this.appliedPlanByProject.set(storedPlan.plan.projectRoot, storedPlan.plan.planId);
+  }
+
   private async assertPlanRevision(plan: ChangePlan): Promise<void> {
-    const context = await this.requireConnectedContext(plan.projectRoot);
-    if (context.revision !== plan.expectedRevision) {
+    const operation = plan.operations[0];
+    const isProjectSettingOperation = operation.kind === "project.setting.set";
+    const context = isProjectSettingOperation
+      ? await this.requireConnectedBridge(plan.projectRoot)
+      : await this.requireConnectedContext(plan.projectRoot);
+    if (!isProjectSettingOperation && context.revision !== plan.expectedRevision) {
       throw new DomainError(
         ERROR_CODES.REVISION_CONFLICT,
         "The Godot project changed after the plan was created.",
@@ -1332,7 +1411,6 @@ export class ChangeCoordinator {
     }
 
     if (plan.expectedFileRevision !== null) {
-      const operation = plan.operations[0];
       if (
         operation.kind !== "script.replace_range" &&
         operation.kind !== "script.create_file" &&

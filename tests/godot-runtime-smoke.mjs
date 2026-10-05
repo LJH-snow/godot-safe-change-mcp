@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { cp, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -8,18 +9,30 @@ const repositoryRoot = process.cwd();
 const godotBinary = process.env.GODOT_BIN;
 const endpoint = "http://127.0.0.1:3100/mcp";
 const secondaryEndpoint = "http://127.0.0.1:3101/mcp";
+const noSceneEndpoint = "http://127.0.0.1:3102/mcp";
 const bridgeEndpoint = "http://127.0.0.1:8765";
+const noSceneBridgeEndpoint = "http://127.0.0.1:8766";
 const fixtureRoot = await mkdtemp(path.join(tmpdir(), "godot-safe-change-ci-"));
+const noSceneRoot = path.join(
+  path.dirname(fixtureRoot),
+  `${path.basename(fixtureRoot)}-no-scene-fixture`,
+);
 const stateDirectory = path.join(fixtureRoot, ".mcp-state");
+const noSceneStateDirectory = path.join(fixtureRoot, ".no-scene-mcp-state");
+let canonicalFixtureRoot;
 const scriptPath = path.join(fixtureRoot, "diagnostic_scene.gd");
 let nextRequestId = 1;
 let nextDirectPlanId = 1;
 let godotProcess;
 let mcpProcess;
 let secondaryMcpProcess;
+let noSceneGodotProcess;
+let noSceneMcpProcess;
 const godotOutputRef = { value: "" };
 const mcpOutputRef = { value: "" };
 const secondaryMcpOutputRef = { value: "" };
+const noSceneGodotOutputRef = { value: "" };
+const noSceneMcpOutputRef = { value: "" };
 
 if (!godotBinary) {
   throw new Error("GODOT_BIN is required for the Godot runtime smoke test.");
@@ -104,13 +117,24 @@ async function request(method, params) {
   return requestAt(endpoint, method, params);
 }
 
-async function bridgeRequest(pathname, body, method = "POST") {
-  const response = await fetch(bridgeEndpoint + pathname, {
+async function bridgeRequestAt(endpointValue, pathname, body, method = "POST") {
+  const response = await fetch(endpointValue + pathname, {
     method,
     headers: { "content-type": "application/json" },
     body: method === "GET" ? undefined : JSON.stringify(body),
   });
   return { status: response.status, body: await response.json() };
+}
+
+async function bridgeRequest(pathname, body, method = "POST") {
+  const bridgeBody =
+    canonicalFixtureRoot !== undefined &&
+    body !== null &&
+    typeof body === "object" &&
+    body.projectRoot === fixtureRoot
+      ? { ...body, projectRoot: canonicalFixtureRoot }
+      : body;
+  return bridgeRequestAt(bridgeEndpoint, pathname, bridgeBody, method);
 }
 
 function structured(result) {
@@ -141,6 +165,10 @@ async function waitForMcpEndpoint(endpointValue) {
 
 function sceneNode(context, nodePath) {
   return context.currentScene.nodes.find((node) => node.path === nodePath);
+}
+
+function fileRevision(bytes) {
+  return createHash("sha256").update(bytes).digest("hex");
 }
 
 function assertValueClose(actual, expected, label) {
@@ -254,15 +282,16 @@ async function roundTripSceneProperty(projectRoot, nodePath, property, value) {
   assertValueClose(sceneNode(restoredContext, nodePath)?.properties[property], beforeValue, `${nodePath}.${property} restored`);
 }
 
-async function waitForEditor(projectRoot, godotOutputRef) {
+async function waitForEditorAt(endpointValue, projectRoot, godotOutputRef, expectScene) {
   for (let attempt = 0; attempt < 120; attempt += 1) {
     try {
-      const result = await request("tools/call", {
+      const result = await requestAt(endpointValue, "tools/call", {
         name: "editor_context",
         arguments: { projectRoot },
       });
       const context = structured(result);
-      if (context.connection === "connected" && context.currentScene.nodes.length > 0) {
+      const hasScene = context.currentScene.nodes.length > 0;
+      if (context.connection === "connected" && hasScene === expectScene) {
         return context;
       }
     } catch {
@@ -270,6 +299,10 @@ async function waitForEditor(projectRoot, godotOutputRef) {
     }
   }
   throw new Error("Godot EditorPlugin did not become available.\n" + godotOutputRef.value);
+}
+
+async function waitForEditor(projectRoot, godotOutputRef) {
+  return waitForEditorAt(endpoint, projectRoot, godotOutputRef, true);
 }
 
 try {
@@ -286,6 +319,24 @@ try {
     path.join(fixtureRoot, "project.godot"),
     (await readFile(path.join(fixtureRoot, "project.godot"), "utf8")) +
       '\n[editor_plugins]\nenabled=PackedStringArray("res://addons/godot-safe-change-bridge/plugin.cfg")\n',
+    "utf8",
+  );
+  await cp(path.join(repositoryRoot, "tests/godot-fixture"), noSceneRoot, {
+    recursive: true,
+    force: true,
+  });
+  await rm(path.join(noSceneRoot, ".godot"), { recursive: true, force: true });
+  await cp(path.join(repositoryRoot, "godot-plugin"), path.join(noSceneRoot, "addons/godot-safe-change-bridge"), {
+    recursive: true,
+    force: true,
+  });
+  const noSceneProjectFile = path.join(noSceneRoot, "project.godot");
+  const noSceneProject = await readFile(noSceneProjectFile, "utf8");
+  await writeFile(
+    noSceneProjectFile,
+    noSceneProject.replace(/^run\/main_scene=.*\r?\n/m, "") +
+      '\n[editor_plugins]\nenabled=PackedStringArray("res://addons/godot-safe-change-bridge/plugin.cfg")\n' +
+      "[godot_safe_change]\nbridge_port=8766\n",
     "utf8",
   );
 
@@ -323,9 +374,181 @@ try {
   });
   capture(secondaryMcpProcess, secondaryMcpOutputRef);
   const context = await waitForEditor(fixtureRoot, godotOutputRef);
+  canonicalFixtureRoot = context.projectRoot;
   await waitForMcpEndpoint(secondaryEndpoint);
   assert.equal(context.connection, "connected");
   assert.ok(context.currentScene.nodes.length > 0);
+
+  stage("start no-scene editor bridge");
+  noSceneGodotProcess = spawn(
+    godotBinary,
+    ["--editor", "--headless", "--path", noSceneRoot],
+    {
+      cwd: noSceneRoot,
+      stdio: ["ignore", "pipe", "pipe"],
+      detached: process.platform !== "win32",
+    },
+  );
+  capture(noSceneGodotProcess, noSceneGodotOutputRef);
+  const noSceneMcpEnvironment = {
+    ...process.env,
+    GODOT_BRIDGE_URL: noSceneBridgeEndpoint,
+    GODOT_SAFE_CHANGE_STATE_DIR: noSceneStateDirectory,
+  };
+  noSceneMcpProcess = spawn(
+    process.platform === "win32" ? "npm.cmd" : "npm",
+    ["run", "dev", "--", "--no-open", "--host", "127.0.0.1", "--port", "3102"],
+    {
+      cwd: repositoryRoot,
+      stdio: ["ignore", "pipe", "pipe"],
+      detached: process.platform !== "win32",
+      env: noSceneMcpEnvironment,
+    },
+  );
+  capture(noSceneMcpProcess, noSceneMcpOutputRef);
+  const noSceneContext = await waitForEditorAt(noSceneEndpoint, noSceneRoot, noSceneGodotOutputRef, false);
+  await waitForMcpEndpoint(noSceneEndpoint);
+  assert.equal(noSceneContext.connection, "connected");
+  assert.equal(noSceneContext.currentScene.path, null);
+  assert.deepEqual(noSceneContext.currentScene.nodes, []);
+  const noSceneProjectRoot = noSceneContext.projectRoot;
+
+  stage("exercise no-scene project setting lifecycle");
+  const noSceneProjectSettingsFile = path.join(noSceneRoot, "project.godot");
+  const noSceneInitialBytes = await readFile(noSceneProjectSettingsFile);
+  const noSceneInitialText = noSceneInitialBytes.toString("utf8");
+  const noSceneMainSceneBefore = await bridgeRequestAt(noSceneBridgeEndpoint, "/v1/project-settings/read", {
+    projectRoot: noSceneProjectRoot,
+    settingKey: "application/run/main_scene",
+  });
+  assert.equal(noSceneMainSceneBefore.status, 200, JSON.stringify(noSceneMainSceneBefore.body));
+  assert.deepEqual(noSceneMainSceneBefore.body.snapshot, {
+    settingKey: "application/run/main_scene",
+    exists: false,
+    value: null,
+    revision: noSceneMainSceneBefore.body.snapshot.revision,
+  });
+  const noSceneViewportBefore = await bridgeRequestAt(noSceneBridgeEndpoint, "/v1/project-settings/read", {
+    projectRoot: noSceneProjectRoot,
+    settingKey: "display/window/size/viewport_width",
+  });
+  assert.equal(noSceneViewportBefore.body.snapshot.value, 640);
+  assert.equal(noSceneViewportBefore.body.snapshot.revision, noSceneMainSceneBefore.body.snapshot.revision);
+
+  const noSceneViewportPlan = structured(await requestAt(noSceneEndpoint, "tools/call", {
+    name: "preview_scene_change",
+    arguments: {
+      projectRoot: noSceneRoot,
+      reason: "Exercise project setting persistence without an open scene.",
+      operation: {
+        kind: "project.setting.set",
+        settingKey: "display/window/size/viewport_width",
+        value: 1280,
+      },
+    },
+  }));
+  assert.equal(noSceneViewportPlan.expectedRevision, noSceneViewportBefore.body.snapshot.revision);
+  assert.equal(await readFile(noSceneProjectSettingsFile, "utf8"), noSceneInitialText);
+  await expectToolErrorAt(noSceneEndpoint, "apply_scene_change", {
+    projectRoot: noSceneRoot,
+    planId: noSceneViewportPlan.planId,
+  }, /CONFIRMATION_REQUIRED/);
+  await requestAt(noSceneEndpoint, "tools/call", {
+    name: "confirm_scene_change",
+    arguments: {
+      projectRoot: noSceneRoot,
+      planId: noSceneViewportPlan.planId,
+      expectedRevision: noSceneViewportPlan.expectedRevision,
+    },
+  });
+  const noSceneViewportApply = structured(await requestAt(noSceneEndpoint, "tools/call", {
+    name: "apply_scene_change",
+    arguments: { projectRoot: noSceneRoot, planId: noSceneViewportPlan.planId },
+  }));
+  assert.equal(noSceneViewportApply.status, "applied");
+  const noSceneAppliedBytes = await readFile(noSceneProjectSettingsFile);
+  assert.notDeepEqual(noSceneAppliedBytes, noSceneInitialBytes);
+  assert.match(noSceneAppliedBytes.toString("utf8"), /viewport_width=1280/);
+  assert.equal(fileRevision(noSceneAppliedBytes).length, 64);
+  const noSceneViewportAfterApply = await bridgeRequestAt(noSceneBridgeEndpoint, "/v1/project-settings/read", {
+    projectRoot: noSceneProjectRoot,
+    settingKey: "display/window/size/viewport_width",
+  });
+  assert.equal(noSceneViewportAfterApply.body.snapshot.value, 1280);
+  assert.equal(noSceneViewportAfterApply.body.snapshot.revision, noSceneViewportApply.fileRevision);
+  assert.equal(fileRevision(noSceneAppliedBytes), noSceneViewportApply.fileRevision);
+
+  const noSceneViewportRollback = structured(await requestAt(noSceneEndpoint, "tools/call", {
+    name: "rollback_scene_change",
+    arguments: { projectRoot: noSceneRoot, planId: noSceneViewportPlan.planId },
+  }));
+  assert.equal(noSceneViewportRollback.status, "rolled_back");
+  const noSceneViewportRestoredBytes = await readFile(noSceneProjectSettingsFile);
+  assert.deepEqual(noSceneViewportRestoredBytes, noSceneInitialBytes);
+  assert.equal(fileRevision(noSceneViewportRestoredBytes), fileRevision(noSceneInitialBytes));
+  const noSceneMainSceneAfterViewportRollback = await bridgeRequestAt(noSceneBridgeEndpoint, "/v1/project-settings/read", {
+    projectRoot: noSceneProjectRoot,
+    settingKey: "application/run/main_scene",
+  });
+  assert.equal(noSceneMainSceneAfterViewportRollback.body.snapshot.exists, false);
+  assert.equal(noSceneMainSceneAfterViewportRollback.body.snapshot.value, null);
+
+  const noSceneMainScenePlan = structured(await requestAt(noSceneEndpoint, "tools/call", {
+    name: "preview_scene_change",
+    arguments: {
+      projectRoot: noSceneRoot,
+      reason: "Set and roll back a main scene from an unconfigured project.",
+      operation: {
+        kind: "project.setting.set",
+        settingKey: "application/run/main_scene",
+        value: "res://instance_source.tscn",
+      },
+    },
+  }));
+  assert.equal(noSceneMainScenePlan.diff[0].before, null);
+  await requestAt(noSceneEndpoint, "tools/call", {
+    name: "confirm_scene_change",
+    arguments: {
+      projectRoot: noSceneRoot,
+      planId: noSceneMainScenePlan.planId,
+      expectedRevision: noSceneMainScenePlan.expectedRevision,
+    },
+  });
+  const noSceneMainSceneApply = structured(await requestAt(noSceneEndpoint, "tools/call", {
+    name: "apply_scene_change",
+    arguments: { projectRoot: noSceneRoot, planId: noSceneMainScenePlan.planId },
+  }));
+  assert.equal(noSceneMainSceneApply.status, "applied");
+  const noSceneMainSceneAfterApply = await bridgeRequestAt(noSceneBridgeEndpoint, "/v1/project-settings/read", {
+    projectRoot: noSceneProjectRoot,
+    settingKey: "application/run/main_scene",
+  });
+  assert.deepEqual(noSceneMainSceneAfterApply.body.snapshot, {
+    settingKey: "application/run/main_scene",
+    exists: true,
+    value: "res://instance_source.tscn",
+    revision: noSceneMainSceneAfterApply.body.snapshot.revision,
+  });
+  const noSceneMainSceneRollback = structured(await requestAt(noSceneEndpoint, "tools/call", {
+    name: "rollback_scene_change",
+    arguments: { projectRoot: noSceneRoot, planId: noSceneMainScenePlan.planId },
+  }));
+  assert.equal(noSceneMainSceneRollback.status, "rolled_back");
+  assert.deepEqual(await readFile(noSceneProjectSettingsFile), noSceneInitialBytes);
+  const noSceneMainSceneAfterRollback = await bridgeRequestAt(noSceneBridgeEndpoint, "/v1/project-settings/read", {
+    projectRoot: noSceneProjectRoot,
+    settingKey: "application/run/main_scene",
+  });
+  assert.equal(noSceneMainSceneAfterRollback.body.snapshot.exists, false);
+  assert.equal(noSceneMainSceneAfterRollback.body.snapshot.value, null);
+  assert.equal(noSceneMainSceneAfterRollback.body.snapshot.revision, noSceneMainScenePlan.expectedFileRevision);
+  assert.equal(fileRevision(await readFile(noSceneProjectSettingsFile)), fileRevision(noSceneInitialBytes));
+  stage("no-scene project setting lifecycle complete");
+  await stopProcess(noSceneMcpProcess);
+  await stopProcess(noSceneGodotProcess);
+  noSceneMcpProcess = undefined;
+  noSceneGodotProcess = undefined;
+
   stage("validate direct plugin input");
 
   const directInvalidChange = await bridgeRequest("/v1/changes/apply", {
@@ -1999,10 +2222,15 @@ try {
   console.error("Godot output:\n" + godotOutputRef.value);
   console.error("MCP output:\n" + mcpOutputRef.value);
   console.error("Secondary MCP output:\n" + secondaryMcpOutputRef.value);
+  console.error("No-scene Godot output:\n" + noSceneGodotOutputRef.value);
+  console.error("No-scene MCP output:\n" + noSceneMcpOutputRef.value);
   throw error;
 } finally {
+  await stopProcess(noSceneMcpProcess);
+  await stopProcess(noSceneGodotProcess);
   await stopProcess(secondaryMcpProcess);
   await stopProcess(mcpProcess);
   await stopProcess(godotProcess);
+  await rm(noSceneRoot, { recursive: true, force: true });
   await rm(fixtureRoot, { recursive: true, force: true });
 }

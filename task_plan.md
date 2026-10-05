@@ -408,11 +408,28 @@
 状态：complete
 
 - [x] 定义严格的 `project.setting.set` 契约，只允许 `application/run/main_scene`、`display/window/size/viewport_width` 和 `display/window/size/viewport_height`；scene path 必须是存在的项目内 `res://` `.tscn`，viewport 必须是 1..16384 的整数。
-- [x] 增加 `/v1/project-settings/read`、typed snapshot、完整 `project.godot` revision guard、ProjectSettings.save() persistence/readback 和 guarded rollback；插件对 key、类型、范围、no-op、save failure 和外部编辑独立校验。
+- [x] 将 settings lifecycle 定义为项目级操作：preview、confirm、apply、rollback 不依赖当前场景；未配置 main scene 的 typed snapshot 返回 `exists=false`、`value=null`。
+- [x] 增加 `/v1/project-settings/read`、typed snapshot、完整 `project.godot` 字节 revision guard、`ConfigFile` 独立磁盘读回、ProjectSettings.save() persistence/readback 和 guarded rollback；插件对 key、类型、范围、no-op、save failure 和外部编辑独立校验。
+- [x] apply/rollback 保存原始和尝试写入的 project.godot 字节；保存、读回或恢复验证失败时使用临时文件和原子替换按字节恢复，并以结构化 `recoveryRequired`/`phase` 表示恢复状态；待恢复状态阻止新的 project-setting apply。
+- [x] 外部编辑冲突返回 `REVISION_CONFLICT` 并保留用户当前字节；恢复逻辑不会覆盖与捕获 applied bytes 不一致的文件。
 - [x] TypeScript、HTTP、task、plugin-boundary 和 runtime smoke 覆盖已写入；本地 139 项测试、typecheck、build、package:check 和 smoke syntax 通过。
 - [x] 修正 Godot JSON integral number 的跨层类型边界：插件接受有限整数值并在保存、读回和 rollback 前统一为 Godot integer；commit `9cc4018`。
 - [x] PR #30 的 CI run `37190573762`（重复验证 run `37190575982`）中 check、npm package boundary、Godot 4.5.1 runtime 和 Godot 4.7.2 runtime 全部成功。
+- [x] 本阶段记录的是受限实现和已有证据范围，不表示完成了完整安全审计。
 - [x] PR #30 已以 merge commit `c8fad0d993af5e288a11bb24d916ec107c173f4d` 合入 `main`；本地 `main` 与 `origin/main` 一致且 working tree clean。
+
+## Phase 38 — project.setting.set 持久化与无场景生命周期加固
+
+状态：implementation complete; remote CI pending
+
+- [x] 将 project-level preview、confirm、apply、rollback 与当前编辑场景解耦；scene operation 仍保留当前场景前置条件。
+- [x] 增加 no-scene runtime fixture 和未配置 main scene fixture；缺失或空 main scene 稳定返回 `exists=false`、`value=null`。
+- [x] 增加受限 `ConfigFile` 磁盘读取层、完整 `project.godot` bytes/SHA-256 revision、保存后独立读回，以及原始/尝试 bytes 的 byte-preserving recovery path。
+- [x] 为保存、读回、补偿和 rollback recovery 保留结构化 `recoveryRequired`/`phase` 状态；pending recovery 保持 applied plan ownership，并阻止新的 project-setting mutation 覆盖待恢复状态。
+- [x] 增加缺省 viewport 内建默认值 no-op 测试、HTTP malformed/wrong-key 测试、外部编辑冲突、rollback retry、no-scene bytes/revision 和 absent-main-scene 真实 smoke 断言。
+- [x] 本地验证：144 项测试通过；`npm run typecheck`、`npm run build`、`npm run package:check`、`npm run release:check`、smoke syntax 和 `git diff --check` 通过；本机 Godot 4.7.2 全量 smoke 通过。
+- [ ] 运行 feature branch 的 Godot 4.5.1/4.7.2 required CI checks，并在全部通过后创建 merge-commit PR 合入 protected `main`。
+- [ ] 保留并在最终报告中说明未完全解决的边界：filesystem check-then-rename TOCTOU、跨进程 recovery journal、跨平台 rename durability，以及未注入生产故障开关的真实 save-failure runtime 路径。
 
 ## 完成定义
 
