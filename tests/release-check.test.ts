@@ -7,7 +7,8 @@ import { test } from "node:test";
 
 const repositoryRoot = process.cwd();
 const scriptPath = path.join(repositoryRoot, "scripts", "release-check.mjs");
-const manifestPath = path.join(repositoryRoot, "docs", "releases", "v1.1.0.json");
+const packageVersion = JSON.parse(await readFile(path.join(repositoryRoot, "package.json"), "utf8")).version as string;
+const manifestPath = path.join(repositoryRoot, "docs", "releases", `v${packageVersion}.json`);
 
 function runReleaseCheck(args: string[]) {
   return spawnSync(process.execPath, [scriptPath, ...args], {
@@ -25,11 +26,13 @@ async function writeTemporaryManifest(mutator: (manifest: Record<string, unknown
   return { directory, temporaryPath };
 }
 
-test("accepts the published release record and reports its evidence", () => {
+test("accepts the published release record and reports its evidence", async () => {
+  const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as { ciRunUrl: string };
+  const runId = manifest.ciRunUrl.split("/").at(-1);
   const result = runReleaseCheck([]);
   assert.equal(result.status, 0, result.stderr);
-  assert.ok(result.stdout.includes("Release artifact check passed: v1.1.0"));
-  assert.ok(result.stdout.includes("37037985489"));
+  assert.ok(result.stdout.includes(`Release artifact check passed: v${packageVersion}`));
+  assert.ok(typeof runId === "string" && runId.length > 0 && result.stdout.includes(runId));
 });
 
 test("rejects a manifest whose tag or CI run belongs to another release", async () => {
@@ -40,7 +43,7 @@ test("rejects a manifest whose tag or CI run belongs to another release", async 
   try {
     const result = runReleaseCheck(["--manifest", temporary.temporaryPath]);
     assert.notEqual(result.status, 0);
-    assert.ok(result.stderr.includes("tag must be v1.1.0"));
+    assert.ok(result.stderr.includes(`tag must be v${packageVersion}`));
     assert.ok(result.stderr.includes("ciRunUrl must point to this repository"));
   } finally {
     await rm(temporary.directory, { recursive: true, force: true });
