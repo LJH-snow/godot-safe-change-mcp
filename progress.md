@@ -477,4 +477,5 @@
 - runtime smoke 以目录权限真实注入两类此前只有状态机/fake 覆盖的失败：apply 期间项目目录只读使 `ProjectSettings.save()` 失败（`OPERATION_REJECTED` + `phase=save` + `recoveryRequired=false`，文件字节不变、无 pending recovery、权限恢复后同一 plan 重试成功）；rollback 期间目录只读使临时文件恢复失败（`phase=rollback` + `recoveryRequired=true`，pending recovery 镜像到 journal，applied 值可读，权限恢复后 retry 完成并恢复原始 bytes）。
 - 实证发现：Godot 4.7.2 的 `ProjectSettings.save()` 以重建文件方式写入——只读文件（0o444）拦不住持久化，只有只读目录（0o555）能阻断 save 与恢复写入；journal 位于 `.godot` 子目录，权限独立于项目根，真实 rollback 失败时仍能成功写入。win32 跳过注入阶段。
 - 本地验证：`npm test` 147 项通过、typecheck、build、package:check、release:check、smoke syntax、`git diff --check` 全部通过；本机 Godot 4.7.2 全量 runtime smoke（含两个注入阶段）通过。
+- PR #48 CI run `37341355376` 四项 required checks 全部通过（Godot 4.5.1 runtime 同时通过，证明目录权限注入在双版本行为一致），并以 merge commit `bfeee45d000153225586c12fb1ae67286d9ccf05` 合入 protected `main`。
 - 保留边界：verify 阶段读回不匹配与部分写入状态仍无真实注入；journal 持久化要求 `.godot` 子目录可写；本条目不构成完整安全审计。
