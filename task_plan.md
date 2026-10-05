@@ -459,6 +459,7 @@
 - [x] feature branch PR #43 的 CI run `37317993227` 四项 required checks（check、npm package boundary、Godot 4.5.1 runtime、Godot 4.7.2 runtime）全部通过，并以 merge commit `810229c1006bc02fbe494511e98a1a8b791f5868` 合入 protected `main`。
 - [x] 最终同步核对：本地 `main` 与 `origin/main` 一致，当前 tip 为 `810229c`，uid feature branch 已按合并流程完成交付。
 - [x] 仍保留边界：uid 解析依赖 Godot ResourceUID registry 已完成资源扫描；本阶段证据与 CI 不构成完整安全审计。
+- [x] uid 功能随 v1.3.0 正式发布：PR #45 CI run `37335844387` 四项 checks 全绿并合入（merge commit `b232e80`）；tag `v1.3.0` 指向 `32f8c8633803799d87fe6852a4e6ed7909dc8e5d`；manifest 定稿 PR #46（merge commit `1d536b7`）；用户完成 npm OTP 认证后发布成功，registry `latest = 1.3.0`，shasum `cc37668ff71304f20d7ab74eebc78187ce7f0dfb`。
 
 ## 完成定义
 
