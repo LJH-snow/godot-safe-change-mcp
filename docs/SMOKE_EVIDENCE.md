@@ -30,7 +30,7 @@ The Linux CI wraps both commands in a virtual display and runs them once per sup
 | Read-only project intelligence | tests/project-search.test.ts and the search stage in tests/godot-runtime-smoke.mjs | Scene, node, script, resource, signal, input and reference results. |
 | Preview and confirmation | tests/vertical-link.test.ts | Diff-only preview, explicit confirmation, stale revision rejection and no pre-confirmation write. |
 | Scene apply and rollback | tests/vertical-link.test.ts and the scene stages in tests/godot-runtime-smoke.mjs | UndoRedo report, changed revision, rollback report and restored scene state including group membership, sibling order and unique name flags. |
-| Resource, script, input and project-setting changes | tests/vertical-link.test.ts and tests/godot-runtime-smoke.mjs | File/project revision guards, atomic apply, created-file rollback, user-edit conflict, autoload snapshot restore, and bounded project.setting.set persistence/readback/rollback for the main-scene and viewport allowlist. |
+| Resource, script, input and project-setting changes | tests/vertical-link.test.ts and tests/godot-runtime-smoke.mjs | File/project revision guards, atomic apply, created-file rollback, user-edit conflict, autoload snapshot restore, and bounded project.setting.set coverage for the exact three-key allowlist, project-level operation without a current scene, unconfigured main-scene snapshots, full project.godot byte revisions, independent ConfigFile disk readback, byte-preserving recovery state, and external-edit conflict preservation. |
 | Diagnostics and bounded repair | tests/vertical-link.test.ts and task-orchestration.test.ts | Source/line/NodePath evidence, explicit repair hint, separate confirmation and rerun verification. |
 | Task verification | tests/task-orchestration.test.ts | Scene properties, resource/script revision/content assertions, diagnostics thresholds, operation IDs and mismatch timelines. |
 | Multi-process recovery | tests/project-lease-process.test.ts and tests/starter-multiprocess-smoke.mjs | Stable PROJECT_BUSY, TTL takeover, lease_reclaimed, recovered step and new operation ID. |
@@ -51,13 +51,15 @@ Runtime jobs upload per-version smoke logs. Prefer the exact run linked from a r
 
 The setting lifecycle in `tests/godot-runtime-smoke.mjs` proves the bounded contract through the real loopback bridge:
 
-- `/v1/project-settings/read` returns typed snapshots and one shared full-file `project.godot` revision for viewport width and height, then reads the main-scene key.
-- Preview captures that revision and returns a key-specific before/after diff without changing the file; apply requires explicit confirmation and persists through `ProjectSettings.save()`.
-- Apply readback confirms the new viewport value and changed revision; an equal-value preview is rejected as a no-op.
-- Direct forged requests reject unknown keys, out-of-range values, extra fields, and traversal without changing `project.godot`.
-- An external edit after apply makes rollback return `REVISION_CONFLICT` while preserving the edit; restoring the applied bytes permits a verified rollback to the original value.
-- `application/run/main_scene` rejects missing scenes, applies only an existing project-local `.tscn`, reads back the new path, and restores the original setting.
-- PR #30 CI run `37190573762` (with duplicate validation run `37190575982`) passed the complete required matrix: check, npm package boundary, Godot 4.5.1 runtime, and Godot 4.7.2 runtime. The runtime failure that preceded it was fixed in commit `9cc4018` by canonicalizing integral JSON numbers at the plugin boundary.
+- `/v1/project-settings/read` returns a typed snapshot for each of exactly three allowlisted keys and a shared revision derived from the complete `project.godot` bytes. It reads the disk file independently with `ConfigFile`; an unconfigured `application/run/main_scene` is returned as `exists: false` and `value: null`.
+- This is a project-level lifecycle. Preview, confirm, apply, and rollback do not require a current scene. Preview captures the full-file revision and returns a key-specific before/after diff without changing the file; apply requires explicit confirmation and persists through `ProjectSettings.save()`.
+- Apply readback independently verifies the typed persisted value and changed full-file revision; an equal effective value is rejected as a no-op.
+- Direct forged requests reject unknown keys, out-of-range values, extra fields, traversal, non-integers, and non-finite values without changing `project.godot`.
+- Apply and rollback retain original and attempted bytes. If save/readback or restoration cannot be verified, the bridge reports structured `recoveryRequired` and `phase` details (including `save`, `verify`, `rollback`, and `rollback-verify` paths), restores through a temporary file and atomic rename when safe, and blocks a new project-setting apply while recovery remains pending.
+- An external edit after apply makes rollback return `REVISION_CONFLICT` while preserving the edited bytes; recovery likewise refuses to overwrite bytes that differ from the captured applied snapshot. When the file is unchanged or restored to the expected applied/original bytes, rollback verifies the original bytes, revision, and typed value before completing.
+- `application/run/main_scene` rejects missing scenes, applies only an existing project-local `.tscn`, reads back the new path, and restores the original setting, including the originally unconfigured state.
+- Latest local verification for this hardening pass: `npm test` (144 passed), `npm run typecheck`, `npm run build`, `npm run package:check`, `npm run release:check`, `node --check tests/godot-runtime-smoke.mjs`, and `git diff --check` all passed; the full smoke also passed with local Godot 4.7.2. Godot 4.5.1 and the required remote checks remain pending until CI runs on the feature branch.
+- The Phase 37/38 implementation evidence is limited to the focused tests and fixture assertions named above; it is not a complete security audit. Do not infer additional audit coverage from the CI badge or from this page.
 
 ## Safety interpretation
 

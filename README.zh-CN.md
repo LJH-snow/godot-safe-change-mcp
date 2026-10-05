@@ -165,7 +165,7 @@ flowchart LR
 | 编辑器上下文 | <code>editor_context</code> | 返回完整当前场景树（含节点分组）、选中节点安全属性、打开资源、运行状态和诊断。 |
 | 场景结构 | create、delete、reparent、rename、duplicate、reorder、instantiate、connect/disconnect signal、add/remove group | 所有 NodePath、名称、父子关系、实例源路径、兄弟索引、signal/method 和分组名都经过边界校验；连接、断开和分组变更通过 Godot UndoRedo apply/rollback。 |
 | 场景内容 | <code>scene.set_property</code>、<code>scene.attach_script</code>、<code>scene.detach_script</code>、<code>scene.set_unique_name</code> | 仅开放 visible、position、rotation_degrees、scale、size、text、color，以及项目内现有 GDScript 的挂载/卸载和场景唯一名 %Name 暴露。 |
-| 文件/设置 | resource reference、input action、script 创建与区间、autoload 注册、<code>project.setting.set</code> | 使用文件或 project.godot revision guard，原子写入或 Godot ProjectSettings.save() 持久化，并在读回验证后支持受保护 rollback。 |
+| 文件/设置 | resource reference、input action、script 创建与区间、autoload 注册、<code>project.setting.set</code> | 使用文件或 project.godot 完整字节 revision guard、独立磁盘读回、原子写入、按原始字节恢复，并在验证后支持受保护 rollback。 |
 | 运行诊断 | <code>run_current_scene</code>、<code>run_scene</code> | 返回 run ID、状态、输出、warning、error、source、line 和 NodePath。 |
 | 多步骤任务 | create/get/advance/pause/resume/cancel | 支持 verify_scene_state、verify_resource_state、verify_script_state、verify_diagnostics、诊断修复预览和 step-level operation ID。 |
 | 并发恢复 | acquire/renew/release task lease、<code>task_status</code>、<code>task_timeline</code> | Lease 持有期间 heartbeat 续租；进程崩溃后按 TTL 接管，并保留审计时间线。 |
@@ -186,9 +186,13 @@ preview → confirm → lease/revision check → apply → verify → rollback (
 - 不受限制的文件系统写入
 - 绕过 preview、confirm、revision、lease 或 rollback 的写入
 
+这里记录的是受限实现和已有证据范围，不是完整的安全审计结论。
+
 ### 项目设置边界
 
-`project.setting.set` 刻意不是通用 ProjectSettings setter，只允许三个 key：`application/run/main_scene`（必须是项目内已存在的 `res://` `.tscn`）、`display/window/size/viewport_width` 和 `display/window/size/viewport_height`（只能是 1..16384 的整数）。严格的 `settingKey`/`value` 对象会拒绝未知 key、额外字段、遍历路径、小数、非有限数值和不存在的场景。preview、confirm、apply、rollback 都检查完整 `project.godot` revision；Godot 通过 `ProjectSettings.save()` 持久化，桥接层在成功前读回验证；用户外部编辑后 rollback 返回 <code>REVISION_CONFLICT</code>，不会覆盖用户内容。
+`project.setting.set` 刻意不是通用 ProjectSettings setter，只允许三个 key：`application/run/main_scene`（必须是项目内已存在的 `res://` `.tscn`）、`display/window/size/viewport_width` 和 `display/window/size/viewport_height`（只能是 1..16384 的整数）。严格的 `settingKey`/`value` 对象会拒绝未知 key、额外字段、遍历路径、小数、非有限数值和不存在的场景。这是项目级生命周期：project.setting.set 的 preview、confirm、apply、rollback 不要求当前场景存在；`/v1/project-settings/read` 对未配置的 main scene 返回 `exists: false`、`value: null`。
+
+revision 来自完整 `project.godot` 文件字节，并在 preview、confirm、apply、rollback 逐阶段检查。Godot 通过 `ProjectSettings.save()` 持久化，但桥接层另行从磁盘用 `ConfigFile` 读取并校验 typed value，内存中的 ProjectSettings 值不能单独视为成功读回。apply/rollback 都保存原始字节和尝试写入的字节；保存或读回失败时，通过临时文件加原子 rename 恢复原始字节，并再次核对字节和 revision。恢复失败会返回结构化的 `recoveryRequired: true` 和 `phase`（例如 `save`、`verify`、`rollback`、`rollback-verify`）；存在待恢复状态时，新的 project.setting.set apply 会被阻止，直到恢复完成。用户外部编辑会使 rollback 返回 <code>REVISION_CONFLICT</code>，保留当前文件，不覆盖用户内容。
 
 ### 并发行为
 
@@ -220,7 +224,7 @@ GitHub Actions 对每个推送运行四个 job：
 - <code>Godot 4.5.1 runtime</code>：真实 EditorPlugin fixture smoke
 - <code>Godot 4.7.2 runtime</code>：同一 fixture 的第二版本验证
 
-Smoke 覆盖 search、context、场景属性/结构/实例化/脚本 apply-rollback、资源和输入设置、受限 project.setting.set 的持久化/读回/rollback 与外部编辑冲突保护、diagnostics、task lease、双 MCP 进程并发和 TTL 接管。
+Smoke 覆盖 search、context、场景属性/结构/实例化/脚本 apply-rollback、资源和输入设置、受限 project.setting.set 的持久化/读回/rollback 与外部编辑冲突保护、diagnostics、task lease、双 MCP 进程并发和 TTL 接管。项目设置证据还覆盖三个 key 的白名单、无当前场景时的项目级操作、未配置 main scene 的 snapshot、完整文件 revision 和恢复状态；这些内容不是完整的安全审计。
 
 ## 开发者入口
 

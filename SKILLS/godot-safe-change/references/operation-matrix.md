@@ -10,7 +10,7 @@ docs/PLAN.md, tests/README.md, and the task records.
 | script.replace_range | TypeScript coordinator plus plugin file route | res:// .gd path, bounded 1-based lines, expected file revision, exact before text | Line diff, file revision, atomic replacement result, rollback or conflict evidence |
 | resource.replace_reference | TypeScript coordinator and bounded file route | res:// .tscn/.tres/.res path, explicit from/to reference, expected file revision | Match count, before/after snapshot, file revision, rollback or user-edit conflict |
 | project.input_action.add_key, remove_key, replace_key | Guarded ProjectSettings route | Safe action name, unique physical key match, no logical or occupied key, expected project.godot revision | Action snapshot, settings revision, persistence result, complete rollback snapshot |
-| project.setting.set | Guarded ProjectSettings route | Exact allowlist: application/run/main_scene must be an existing project-local res:// .tscn; viewport_width/viewport_height must be integers from 1 through 16384; full project.godot revision, active plan, project lease | Key-typed before/after diff, persisted project.godot revision, readback verification, guarded rollback or external-edit conflict; arbitrary keys and Variants are rejected |
+| project.setting.set | Guarded ProjectSettings route; project-level and independent of the current scene | Exact three-key allowlist: application/run/main_scene must be an existing project-local res:// .tscn; viewport_width/viewport_height must be integers from 1 through 16384; operation object is exact kind/settingKey/value; full project.godot byte revision, active plan, project lease | Typed before/after diff; unconfigured main scene is exists=false/value=null; independent ConfigFile disk readback after ProjectSettings.save(); original and attempted bytes retained for temporary-file atomic recovery; structured recoveryRequired/phase on incomplete recovery; guarded rollback preserves external edits with REVISION_CONFLICT; arbitrary keys and Variants are rejected |
 | run_current_scene, run_scene | Godot EditorInterface run route | Connected editor, one run at a time, valid res:// .tscn path for custom scenes, bounded timeout | Run ID, stopped/failed/timeout state, output, errors, warnings, source association |
 | verify_scene_state, verify_diagnostics | Read-only task step | Explicit previous step or run ID, safe NodePath/property assertions, bounded thresholds | Observed values or diagnostic counts, mismatch details, task step operation ID |
 
@@ -20,7 +20,8 @@ For every write family, preserve this order:
 
 The plugin is a second validation boundary. A request that passed Zod or a
 MCP tool schema must still be rejected by the plugin if its path, node, value,
-revision, plan identity, or history is unsafe.
+revision, plan identity, or history is unsafe. The matrix documents bounded
+implementation behavior and evidence scope; it is not a complete security audit.
 
 Never use a diagnostic message, repair hint, or user-provided string as a
 script, shell command, method name, or Godot RPC payload.
