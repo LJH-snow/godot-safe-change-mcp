@@ -450,14 +450,15 @@
 
 ## Phase 40 — uid:// main scene 引用
 
-状态：in progress
+状态：complete
 
 - [x] TypeScript main-scene operation/diff/snapshot 契约接受 `res://*.tscn` 或 `uid://<identifier>`；malformed uid 仍在契约层拒绝，persisted path/uid 按原始形式返回。
 - [x] Godot 插件通过 `ResourceUID.text_to_id`、`has_id` 和 `get_id_path` 权威解析 uid，并要求解析结果是项目内、存在的 `.tscn`；未知 uid 在 apply 阶段返回 `VALIDATION_FAILED`，不改变 `project.godot`。
 - [x] fixture 固定合法 UID；vertical-link 覆盖 uid 生命周期、persisted uid no-op 和 malformed uid；runtime smoke 覆盖 uid preview/confirm/apply、独立 snapshot、带引号的 project.godot 持久化、rollback 原始 bytes 恢复和未知 uid 拒绝。
 - [x] README、插件文档、capabilities、operation matrix、测试边界、实施计划、CHANGELOG 和本阶段证据已同步；uid 功能属于 Unreleased，未回写已经发布的 npm `1.2.0`。
-- [ ] 在 feature branch 上完成远程四项 required checks，并以 merge commit 合入 protected `main`；合入后再将 PR/run/merge evidence 写回本阶段记录。
-- [ ] 仍保留边界：uid 解析依赖 Godot ResourceUID registry 已完成资源扫描；本阶段证据与 CI 不构成完整安全审计。
+- [x] feature branch PR #43 的 CI run `37317993227` 四项 required checks（check、npm package boundary、Godot 4.5.1 runtime、Godot 4.7.2 runtime）全部通过，并以 merge commit `810229c1006bc02fbe494511e98a1a8b791f5868` 合入 protected `main`。
+- [x] 最终同步核对：本地 `main` 与 `origin/main` 一致，当前 tip 为 `810229c`，uid feature branch 已按合并流程完成交付。
+- [x] 仍保留边界：uid 解析依赖 Godot ResourceUID registry 已完成资源扫描；本阶段证据与 CI 不构成完整安全审计。
 
 ## 完成定义
 
