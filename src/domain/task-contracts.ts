@@ -149,11 +149,22 @@ export const previewDiagnosticRepairStepDeclSchema = z
   })
   .strict();
 
+export const rerunDiagnosticsPolicySchema = z
+  .object({
+    maxErrors: z.number().int().min(0).max(1000).optional(),
+    maxWarnings: z.number().int().min(0).max(1000).optional(),
+    timeoutMs: z.number().int().min(100).max(30000).optional(),
+  })
+  .strict();
+
+export type RerunDiagnosticsPolicy = z.infer<typeof rerunDiagnosticsPolicySchema>;
+
 export const applyDiagnosticRepairStepDeclSchema = z
   .object({
     kind: z.literal("apply_diagnostic_repair"),
     stepId: taskStepIdSchema,
     previewStepId: taskStepIdSchema,
+    rerunDiagnostics: rerunDiagnosticsPolicySchema.optional(),
     note: taskStepNoteSchema.optional(),
   })
   .strict();
@@ -357,6 +368,7 @@ export const taskStepStateSchema = z.object({
   diagnosticIndex: z.number().int().min(0).max(1000).nullable().default(null),
   repairHint: diagnosticRepairHintSchema.nullable().default(null),
   previewStepId: taskStepIdSchema.nullable().default(null),
+  rerunDiagnostics: rerunDiagnosticsPolicySchema.nullable().default(null),
   timeoutMs: z.number().int().min(100).max(30000).nullable().default(null),
   expectedRevision: z.string().nullable(),
   status: taskStepStatusSchema,

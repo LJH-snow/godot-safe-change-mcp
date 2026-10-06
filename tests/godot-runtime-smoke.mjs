@@ -2658,7 +2658,7 @@ try {
             reason: "Add the explicitly approved task repair marker.",
           },
         },
-        { kind: "apply_diagnostic_repair", stepId: "apply-repair", previewStepId: "preview-repair" },
+        { kind: "apply_diagnostic_repair", stepId: "apply-repair", previewStepId: "preview-repair", rerunDiagnostics: { maxErrors: 0, maxWarnings: 100 } },
         { kind: "run_scene", stepId: "run-after-repair", scenePath: "res://main.tscn", timeoutMs: 30000 },
         { kind: "verify_diagnostics", stepId: "verify-after-repair", runStepId: "run-after-repair", maxErrors: 0, maxWarnings: 100 },
       ],
@@ -2697,6 +2697,9 @@ try {
   }));
   assert.equal(appliedRepairTask.steps[2]?.status, "succeeded");
   assert.equal(appliedRepairTask.steps[2]?.result?.planId, repairPlan.planId);
+  assert.equal(appliedRepairTask.steps[2]?.result?.alreadyApplied, false);
+  assert.equal(appliedRepairTask.steps[2]?.result?.rerun?.passed, true);
+  assert.equal(typeof appliedRepairTask.steps[2]?.result?.rerun?.rerunRunId, "string");
   assert.ok(sceneNode(await readEditorContext(fixtureRoot), "TaskRepairMarker"));
   const rerunRepairTask = structured(await request("tools/call", {
     name: "advance_task",

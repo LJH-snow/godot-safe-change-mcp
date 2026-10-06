@@ -4,6 +4,7 @@ All notable changes to Godot Safe Change MCP will be documented here.
 
 ## Unreleased
 
+- Closed the diagnostics repair loop: the apply_diagnostic_repair task step accepts an optional rerunDiagnostics policy that reruns the referenced scene after the confirmed repair applies and verifies the rerun against maxErrors/maxWarnings thresholds inside the same step, recording the passed verification as step evidence. A threshold failure is retryable without re-applying the repair plan (the already-applied plan is detected instead of re-applied).
 - Added cross-editor change serialization: every plugin apply and rollback runs inside an advisory per-project change lock (atomic directory create with a TTL owner record under .godot/godot-safe-change), a second live editor instance receives PROJECT_BUSY with owner details, an expired lock is taken over, and an unavailable lock falls back to the revision guards with a warning. Editors that hold no in-memory change state now also re-scan the recovery journal before mutating, so an editor that starts while another crashed with pending recovery adopts that recovery instead of overwriting it; a pending recovery now rejects other applies with PROJECT_BUSY and the pending phase instead of claiming the new plan's recovery ownership.
 - Nothing yet.
 

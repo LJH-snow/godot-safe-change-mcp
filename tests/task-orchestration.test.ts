@@ -744,6 +744,144 @@ describe("TaskCoordinator", () => {
     assert.equal(completed.steps[4]?.result && (completed.steps[4]?.result as { passed?: boolean }).passed, true);
   });
 
+  test("chains a rerun and diagnostics verification into the repair apply step", async () => {
+    const { projectRoot, taskCoordinator, changeCoordinator, bridge } = harness;
+    bridge.runDiagnosticsResult = {
+      ...bridge.runDiagnosticsResult,
+      runId: "run-before-chain",
+      warnings: [{
+        message: "A safe repair is available.",
+        source: "res://main.gd",
+        line: 12,
+        repairHint: {
+          kind: "scene.create_node",
+          parentPath: ".",
+          nodeName: "ChainedRepairMarker",
+          nodeType: "Node2D",
+          reason: "Add a marker requested by the diagnostic.",
+        },
+      }],
+    };
+    const task = await taskCoordinator.createTask({
+      projectRoot,
+      title: "Apply a repair and verify the rerun in one step",
+      steps: [
+        { kind: "run_current_scene", stepId: "run-before" },
+        { kind: "preview_diagnostic_repair", stepId: "preview-repair", runStepId: "run-before", diagnosticKind: "warning", diagnosticIndex: 0 },
+        {
+          kind: "apply_diagnostic_repair",
+          stepId: "apply-repair",
+          previewStepId: "preview-repair",
+          rerunDiagnostics: { maxErrors: 0, maxWarnings: 0 },
+        },
+      ],
+    });
+
+    await taskCoordinator.advanceTask({ projectRoot, taskId: task.taskId });
+    const previewed = await taskCoordinator.advanceTask({ projectRoot, taskId: task.taskId });
+    assert.equal(previewed.status, "paused");
+    const plan = (previewed.steps[1]?.result as { plan: { planId: string; expectedRevision: string } }).plan;
+    await changeCoordinator.confirmChange({
+      projectRoot,
+      planId: plan.planId,
+      expectedRevision: plan.expectedRevision,
+    });
+    await taskCoordinator.resumeTask({ projectRoot, taskId: task.taskId });
+    // The repair fixes the diagnostic, so the rerun inside the apply step is clean.
+    bridge.runDiagnosticsResult = {
+      ...bridge.runDiagnosticsResult,
+      runId: "run-after-chain",
+      warnings: [],
+      errors: [],
+    };
+    const applied = await taskCoordinator.advanceTask({ projectRoot, taskId: task.taskId });
+    assert.equal(applied.status, "completed");
+    assert.equal(applied.steps[2]?.status, "succeeded");
+    const result = applied.steps[2]?.result as {
+      alreadyApplied: boolean;
+      rerun: { passed: boolean; rerunRunId: string; errorCount: number; warningCount: number; maxErrors: number; maxWarnings: number };
+    };
+    assert.equal(result.alreadyApplied, false);
+    assert.equal(result.rerun.passed, true);
+    assert.equal(result.rerun.rerunRunId, "run-after-chain");
+    assert.equal(result.rerun.maxErrors, 0);
+    assert.equal(result.rerun.maxWarnings, 0);
+    assert.equal(bridge.runCalls, 2);
+    assert.equal(bridge.applied.length, 1);
+  });
+
+  test("retries a failed repair verification without re-applying the plan", async () => {
+    const { projectRoot, taskCoordinator, changeCoordinator, bridge } = harness;
+    bridge.runDiagnosticsResult = {
+      ...bridge.runDiagnosticsResult,
+      runId: "run-before-retry",
+      warnings: [{
+        message: "A safe repair is available.",
+        source: "res://main.gd",
+        line: 12,
+        repairHint: {
+          kind: "scene.create_node",
+          parentPath: ".",
+          nodeName: "RetryVerificationMarker",
+          nodeType: "Node2D",
+          reason: "Add a marker requested by the diagnostic.",
+        },
+      }],
+    };
+    const task = await taskCoordinator.createTask({
+      projectRoot,
+      title: "Retry the verification leg of a repair",
+      steps: [
+        { kind: "run_current_scene", stepId: "run-before" },
+        { kind: "preview_diagnostic_repair", stepId: "preview-repair", runStepId: "run-before", diagnosticKind: "warning", diagnosticIndex: 0 },
+        {
+          kind: "apply_diagnostic_repair",
+          stepId: "apply-repair",
+          previewStepId: "preview-repair",
+          rerunDiagnostics: { maxErrors: 0, maxWarnings: 0 },
+        },
+      ],
+    });
+
+    await taskCoordinator.advanceTask({ projectRoot, taskId: task.taskId });
+    const previewed = await taskCoordinator.advanceTask({ projectRoot, taskId: task.taskId });
+    const plan = (previewed.steps[1]?.result as { plan: { planId: string; expectedRevision: string } }).plan;
+    await changeCoordinator.confirmChange({
+      projectRoot,
+      planId: plan.planId,
+      expectedRevision: plan.expectedRevision,
+    });
+    await taskCoordinator.resumeTask({ projectRoot, taskId: task.taskId });
+    // The rerun still reports the warning, so the verification leg fails while
+    // the repair plan itself stays applied.
+    const failed = await taskCoordinator.advanceTask({ projectRoot, taskId: task.taskId });
+    assert.equal(failed.status, "failed");
+    assert.equal(failed.steps[2]?.status, "failed");
+    assert.equal(failed.steps[2]?.error?.code, ERROR_CODES.TASK_VERIFICATION_FAILED);
+    assert.equal(bridge.applied.length, 1);
+
+    // The retry treats the already-applied plan as the succeeded apply leg and
+    // only re-runs the scene with the now-clean diagnostics.
+    bridge.runDiagnosticsResult = {
+      ...bridge.runDiagnosticsResult,
+      runId: "run-after-retry",
+      warnings: [],
+      errors: [],
+    };
+    const recovered = await taskCoordinator.advanceTask({ projectRoot, taskId: task.taskId });
+    assert.equal(recovered.status, "completed");
+    assert.equal(recovered.steps[2]?.status, "succeeded");
+    const result = recovered.steps[2]?.result as {
+      alreadyApplied: boolean;
+      rerun: { passed: boolean; rerunRunId: string };
+    };
+    assert.equal(result.alreadyApplied, true);
+    assert.equal(result.rerun.passed, true);
+    assert.equal(result.rerun.rerunRunId, "run-after-retry");
+    assert.equal(bridge.applied.length, 1);
+    assert.equal(bridge.runCalls, 3);
+  });
+
   test("uses a bounded task repair hint when the run diagnostic has none", async () => {
     const { projectRoot, taskCoordinator, bridge } = harness;
     bridge.runDiagnosticsResult = {

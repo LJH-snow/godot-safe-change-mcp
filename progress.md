@@ -487,4 +487,11 @@
 - runtime smoke 新增三阶段（活跃外部锁拒绝、过期锁接管、干净编辑器 pre-scan 采纳 external-edit journal 后恢复-清理-重新 apply/rollback）；本机 Godot 4.7.2 全量 smoke 通过，147 项测试与全部本地门禁通过。
 - 保留边界：change lock 是建议性串行化（TTL 内崩溃接管），不是分布式锁；rollback 所有权仍按编辑器本地 applied state 与 revision guard 约束；本条目不构成完整安全审计。
 - PR #50 CI run `37418881780` 四项 required checks 全部通过，并以 merge commit `98a1c7bd4863a67b32b01b2c4ed4b47458eb4944` 合入 protected `main`；本地 `main` 已同步，working tree clean。
+
+## 2026-10-06 诊断修复闭环：apply 步骤串联 rerun 与阈值验证
+
+- `apply_diagnostic_repair` 步骤新增可选 `rerunDiagnostics` 策略：确认后的修复计划应用成功后，在同一步骤内重跑原 run 步骤引用的场景（run_scene 复用其 scenePath）并按 maxErrors/maxWarnings 阈值验证 rerun 诊断；`rerun.passed`、`rerunRunId`、计数与阈值进入 step result 证据。诊断→修复预览→确认→应用→重跑→验证的闭环现在可以由一个 apply 步骤完成。
+- 重试语义保持可恢复：阈值验证失败按既有 retry budget 重试；重试时对同一 planId 的 `PLAN_ALREADY_APPLIED` 视为 apply 已成功，只重跑与重新验证，不重复应用修复计划。
+- 新增两个 TaskCoordinator 回归；smoke 的 repair 任务 apply step 启用该策略并在真实 Godot 4.7.2 链路上验证（通过真实桥接重跑 main.tscn）。149 项测试、typecheck、build、package:check、release:check、`git diff --check` 全部通过。
+- 确认门控、revision guard、project lease 与审计路径全部复用，未扩大写入面；本条目不构成完整安全审计。
 - 保留边界：verify 阶段读回不匹配与部分写入状态仍无真实注入；journal 持久化要求 `.godot` 子目录可写；本条目不构成完整安全审计。
