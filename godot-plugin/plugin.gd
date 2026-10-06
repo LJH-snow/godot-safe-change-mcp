@@ -28,6 +28,10 @@ const ALLOWED_PROJECT_SETTINGS := {
 const RECOVERY_JOURNAL_DIR := "res://.godot/godot-safe-change"
 const RECOVERY_JOURNAL_PATH := "res://.godot/godot-safe-change/project-settings-recovery.json"
 const RECOVERY_JOURNAL_SCHEMA_VERSION := "0.1"
+const CHANGE_LOCK_DIR := "res://.godot/godot-safe-change/change-owner.lock"
+const CHANGE_LOCK_OWNER_PATH := "res://.godot/godot-safe-change/change-owner.lock/owner.json"
+const CHANGE_LOCK_SCHEMA_VERSION := "0.1"
+const CHANGE_LOCK_TTL_SECONDS := 30.0
 
 var dock: PanelContainer
 var status_label: Label
@@ -892,6 +896,84 @@ func _scan_persistent_project_setting_recovery() -> void:
     _write_project_setting_recovery_journal()
     push_warning("Godot Safe Change: external project.godot edits were detected; project setting recovery stays pending.")
 
+func _change_lock_owner_id() -> String:
+    return "godot-%d" % OS.get_process_id()
+
+func _read_change_lock_owner() -> Dictionary:
+    if not FileAccess.file_exists(CHANGE_LOCK_OWNER_PATH):
+        return {}
+    var file := FileAccess.open(CHANGE_LOCK_OWNER_PATH, FileAccess.READ)
+    if file == null:
+        return {}
+    var content := file.get_as_text()
+    file.close()
+    var parsed: Variant = JSON.parse_string(content)
+    if typeof(parsed) != TYPE_DICTIONARY:
+        return {}
+    return parsed
+
+func _write_change_lock_owner(purpose: String) -> void:
+    var now := Time.get_unix_time_from_system()
+    var record := {
+        "schemaVersion": CHANGE_LOCK_SCHEMA_VERSION,
+        "ownerId": _change_lock_owner_id(),
+        "purpose": purpose,
+        "acquiredAt": now,
+        "expiresAt": now + CHANGE_LOCK_TTL_SECONDS,
+    }
+    var file := FileAccess.open(CHANGE_LOCK_OWNER_PATH, FileAccess.WRITE)
+    if file == null:
+        push_warning("Godot Safe Change: could not write the change lock owner record.")
+        return
+    file.store_string(JSON.stringify(record))
+    file.close()
+
+func _release_change_lock() -> void:
+    var lock_dir := ProjectSettings.globalize_path(CHANGE_LOCK_DIR)
+    if not DirAccess.dir_exists_absolute(lock_dir):
+        return
+    var owner := _read_change_lock_owner()
+    if not owner.is_empty() and String(owner.get("ownerId", "")) != _change_lock_owner_id():
+        return
+    DirAccess.remove_absolute(ProjectSettings.globalize_path(CHANGE_LOCK_OWNER_PATH))
+    if DirAccess.remove_absolute(lock_dir) != OK:
+        push_warning("Godot Safe Change: could not remove the change lock directory; it will expire by TTL.")
+
+func _acquire_change_lock(purpose: String) -> Dictionary:
+    var lock_dir := ProjectSettings.globalize_path(CHANGE_LOCK_DIR)
+    var base_error := DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(RECOVERY_JOURNAL_DIR))
+    if base_error != OK:
+        push_warning("Godot Safe Change: could not create the change lock base directory; continuing without the change lock.")
+        return {}
+    for attempt in range(2):
+        var created := DirAccess.make_dir_absolute(lock_dir)
+        if created == OK:
+            _write_change_lock_owner(purpose)
+            return {}
+        var owner := _read_change_lock_owner()
+        if not owner.is_empty() and float(owner.get("expiresAt", 0.0)) > Time.get_unix_time_from_system():
+            return _failure(
+                "PROJECT_BUSY",
+                "Another editor instance is running a project change; retry after it completes.",
+                409,
+                {
+                    "ownerId": String(owner.get("ownerId", "")),
+                    "purpose": String(owner.get("purpose", "")),
+                    "expiresAt": float(owner.get("expiresAt", 0.0)),
+                },
+            )
+        if attempt == 0:
+            DirAccess.remove_absolute(ProjectSettings.globalize_path(CHANGE_LOCK_OWNER_PATH))
+            if DirAccess.remove_absolute(lock_dir) != OK:
+                break
+    push_warning("Godot Safe Change: the change lock is unavailable; continuing under the revision guards.")
+    return {}
+
+func _prepare_change_mutation(purpose: String) -> Dictionary:
+    if last_applied_kind == "" and not last_project_setting_pending_recovery:
+        _scan_persistent_project_setting_recovery()
+    return _acquire_change_lock(purpose)
+
 func _read_project_setting_recovery(body: Variant) -> Dictionary:
     if typeof(body) != TYPE_DICTIONARY:
         return _failure("VALIDATION_FAILED", "The project setting recovery request body must be a JSON object.")
@@ -1438,6 +1520,14 @@ func _validate_change_request(request_body: Dictionary) -> Dictionary:
     return {}
 
 func _apply_change(body: Variant) -> Dictionary:
+    var prepared := _prepare_change_mutation("apply")
+    if not prepared.is_empty():
+        return prepared
+    var result := _dispatch_apply_change(body)
+    _release_change_lock()
+    return result
+
+func _dispatch_apply_change(body: Variant) -> Dictionary:
     var request_body: Dictionary = body
     var request_error := _validate_change_request(request_body)
     if not request_error.is_empty():
@@ -1452,10 +1542,10 @@ func _apply_change(body: Variant) -> Dictionary:
 
     if last_project_setting_pending_recovery and String(operation.get("kind", "")) != "project.setting.set":
         return _failure(
-            "OPERATION_REJECTED",
-            "A previous project setting persistence operation still requires recovery.",
+            "PROJECT_BUSY",
+            "A previous project setting persistence operation still requires recovery; resolve it before applying another change.",
             409,
-            {"recoveryRequired": true, "phase": last_project_setting_recovery_phase},
+            {"phase": last_project_setting_recovery_phase},
         )
 
     if String(operation.get("kind", "")) == "project.setting.set":
@@ -1470,10 +1560,10 @@ func _apply_change(body: Variant) -> Dictionary:
             )
         if last_project_setting_pending_recovery:
             return _failure(
-                "OPERATION_REJECTED",
-                "A previous project setting persistence operation still requires recovery.",
+                "PROJECT_BUSY",
+                "A previous project setting persistence operation still requires recovery; resolve it before applying another change.",
                 409,
-                {"recoveryRequired": true, "phase": last_project_setting_recovery_phase},
+                {"phase": last_project_setting_recovery_phase},
             )
         if last_applied_plan_id != "":
             return _failure(
@@ -1922,10 +2012,10 @@ func _apply_project_setting_change(request_body: Dictionary) -> Dictionary:
         )
     if last_project_setting_pending_recovery:
         return _failure(
-            "OPERATION_REJECTED",
-            "A previous project setting persistence operation still requires recovery.",
+            "PROJECT_BUSY",
+            "A previous project setting persistence operation still requires recovery; resolve it before applying another change.",
             409,
-            {"recoveryRequired": true, "phase": last_project_setting_recovery_phase},
+            {"phase": last_project_setting_recovery_phase},
         )
 
     var original_exists := bool(original_snapshot.get("exists", false))
@@ -2327,6 +2417,14 @@ func _validate_rollback_request(request_body: Dictionary) -> Dictionary:
     return {}
 
 func _rollback_change(body: Variant) -> Dictionary:
+    var prepared := _prepare_change_mutation("rollback")
+    if not prepared.is_empty():
+        return prepared
+    var result := _dispatch_rollback_change(body)
+    _release_change_lock()
+    return result
+
+func _dispatch_rollback_change(body: Variant) -> Dictionary:
     if typeof(body) != TYPE_DICTIONARY:
         return _failure("VALIDATION_FAILED", "The rollback request body must be a JSON object.")
     var request_body: Dictionary = body

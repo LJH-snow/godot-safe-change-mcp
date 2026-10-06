@@ -478,4 +478,12 @@
 - 实证发现：Godot 4.7.2 的 `ProjectSettings.save()` 以重建文件方式写入——只读文件（0o444）拦不住持久化，只有只读目录（0o555）能阻断 save 与恢复写入；journal 位于 `.godot` 子目录，权限独立于项目根，真实 rollback 失败时仍能成功写入。win32 跳过注入阶段。
 - 本地验证：`npm test` 147 项通过、typecheck、build、package:check、release:check、smoke syntax、`git diff --check` 全部通过；本机 Godot 4.7.2 全量 runtime smoke（含两个注入阶段）通过。
 - PR #48 CI run `37341355376` 四项 required checks 全部通过（Godot 4.5.1 runtime 同时通过，证明目录权限注入在双版本行为一致），并以 merge commit `bfeee45d000153225586c12fb1ae67286d9ccf05` 合入 protected `main`。
+
+## 2026-10-06 跨编辑器变更串行化与 pre-mutation journal 采纳
+
+- 插件为所有 apply/rollback 增加建议性项目变更锁（`.godot/godot-safe-change/change-owner.lock` 原子目录创建 + owner.json + 30 秒 TTL）：第二个活跃编辑器收到 `PROJECT_BUSY` 与 owner 详情；过期锁移除并接管；锁不可用时警告并退回 revision guards。
+- 无内存变更状态的编辑器在 mutation 前重扫 recovery journal：另一编辑器崩溃遗留的 pending recovery 会被先采纳并阻断 mutation，不再覆盖恢复目标状态；这补上了“编辑器 B 不知道编辑器 A 有 pending recovery”的真实缺口。
+- pending recovery 对其他 apply 的拒绝改为 `PROJECT_BUSY` + `phase`（不再携带 `recoveryRequired`），coordinator 不再把从未写入的计划误标为 applied/recoveryRequired；runtime smoke 的 journal 阻断断言同步更新。
+- runtime smoke 新增三阶段（活跃外部锁拒绝、过期锁接管、干净编辑器 pre-scan 采纳 external-edit journal 后恢复-清理-重新 apply/rollback）；本机 Godot 4.7.2 全量 smoke 通过，147 项测试与全部本地门禁通过。
+- 保留边界：change lock 是建议性串行化（TTL 内崩溃接管），不是分布式锁；rollback 所有权仍按编辑器本地 applied state 与 revision guard 约束；本条目不构成完整安全审计。
 - 保留边界：verify 阶段读回不匹配与部分写入状态仍无真实注入；journal 持久化要求 `.godot` 子目录可写；本条目不构成完整安全审计。
