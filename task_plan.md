@@ -473,14 +473,14 @@
 
 ## Phase 42 — 跨编辑器变更串行化与 pre-mutation journal 采纳
 
-状态：in progress
+状态：complete
 
 - [x] 插件为所有 apply/rollback 增加建议性项目变更锁：`.godot/godot-safe-change/change-owner.lock` 原子目录创建 + owner.json（owner 进程、purpose、30 秒 TTL）；第二个活跃编辑器收到 `PROJECT_BUSY` 与 owner 详情；过期锁被移除并接管；锁因文件系统原因不可用时警告并退回 revision guards（锁是串行化建议，不是正确性机制）。
 - [x] 无内存变更状态的编辑器在 mutation 前重扫 recovery journal：另一编辑器崩溃遗留的 pending recovery（含 external-edit 采纳）会被先采纳并阻断 mutation（`PROJECT_BUSY` + `phase`），不再覆盖恢复目标状态。
 - [x] pending recovery 对其他 apply 的拒绝改为 `PROJECT_BUSY` + `phase`（不再携带 `recoveryRequired`），coordinator 不再把从未写入的计划误标为 applied/recoveryRequired；runtime smoke 的 journal 阻断断言同步更新。
 - [x] runtime smoke 新增三阶段：活跃外部锁拒绝（字节不变 + owner 详情 + 移除后重试成功）、过期锁接管（apply 成功且锁释放）、干净编辑器 pre-scan 采纳 external-edit journal（阻断 → 恢复用户字节 → scan 清理 → 新 plan apply/rollback）。本机 Godot 4.7.2 全量 smoke 通过；147 项测试、typecheck、build、package:check、release:check、`git diff --check` 通过。
 - [x] 保留边界：change lock 是建议性串行化（TTL 内崩溃接管），不是分布式锁；rollback 所有权仍按编辑器本地 applied state 与 revision guard 约束；本阶段不构成完整安全审计。
-- [ ] feature branch 四项 required checks 通过后以 merge commit 合入 protected `main`，再写回 PR/run/merge evidence。
+- [x] feature branch PR #50 CI run `37418881780` 四项 required checks（check、npm package boundary、Godot 4.5.1 runtime、Godot 4.7.2 runtime）全部通过，并以 merge commit `98a1c7bd4863a67b32b01b2c4ed4b47458eb4944` 合入 protected `main`。
 
 ## 完成定义
 

@@ -486,4 +486,5 @@
 - pending recovery 对其他 apply 的拒绝改为 `PROJECT_BUSY` + `phase`（不再携带 `recoveryRequired`），coordinator 不再把从未写入的计划误标为 applied/recoveryRequired；runtime smoke 的 journal 阻断断言同步更新。
 - runtime smoke 新增三阶段（活跃外部锁拒绝、过期锁接管、干净编辑器 pre-scan 采纳 external-edit journal 后恢复-清理-重新 apply/rollback）；本机 Godot 4.7.2 全量 smoke 通过，147 项测试与全部本地门禁通过。
 - 保留边界：change lock 是建议性串行化（TTL 内崩溃接管），不是分布式锁；rollback 所有权仍按编辑器本地 applied state 与 revision guard 约束；本条目不构成完整安全审计。
+- PR #50 CI run `37418881780` 四项 required checks 全部通过，并以 merge commit `98a1c7bd4863a67b32b01b2c4ed4b47458eb4944` 合入 protected `main`；本地 `main` 已同步，working tree clean。
 - 保留边界：verify 阶段读回不匹配与部分写入状态仍无真实注入；journal 持久化要求 `.godot` 子目录可写；本条目不构成完整安全审计。
