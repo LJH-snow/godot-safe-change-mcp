@@ -628,17 +628,99 @@ export class TaskCoordinator {
         { previewStepId: previewStep.stepId },
       );
     }
-    const report = await this.changeCoordinator.applyChange({
-      projectRoot: task.projectRoot,
-      planId: preview.data.plan.planId,
-      leaseId: this.taskLeases.get(task.taskId)?.leaseId,
-    });
+    let report: Awaited<ReturnType<ChangeCoordinator["applyChange"]>> | null = null;
+    let alreadyApplied = false;
+    try {
+      report = await this.changeCoordinator.applyChange({
+        projectRoot: task.projectRoot,
+        planId: preview.data.plan.planId,
+        leaseId: this.taskLeases.get(task.taskId)?.leaseId,
+      });
+    } catch (error) {
+      const details = error instanceof DomainError ? error.details : undefined;
+      const samePlanAlreadyApplied =
+        error instanceof DomainError &&
+        error.code === ERROR_CODES.PLAN_ALREADY_APPLIED &&
+        typeof details === "object" &&
+        details !== null &&
+        (details as { planId?: unknown }).planId === preview.data.plan.planId;
+      // A retry after a failed rerun hits this path: the repair plan itself is
+      // already applied, so only the rerun and verification legs need to run.
+      if (step.rerunDiagnostics === null || !samePlanAlreadyApplied) {
+        throw error;
+      }
+      alreadyApplied = true;
+    }
+    if (step.rerunDiagnostics === null) {
+      return {
+        previewStepId: previewStep.stepId,
+        runStepId: preview.data.runStepId,
+        runId: preview.data.runId,
+        planId: preview.data.plan.planId,
+        report,
+      };
+    }
+
+    const policy = step.rerunDiagnostics;
+    const runStep = this.findUniqueEarlierStep(task, preview.data.runStepId, step);
+    if (
+      runStep === undefined ||
+      (runStep.kind !== "run_current_scene" && runStep.kind !== "run_scene")
+    ) {
+      throw new DomainError(
+        ERROR_CODES.TASK_VERIFICATION_FAILED,
+        "The rerun policy must reference the preview's earlier run step.",
+        { runStepId: preview.data.runStepId, stepId: step.stepId },
+      );
+    }
+    const rerun = runStep.kind === "run_scene"
+      ? await this.changeCoordinator.runScene({
+          projectRoot: task.projectRoot,
+          scenePath: runStep.scenePath ?? "",
+          timeoutMs: policy.timeoutMs ?? runStep.timeoutMs ?? undefined,
+        })
+      : await this.changeCoordinator.runCurrentScene({
+          projectRoot: task.projectRoot,
+          timeoutMs: policy.timeoutMs ?? runStep.timeoutMs ?? undefined,
+        });
+    const parsedRerun = runDiagnosticsSchema.safeParse(rerun);
+    const maxErrors = policy.maxErrors ?? 0;
+    const maxWarnings = policy.maxWarnings ?? 0;
+    const evidence = {
+      runStepId: runStep.stepId,
+      rerunRunId: parsedRerun.success ? parsedRerun.data.runId : null,
+      scenePath: parsedRerun.success ? parsedRerun.data.scenePath : null,
+      status: parsedRerun.success ? parsedRerun.data.status : "invalid",
+      errorCount: parsedRerun.success ? parsedRerun.data.errors.length : 0,
+      warningCount: parsedRerun.success ? parsedRerun.data.warnings.length : 0,
+      maxErrors,
+      maxWarnings,
+    };
+    if (
+      !parsedRerun.success ||
+      parsedRerun.data.status !== "stopped" ||
+      parsedRerun.data.errors.length > maxErrors ||
+      parsedRerun.data.warnings.length > maxWarnings
+    ) {
+      throw new DomainError(
+        ERROR_CODES.TASK_VERIFICATION_FAILED,
+        "The rerun diagnostics after the repair did not meet the configured thresholds.",
+        {
+          ...evidence,
+          ...(parsedRerun.success
+            ? { errors: parsedRerun.data.errors, warnings: parsedRerun.data.warnings }
+            : {}),
+        },
+      );
+    }
     return {
       previewStepId: previewStep.stepId,
       runStepId: preview.data.runStepId,
       runId: preview.data.runId,
       planId: preview.data.plan.planId,
+      alreadyApplied,
       report,
+      rerun: { passed: true, ...evidence },
     };
   }
 
@@ -1198,6 +1280,7 @@ export class TaskCoordinator {
       diagnosticIndex: "diagnosticIndex" in step ? step.diagnosticIndex : null,
       repairHint: "repairHint" in step ? step.repairHint ?? null : null,
       previewStepId: "previewStepId" in step ? step.previewStepId : null,
+      rerunDiagnostics: "rerunDiagnostics" in step ? step.rerunDiagnostics ?? null : null,
       timeoutMs: "timeoutMs" in step ? step.timeoutMs ?? null : null,
       expectedRevision: "expectedRevision" in step ? step.expectedRevision : null,
       status: "pending",
