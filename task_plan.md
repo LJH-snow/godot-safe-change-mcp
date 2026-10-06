@@ -484,13 +484,13 @@
 
 ## Phase 43 — 诊断修复闭环：apply 步骤串联 rerun 与阈值验证
 
-状态：in progress
+状态：complete
 
 - [x] `apply_diagnostic_repair` 步骤接受可选 `rerunDiagnostics` 策略（maxErrors/maxWarnings/timeoutMs）：确认后的修复计划应用成功后，在同一步骤内重跑原 run 步骤引用的场景（run_scene 复用 scenePath）并校验阈值，`rerun.passed`/`rerunRunId`/计数与阈值进入 step result 证据。
 - [x] 重试语义：阈值验证失败后步骤按既有 retry budget 重试；重试时对同一 planId 的 `PLAN_ALREADY_APPLIED` 视为 apply 已成功（不重复应用），只重跑与重新验证；对不同 plan 的该错误照常抛出。
 - [x] 新增两个 TaskCoordinator 回归（闭环成功证据、验证失败 + 重试不重复应用）；smoke 的 repair 任务 apply step 加 `rerunDiagnostics: { maxErrors: 0, maxWarnings: 100 }` 并断言 rerun 证据；本机 Godot 4.7.2 全量 smoke 通过。
 - [x] 本地验证：149 项测试、typecheck、build、package:check、release:check、`git diff --check` 通过；确认门控、revision guard、project lease 与审计路径全部复用，未扩大写入面。
-- [ ] feature branch 四项 required checks 通过后以 merge commit 合入 protected `main`，再写回 PR/run/merge evidence。
+- [x] feature branch PR #52 CI run `37420679890` 四项 required checks（check、npm package boundary、Godot 4.5.1 runtime、Godot 4.7.2 runtime）全部通过，并以 merge commit `4d36e71a2aca3512de9a343cbd77b871bc45ad3c` 合入 protected `main`。
 
 ## 完成定义
 
