@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { chmodSync, statSync } from "node:fs";
+import { chmodSync, existsSync, statSync } from "node:fs";
 import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -746,6 +746,98 @@ try {
     stage("permission-failure injection skipped on win32");
   }
 
+  stage("exercise cross-editor change lock rejection");
+  const noSceneChangeLockDirectory = path.join(noSceneRoot, ".godot", "godot-safe-change", "change-owner.lock");
+  const writeChangeLockOwner = async (ownerId, expiresInSeconds) => {
+    await mkdir(noSceneChangeLockDirectory, { recursive: true });
+    await writeFile(path.join(noSceneChangeLockDirectory, "owner.json"), JSON.stringify({
+      schemaVersion: "0.1",
+      ownerId,
+      purpose: "apply",
+      acquiredAt: Math.floor(Date.now() / 1000) - 5,
+      expiresAt: Math.floor(Date.now() / 1000) + expiresInSeconds,
+    }));
+  };
+  await writeChangeLockOwner("foreign-editor:9999", 300);
+  const noSceneForeignLockPlan = structured(await requestAt(noSceneEndpoint, "tools/call", {
+    name: "preview_scene_change",
+    arguments: {
+      projectRoot: noSceneRoot,
+      reason: "Apply a viewport change while a foreign editor holds the change lock.",
+      operation: {
+        kind: "project.setting.set",
+        settingKey: "display/window/size/viewport_width",
+        value: 848,
+      },
+    },
+  }));
+  await requestAt(noSceneEndpoint, "tools/call", {
+    name: "confirm_scene_change",
+    arguments: {
+      projectRoot: noSceneRoot,
+      planId: noSceneForeignLockPlan.planId,
+      expectedRevision: noSceneForeignLockPlan.expectedRevision,
+    },
+  });
+  await expectToolErrorAt(noSceneEndpoint, "apply_scene_change", {
+    projectRoot: noSceneRoot,
+    planId: noSceneForeignLockPlan.planId,
+  }, /PROJECT_BUSY/);
+  await expectToolErrorAt(noSceneEndpoint, "apply_scene_change", {
+    projectRoot: noSceneRoot,
+    planId: noSceneForeignLockPlan.planId,
+  }, /foreign-editor:9999/);
+  assert.deepEqual(await readFile(noSceneProjectSettingsFile), noSceneInitialBytes);
+  await rm(noSceneChangeLockDirectory, { recursive: true, force: true });
+  const noSceneForeignLockApply = structured(await requestAt(noSceneEndpoint, "tools/call", {
+    name: "apply_scene_change",
+    arguments: { projectRoot: noSceneRoot, planId: noSceneForeignLockPlan.planId },
+  }));
+  assert.equal(noSceneForeignLockApply.status, "applied");
+  const noSceneForeignLockRollback = structured(await requestAt(noSceneEndpoint, "tools/call", {
+    name: "rollback_scene_change",
+    arguments: { projectRoot: noSceneRoot, planId: noSceneForeignLockPlan.planId },
+  }));
+  assert.equal(noSceneForeignLockRollback.status, "rolled_back");
+  assert.deepEqual(await readFile(noSceneProjectSettingsFile), noSceneInitialBytes);
+  stage("cross-editor change lock rejection complete");
+
+  stage("exercise stale change lock takeover");
+  await writeChangeLockOwner("foreign-editor:9999", -60);
+  const noSceneStaleLockPlan = structured(await requestAt(noSceneEndpoint, "tools/call", {
+    name: "preview_scene_change",
+    arguments: {
+      projectRoot: noSceneRoot,
+      reason: "Take over a stale change lock left behind by a crashed editor.",
+      operation: {
+        kind: "project.setting.set",
+        settingKey: "display/window/size/viewport_width",
+        value: 864,
+      },
+    },
+  }));
+  await requestAt(noSceneEndpoint, "tools/call", {
+    name: "confirm_scene_change",
+    arguments: {
+      projectRoot: noSceneRoot,
+      planId: noSceneStaleLockPlan.planId,
+      expectedRevision: noSceneStaleLockPlan.expectedRevision,
+    },
+  });
+  const noSceneStaleLockApply = structured(await requestAt(noSceneEndpoint, "tools/call", {
+    name: "apply_scene_change",
+    arguments: { projectRoot: noSceneRoot, planId: noSceneStaleLockPlan.planId },
+  }));
+  assert.equal(noSceneStaleLockApply.status, "applied");
+  assert.equal(existsSync(noSceneChangeLockDirectory), false);
+  const noSceneStaleLockRollback = structured(await requestAt(noSceneEndpoint, "tools/call", {
+    name: "rollback_scene_change",
+    arguments: { projectRoot: noSceneRoot, planId: noSceneStaleLockPlan.planId },
+  }));
+  assert.equal(noSceneStaleLockRollback.status, "rolled_back");
+  assert.deepEqual(await readFile(noSceneProjectSettingsFile), noSceneInitialBytes);
+  stage("stale change lock takeover complete");
+
   stage("exercise persistent project setting recovery journal");
   const noSceneRecoveryJournalDirectory = path.join(noSceneRoot, ".godot", "godot-safe-change");
   const noSceneRecoveryJournalFile = path.join(noSceneRecoveryJournalDirectory, "project-settings-recovery.json");
@@ -854,7 +946,7 @@ try {
   await expectToolErrorAt(noSceneEndpoint, "apply_scene_change", {
     projectRoot: noSceneRoot,
     planId: noSceneBlockedPlan.planId,
-  }, /OPERATION_REJECTED/);
+  }, /PROJECT_BUSY/);
   await rm(noSceneRecoveryJournalFile, { force: true });
   await writeFile(noSceneProjectSettingsFile, noSceneInitialBytes);
   stage("persistent recovery journal complete");
@@ -864,6 +956,117 @@ try {
   await stopProcess(noSceneGodotProcess);
   noSceneMcpProcess = undefined;
   noSceneGodotProcess = undefined;
+
+  stage("exercise pre-mutation recovery journal adoption");
+  const fixtureRecoveryDirectory = path.join(fixtureRoot, ".godot", "godot-safe-change");
+  const fixtureRecoveryJournalFile = path.join(fixtureRecoveryDirectory, "project-settings-recovery.json");
+  const fixtureSettingsFile = path.join(fixtureRoot, "project.godot");
+  const fixturePrescanInitialBytes = await readFile(fixtureSettingsFile);
+  const fixturePrescanSnapshot = await bridgeRequest("/v1/project-settings/read", {
+    projectRoot: fixtureRoot,
+    settingKey: "display/window/size/viewport_width",
+  });
+  assert.equal(fixturePrescanSnapshot.body.snapshot.exists, true);
+  assert.equal(fixturePrescanSnapshot.body.snapshot.value, 640);
+  const fixturePrescanAppliedBytes = Buffer.concat([
+    fixturePrescanInitialBytes,
+    Buffer.from("# pending prescan journal edit\n", "utf8"),
+  ]);
+  const fixturePrescanExternalBytes = Buffer.concat([
+    fixturePrescanAppliedBytes,
+    Buffer.from("# external prescan edit\n", "utf8"),
+  ]);
+  await mkdir(fixtureRecoveryDirectory, { recursive: true });
+  await writeFile(fixtureRecoveryJournalFile, JSON.stringify({
+    schemaVersion: "0.1",
+    projectRoot: canonicalFixtureRoot ?? fixtureRoot,
+    settingKey: "display/window/size/viewport_width",
+    originalExists: true,
+    originalValue: 640,
+    originalEffectiveValue: 640,
+    originalRevision: fileRevision(fixturePrescanInitialBytes),
+    originalBytes: fixturePrescanInitialBytes.toString("base64"),
+    appliedValue: 1152,
+    appliedRevision: fileRevision(fixturePrescanAppliedBytes),
+    appliedBytes: fixturePrescanAppliedBytes.toString("base64"),
+    phase: "save",
+    planId: "smoke-prescan-external",
+    savedAt: Math.floor(Date.now() / 1000),
+  }));
+  await writeFile(fixtureSettingsFile, fixturePrescanExternalBytes);
+  const fixturePrescanPlan = structured(await request("tools/call", {
+    name: "preview_scene_change",
+    arguments: {
+      projectRoot: fixtureRoot,
+      reason: "A mutation must adopt a pending recovery journal before applying.",
+      operation: {
+        kind: "project.setting.set",
+        settingKey: "display/window/size/viewport_width",
+        value: 800,
+      },
+    },
+  }));
+  await request("tools/call", {
+    name: "confirm_scene_change",
+    arguments: {
+      projectRoot: fixtureRoot,
+      planId: fixturePrescanPlan.planId,
+      expectedRevision: fixturePrescanPlan.expectedRevision,
+    },
+  });
+  await expectToolError("apply_scene_change", {
+    projectRoot: fixtureRoot,
+    planId: fixturePrescanPlan.planId,
+  }, /"phase": "external-edit"/);
+  const fixturePrescanRecovery = await bridgeRequest("/v1/project-settings/recovery", {
+    projectRoot: fixtureRoot,
+  });
+  assert.equal(fixturePrescanRecovery.body.recovery.pending, true);
+  assert.equal(fixturePrescanRecovery.body.recovery.phase, "external-edit");
+  await writeFile(fixtureSettingsFile, fixturePrescanInitialBytes);
+  const fixturePrescanResolve = await bridgeRequest("/v1/project-settings/recovery", {
+    projectRoot: fixtureRoot,
+    action: "scan",
+  });
+  assert.equal(fixturePrescanResolve.status, 200, JSON.stringify(fixturePrescanResolve.body));
+  assert.deepEqual(fixturePrescanResolve.body.recovery, {
+    pending: false,
+    settingKey: null,
+    phase: null,
+    journalPresent: false,
+  });
+  const fixturePrescanRetryPlan = structured(await request("tools/call", {
+    name: "preview_scene_change",
+    arguments: {
+      projectRoot: fixtureRoot,
+      reason: "Apply the viewport change after the adopted recovery was resolved.",
+      operation: {
+        kind: "project.setting.set",
+        settingKey: "display/window/size/viewport_width",
+        value: 800,
+      },
+    },
+  }));
+  await request("tools/call", {
+    name: "confirm_scene_change",
+    arguments: {
+      projectRoot: fixtureRoot,
+      planId: fixturePrescanRetryPlan.planId,
+      expectedRevision: fixturePrescanRetryPlan.expectedRevision,
+    },
+  });
+  const fixturePrescanApply = structured(await request("tools/call", {
+    name: "apply_scene_change",
+    arguments: { projectRoot: fixtureRoot, planId: fixturePrescanRetryPlan.planId },
+  }));
+  assert.equal(fixturePrescanApply.status, "applied");
+  const fixturePrescanRollback = structured(await request("tools/call", {
+    name: "rollback_scene_change",
+    arguments: { projectRoot: fixtureRoot, planId: fixturePrescanRetryPlan.planId },
+  }));
+  assert.equal(fixturePrescanRollback.status, "rolled_back");
+  assert.deepEqual(await readFile(fixtureSettingsFile), fixturePrescanInitialBytes);
+  stage("pre-mutation recovery journal adoption complete");
 
   stage("validate direct plugin input");
 
